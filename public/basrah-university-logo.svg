@@ -1,0 +1,18 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g1" x1="128" y1="20" x2="128" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B4E8F"/>
+      <stop offset="1" stop-color="#0F2F57"/>
+    </linearGradient>
+  </defs>
+  <circle cx="128" cy="128" r="108" fill="#F8FBFF" stroke="url(#g1)" stroke-width="10"/>
+  <circle cx="128" cy="128" r="86" fill="none" stroke="#CFA74A" stroke-width="6" stroke-dasharray="5 9"/>
+  <path d="M73 154L128 88L183 154H166L128 111L90 154H73Z" fill="#1B4E8F"/>
+  <rect x="109" y="154" width="38" height="34" rx="2" fill="#0F2F57"/>
+  <path d="M126 154H130V188H126V154Z" fill="#CFA74A"/>
+  <circle cx="128" cy="72" r="10" fill="#CFA74A"/>
+  <path d="M128 52L132.49 65.51H146.71L135.11 73.98L139.6 87.49L128 79.02L116.4 87.49L120.89 73.98L109.29 65.51H123.51L128 52Z" fill="#CFA74A"/>
+  <text x="128" y="215" text-anchor="middle" font-size="18" font-family="Tahoma, Arial, sans-serif" fill="#0F2F57" font-weight="700">
+    ,'E9) 'D(51)
+  </text>
+</svg>

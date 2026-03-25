@@ -1,0 +1,409 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f8ff;
+  --foreground: #0f2f57;
+  --uni-navy: #0f2f57;
+  --uni-blue: #1b4e8f;
+  --uni-gold: #cfa74a;
+  --card-border: rgba(27, 78, 143, 0.14);
+  --card-shadow: 0 22px 58px rgba(13, 44, 84, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #081a31;
+    --foreground: #f5f8ff;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Noto Kufi Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+.welcome-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.4rem;
+  background: linear-gradient(165deg, #edf4ff 0%, #f7faff 38%, #ffffff 100%);
+  position: relative;
+  isolation: isolate;
+}
+
+.welcome-screen::before,
+.welcome-screen::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(circle, rgba(39, 90, 160, 0.11) 0%, rgba(39, 90, 160, 0) 70%);
+}
+
+.welcome-screen::before {
+  width: min(43vw, 460px);
+  height: min(43vw, 460px);
+  top: -140px;
+  right: -120px;
+}
+
+.welcome-screen::after {
+  width: min(48vw, 500px);
+  height: min(48vw, 500px);
+  bottom: -190px;
+  left: -120px;
+}
+
+.welcome-panel {
+  width: min(560px, 95vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.95rem;
+  text-align: center;
+  border: 1px solid rgba(30, 82, 146, 0.13);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%);
+  padding: 2rem 1.25rem 1.35rem;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+}
+
+.logo-shell {
+  border-radius: 999px;
+  padding: 0.35rem;
+  transition: transform 0.5s ease, box-shadow 0.5s ease;
+}
+
+.university-logo {
+  filter: drop-shadow(0 9px 14px rgba(15, 47, 87, 0.15));
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.state-intro .university-logo {
+  animation: logo-spin-and-stop 2.2s cubic-bezier(0.24, 0.58, 0.33, 1) forwards;
+}
+
+.state-reveal .logo-shell,
+.state-login .logo-shell {
+  box-shadow:
+    0 0 0 1px rgba(40, 94, 163, 0.15),
+    0 0 0 12px rgba(40, 94, 163, 0.035);
+}
+
+.title-block {
+  transition: transform 0.7s ease, opacity 0.55s ease;
+}
+
+.system-title {
+  max-width: 22ch;
+  margin: 0;
+  direction: rtl;
+  font-family: "Alhurra", "Amiri", "Times New Roman", serif;
+  line-height: 1.5;
+  font-size: clamp(1.2rem, 2.02vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: 0.028em;
+  color: #1e3a5f;
+}
+
+.system-subtitle {
+  margin: 0.15rem 0 0;
+  font-family: "Alhurra", "Times New Roman", serif;
+  font-size: clamp(0.96rem, 1.45vw, 1.08rem);
+  font-weight: 430;
+  color: #6c86a8;
+}
+
+.system-description {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  color: #557195;
+  letter-spacing: 0.01em;
+  opacity: 0.7;
+}
+
+.state-intro .title-block,
+.state-intro .enter-button {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.state-reveal .title-block,
+.state-login .title-block {
+  animation: title-reveal 0.95s ease forwards;
+}
+
+.state-reveal .enter-button {
+  animation: button-reveal 0.65s ease forwards;
+  animation-delay: 0.25s;
+}
+
+.state-login .title-block {
+  transform: translateY(-14px) scale(0.94);
+  transform-origin: top center;
+}
+
+.state-login .logo-shell {
+  transform: translateY(-6px) scale(0.88);
+}
+
+.state-login .enter-button {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+.login-form {
+  width: min(390px, 92%);
+  display: grid;
+  gap: 0.58rem;
+  text-align: right;
+  margin-top: 0.07rem;
+  opacity: 0;
+  transform: translateY(10px);
+  max-height: 0;
+  overflow: hidden;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease,
+    max-height 0.4s ease;
+}
+
+.state-login .login-form {
+  opacity: 1;
+  transform: translateY(0);
+  max-height: 420px;
+}
+
+.state-login .security-note,
+.state-login .institution-note {
+  display: none;
+}
+
+.login-error {
+  margin: 0 0 0.25rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.6rem;
+  font-size: 0.85rem;
+  text-align: center;
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
+  border: 1px solid rgba(185, 28, 28, 0.2);
+}
+
+.field-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e406d;
+  margin-top: 0.3rem;
+}
+
+.field-input {
+  width: 100%;
+  border: 1px solid #d6dde6;
+  border-radius: 0.7rem;
+  background-color: #ffffff;
+  color: #103257;
+  padding: 0.74rem 0.95rem;
+  font-size: 0.96rem;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.field-wrap {
+  position: relative;
+}
+
+.field-icon {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.72;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.field-icon-user {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2344678d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21a8 8 0 0 0-16 0'/%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3C/svg%3E");
+}
+
+.field-icon-lock {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2344678d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
+}
+
+.field-wrap .field-input {
+  padding-right: 2.3rem;
+}
+
+.field-input.with-toggle {
+  padding-left: 4.55rem;
+}
+
+.password-toggle {
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #305c93;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.35rem;
+  transition: background-color 0.2s ease;
+}
+
+.password-toggle:hover {
+  background: rgba(31, 86, 155, 0.08);
+}
+
+.field-input:focus {
+  border-color: #2a64ad;
+  box-shadow: 0 0 0 3px rgba(33, 88, 160, 0.14);
+  background-color: #fbfdff;
+}
+
+.login-submit {
+  margin-top: 0.5rem;
+  border: 0;
+  border-radius: 0.68rem;
+  background: linear-gradient(90deg, #123a67 0%, #2b5d99 100%);
+  color: #ffffff;
+  padding: 0.76rem 1rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(22, 64, 113, 0.2);
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 11px 20px rgba(22, 64, 113, 0.24);
+}
+
+.login-submit:active {
+  transform: scale(0.98);
+}
+
+.security-note {
+  margin-top: 0.38rem;
+  font-size: 0.67rem;
+  color: #6f86a6;
+  opacity: 0.86;
+}
+
+.institution-note {
+  margin-top: 0.66rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(35, 82, 142, 0.12);
+  font-size: 0.67rem;
+  color: #6f85a3;
+  letter-spacing: 0.03em;
+  opacity: 0.78;
+}
+
+.enter-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 208px;
+  padding: 0.72rem 1.25rem;
+  border-radius: 0.66rem;
+  border: 2px solid transparent;
+  background: linear-gradient(90deg, #153e6e 0%, #2b5d99 100%);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 1;
+  transform: translateY(0);
+  box-shadow: 0 7px 16px rgba(22, 64, 113, 0.22);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.enter-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 11px 22px rgba(24, 65, 114, 0.27);
+  filter: brightness(1.03);
+}
+
+.enter-button:active {
+  transform: scale(0.985);
+}
+
+.enter-button-icon {
+  margin-inline-end: 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+@keyframes logo-spin-and-stop {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(720deg);
+  }
+}
+
+@keyframes title-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes button-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .welcome-panel {
+    padding: 1.7rem 0.95rem 1.2rem;
+    gap: 0.86rem;
+  }
+
+  .university-logo {
+    width: 134px;
+    height: 134px;
+  }
+
+  .login-form {
+    width: 100%;
+  }
+}

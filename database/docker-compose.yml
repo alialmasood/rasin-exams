@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  rasin_exams_postgres:
+    image: postgres:16-alpine
+    container_name: rasin_exams_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: exams
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ExaaM@2026
+    ports:
+      - "5447:5432"
+    volumes:
+      - rasin_exams_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d exams"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  rasin_exams_postgres_data:
