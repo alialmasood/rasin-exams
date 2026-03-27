@@ -1,0 +1,480 @@
+"use client";
+
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import type { CollegeSubjectRow } from "@/lib/college-subjects";
+import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
+import {
+  createCollegeStudySubjectAction,
+  deleteCollegeStudySubjectAction,
+  updateCollegeStudySubjectAction,
+} from "./actions";
+
+const STUDY_TYPE_LABEL: Record<StudyType, string> = {
+  ANNUAL: "سنوي",
+  SEMESTER: "فصلي",
+  COURSES: "مقررات",
+  BOLOGNA: "بولونيا",
+};
+
+function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#172554] disabled:opacity-60"
+    >
+      {pending ? "جاري الحفظ..." : label}
+    </button>
+  );
+}
+
+function SubjectFormFields({
+  branches,
+  defaults,
+}: {
+  branches: CollegeSubjectRow[];
+  defaults?: { collegeSubjectId?: string; subjectName?: string; studyType?: StudyType };
+}) {
+  return (
+    <>
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم أو الفرع</label>
+        <select
+          name="college_subject_id"
+          required
+          defaultValue={defaults?.collegeSubjectId ?? ""}
+          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+        >
+          <option value="" disabled>
+            اختر القسم/الفرع
+          </option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم المادة الدراسية</label>
+        <input
+          name="subject_name"
+          required
+          minLength={2}
+          maxLength={220}
+          defaultValue={defaults?.subjectName ?? ""}
+          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
+        <select
+          name="study_type"
+          defaultValue={defaults?.studyType ?? "ANNUAL"}
+          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+        >
+          <option value="ANNUAL">سنوي</option>
+          <option value="SEMESTER">فصلي</option>
+          <option value="COURSES">مقررات</option>
+          <option value="BOLOGNA">بولونيا</option>
+        </select>
+      </div>
+    </>
+  );
+}
+
+function AddStudySubjectDialog({
+  open,
+  onClose,
+  branches,
+}: {
+  open: boolean;
+  onClose: () => void;
+  branches: CollegeSubjectRow[];
+}) {
+  const [state, formAction, pending] = useActionState(createCollegeStudySubjectAction, null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (!dialogRef.current) return;
+    if (open && !dialogRef.current.open) dialogRef.current.showModal();
+    if (!open && dialogRef.current.open) dialogRef.current.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (state?.ok) onClose();
+  }, [state, onClose]);
+
+  return (
+    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
+      <form action={formAction} className="w-[min(92vw,560px)] space-y-4 p-6">
+        <h2 className="text-xl font-bold text-[#0F172A]">إضافة مادة دراسية</h2>
+        <SubjectFormFields branches={branches} />
+        {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
+        <div className="flex items-center justify-end gap-3 pt-1">
+          <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
+            إلغاء
+          </button>
+          <SubmitButton pending={pending} label="حفظ المادة" />
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+function EditStudySubjectDialog({
+  row,
+  open,
+  onClose,
+  branches,
+}: {
+  row: CollegeStudySubjectRow | null;
+  open: boolean;
+  onClose: () => void;
+  branches: CollegeSubjectRow[];
+}) {
+  const [state, formAction, pending] = useActionState(updateCollegeStudySubjectAction, null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const key = useMemo(() => `${row?.id ?? "none"}-${open ? "open" : "closed"}`, [row?.id, open]);
+
+  useEffect(() => {
+    if (!dialogRef.current) return;
+    if (open && !dialogRef.current.open) dialogRef.current.showModal();
+    if (!open && dialogRef.current.open) dialogRef.current.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (state?.ok) onClose();
+  }, [state, onClose]);
+
+  return (
+    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
+      <form key={key} action={formAction} className="w-[min(92vw,560px)] space-y-4 p-6">
+        <h2 className="text-xl font-bold text-[#0F172A]">تعديل مادة دراسية</h2>
+        <input type="hidden" name="id" value={row?.id ?? ""} />
+        <SubjectFormFields
+          branches={branches}
+          defaults={{
+            collegeSubjectId: row?.college_subject_id,
+            subjectName: row?.subject_name,
+            studyType: row?.study_type,
+          }}
+        />
+        {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
+        <div className="flex items-center justify-end gap-3 pt-1">
+          <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
+            إلغاء
+          </button>
+          <SubmitButton pending={pending} label="حفظ التعديلات" />
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+function DeleteStudySubjectForm({ id }: { id: string }) {
+  const [state, formAction, pending] = useActionState(deleteCollegeStudySubjectAction, null);
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="id" value={id} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+      >
+        حذف
+      </button>
+      {state && !state.ok ? <p className="mt-1 px-3 text-xs text-red-600">{state.message}</p> : null}
+    </form>
+  );
+}
+
+export function StudySubjectsPanel({
+  branches,
+  rows,
+}: {
+  branches: CollegeSubjectRow[];
+  rows: CollegeStudySubjectRow[];
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [editingRow, setEditingRow] = useState<CollegeStudySubjectRow | null>(null);
+  const [query, setQuery] = useState("");
+  const [filterStudyType, setFilterStudyType] = useState<"ALL" | StudyType>("ALL");
+  const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const byQuery =
+        normalizedQuery.length === 0
+          ? true
+          : row.subject_name.toLowerCase().includes(normalizedQuery) ||
+            row.linked_branch_name.toLowerCase().includes(normalizedQuery);
+      const byStudyType = filterStudyType === "ALL" ? true : row.study_type === filterStudyType;
+      const byBranchType = filterBranch === "ALL" ? true : row.linked_branch_type === filterBranch;
+      return byQuery && byStudyType && byBranchType;
+    });
+  }, [rows, normalizedQuery, filterStudyType, filterBranch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, filterStudyType, filterBranch]);
+
+  const stats = useMemo(() => {
+    const totalSubjects = rows.length;
+    const annual = rows.filter((r) => r.study_type === "ANNUAL").length;
+    const semester = rows.filter((r) => r.study_type === "SEMESTER").length;
+    const courses = rows.filter((r) => r.study_type === "COURSES").length;
+    const bologna = rows.filter((r) => r.study_type === "BOLOGNA").length;
+    const latest = rows
+      .map((r) => new Date(r.created_at))
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+    return { totalSubjects, annual, semester, courses, bologna, latest };
+  }, [rows]);
+
+  const latestAddedText = useMemo(() => {
+    if (!stats.latest) return "—";
+    return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(stats.latest);
+  }, [stats.latest]);
+
+  const exportCsv = () => {
+    const header = ["المادة الدراسية", "القسم/الفرع", "نوع الدراسة", "تاريخ الإضافة"];
+    const lines = filteredRows.map((row) => [
+      row.subject_name,
+      `${row.linked_branch_name} (${row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})`,
+      STUDY_TYPE_LABEL[row.study_type],
+      new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at)),
+    ]);
+    const csv = [header, ...lines]
+      .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "college-study-subjects.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, safePage]);
+
+  return (
+    <section className="space-y-6" dir="rtl">
+      <header className="relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+          style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }}
+          aria-hidden
+        />
+        <h1 className="text-3xl font-extrabold text-[#0F172A]">المواد الدراسية</h1>
+        <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
+          إدارة المواد الدراسية وربط كل مادة بالقسم أو الفرع مع تحديد نوع الدراسة.
+        </p>
+      </header>
+
+      <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#172554]"
+            >
+              إضافة مادة دراسية
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2 text-sm font-semibold text-[#334155] transition hover:bg-[#F8FAFC]"
+            >
+              تصدير
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="ابحث باسم المادة أو القسم"
+              className="h-10 w-[250px] rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+            />
+            <select
+              value={filterStudyType}
+              onChange={(e) => setFilterStudyType(e.target.value as "ALL" | StudyType)}
+              className="h-10 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+            >
+              <option value="ALL">كل أنواع الدراسة</option>
+              <option value="ANNUAL">سنوي</option>
+              <option value="SEMESTER">فصلي</option>
+              <option value="COURSES">مقررات</option>
+              <option value="BOLOGNA">بولونيا</option>
+            </select>
+            <select
+              value={filterBranch}
+              onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
+              className="h-10 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+            >
+              <option value="ALL">الكل</option>
+              <option value="DEPARTMENT">الأقسام</option>
+              <option value="BRANCH">الفروع</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 border-b border-[#E2E8F0] bg-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">إجمالي المواد</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.totalSubjects}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">مواد سنوية</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.annual}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">مواد فصلية</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.semester}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">مقررات</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.courses}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">بولونيا</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.bologna}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">آخر إضافة</p>
+            <p className="mt-1 text-sm font-bold text-[#0F172A]">{latestAddedText}</p>
+          </div>
+        </div>
+
+        <table className="w-full border-collapse text-right">
+          <thead className="bg-[#F1F5F9]">
+            <tr className="border-b border-[#E2E8F0]">
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">المادة الدراسية</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">القسم/الفرع</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">نوع الدراسة</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">تاريخ الإضافة</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#E2E8F0] bg-white">
+            {pagedRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={6}>
+                  لا توجد مواد دراسية بعد.
+                </td>
+              </tr>
+            ) : (
+              pagedRows.map((row, index) => (
+                <tr key={row.id} className="hover:bg-[#F8FAFC]">
+                  <td className="px-4 py-3 text-sm text-[#334155]">{(safePage - 1) * pageSize + index + 1}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{row.subject_name}</td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">
+                    {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
+                  </td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">{STUDY_TYPE_LABEL[row.study_type]}</td>
+                  <td className="px-4 py-3 text-sm text-[#64748B]">
+                    {new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(
+                      new Date(row.created_at)
+                    )}
+                  </td>
+                  <td className="relative px-4 py-3 text-left">
+                    <button
+                      type="button"
+                      aria-label="إجراءات"
+                      className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                      onClick={() => setMenuId((s) => (s === row.id ? null : row.id))}
+                    >
+                      <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <circle cx="12" cy="5" r="2" />
+                        <circle cx="12" cy="12" r="2" />
+                        <circle cx="12" cy="19" r="2" />
+                      </svg>
+                    </button>
+                    {menuId === row.id ? (
+                      <div className="absolute left-4 top-12 z-30 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                        <button
+                          type="button"
+                          className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                          onClick={() => {
+                            setEditingRow(row);
+                            setMenuId(null);
+                          }}
+                        >
+                          تعديل
+                        </button>
+                        <DeleteStudySubjectForm id={row.id} />
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0] bg-[#F8FAFC] px-5 py-3.5">
+          <p className="text-xs font-medium text-[#64748B]">
+            عرض {(safePage - 1) * pageSize + (pagedRows.length > 0 ? 1 : 0)} - {(safePage - 1) * pageSize + pagedRows.length} من{" "}
+            {filteredRows.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-1.5 text-sm text-[#334155] disabled:opacity-50"
+            >
+              السابق
+            </button>
+            {Array.from({ length: totalPages }).slice(0, 6).map((_, i) => {
+              const n = i + 1;
+              const active = n === safePage;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setPage(n)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                    active
+                      ? "bg-[#1E3A8A] text-white"
+                      : "border border-[#CBD5E1] bg-white text-[#334155] hover:bg-[#F1F5F9]"
+                  }`}
+                >
+                  {n}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-1.5 text-sm text-[#334155] disabled:opacity-50"
+            >
+              التالي
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <AddStudySubjectDialog open={addOpen} onClose={() => setAddOpen(false)} branches={branches} />
+      <EditStudySubjectDialog
+        row={editingRow}
+        open={Boolean(editingRow)}
+        onClose={() => setEditingRow(null)}
+        branches={branches}
+      />
+    </section>
+  );
+}

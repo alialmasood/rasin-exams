@@ -1,0 +1,39 @@
+import { redirect, notFound } from "next/navigation";
+import { getCollegeProfileByUserId } from "@/lib/college-accounts";
+import { getExamSituationDetailForOwner } from "@/lib/college-exam-situations";
+import { getSession } from "@/lib/session";
+import { SituationDetailClient } from "./situation-detail-client";
+
+export const dynamic = "force-dynamic";
+
+export default async function UploadStatusDetailPage({
+  params,
+}: {
+  params: Promise<{ scheduleId: string }>;
+}) {
+  const { scheduleId } = await params;
+  const session = await getSession();
+  if (!session) redirect("/");
+  if (session.role !== "COLLEGE") redirect("/dashboard");
+
+  const [detail, profile] = await Promise.all([
+    getExamSituationDetailForOwner(session.uid, scheduleId),
+    getCollegeProfileByUserId(session.uid),
+  ]);
+  if (!detail) notFound();
+
+  const collegeLabel =
+    profile?.account_kind === "FOLLOWUP"
+      ? (profile.holder_name ?? "—")
+      : (profile?.formation_name ?? "—");
+  const deanName = profile?.dean_name ?? "";
+
+  return (
+    <SituationDetailClient
+      key={`${detail.schedule_id}-${detail.attendance_count}-${detail.absence_count}-${detail.head_submitted_at ?? "0"}-${detail.dean_status}`}
+      detail={detail}
+      collegeLabel={collegeLabel}
+      deanName={deanName}
+    />
+  );
+}

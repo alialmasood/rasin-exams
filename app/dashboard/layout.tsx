@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AdminDashboardShell } from "@/components/dashboard/admin-dashboard-shell";
+import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -14,5 +15,30 @@ export default async function DashboardLayout({
     redirect("/");
   }
 
-  return <AdminDashboardShell username={session.username}>{children}</AdminDashboardShell>;
+  let displayName = "admin";
+  let sidebarTagline = "adminuob";
+  let roleDescription = "مدير النظام";
+
+  if (session.role === "COLLEGE") {
+    const profile = await getCollegeProfileByUserId(session.uid);
+    displayName = session.username;
+    sidebarTagline =
+      profile?.account_kind === "FOLLOWUP"
+        ? (profile.holder_name ?? "حساب متابعة")
+        : (profile?.formation_name ?? "حساب كلية");
+    roleDescription =
+      profile?.account_kind === "FOLLOWUP" ? "حساب متابعة" : "حساب كلية";
+  }
+
+  return (
+    <AdminDashboardShell
+      username={session.username}
+      role={session.role}
+      displayName={displayName}
+      sidebarTagline={sidebarTagline}
+      roleDescription={roleDescription}
+    >
+      {children}
+    </AdminDashboardShell>
+  );
 }

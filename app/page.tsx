@@ -2,10 +2,36 @@
 
 import { loginAction } from "@/app/actions/login";
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type ViewState = "intro" | "reveal" | "login";
+
+function WelcomeScreenShell({
+  stateClass,
+  children,
+}: {
+  stateClass: string;
+  children: ReactNode;
+}) {
+  return (
+    <main className={`welcome-screen ${stateClass}`}>
+      <div className="welcome-hero-bg" aria-hidden="true">
+        <Image
+          src="/residency.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="welcome-hero-image"
+        />
+      </div>
+      <div className="welcome-hero-overlay" aria-hidden="true" />
+      {children}
+    </main>
+  );
+}
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -34,15 +60,15 @@ function HomeContent() {
           : null;
 
   return (
-    <main className={`welcome-screen ${stateClass}`}>
+    <WelcomeScreenShell stateClass={stateClass}>
       <section className="welcome-panel" aria-label="واجهة الترحيب">
         <div className="logo-shell">
           <Image
             className="university-logo"
             src="/uob-logo.png"
             alt="شعار جامعة البصرة"
-            width={166}
-            height={166}
+            width={88}
+            height={88}
             priority
           />
         </div>
@@ -113,7 +139,7 @@ function HomeContent() {
 
         <p className="institution-note">جامعة البصرة – منصة إدارة الامتحانات</p>
       </section>
-    </main>
+    </WelcomeScreenShell>
   );
 }
 
@@ -121,11 +147,11 @@ export default function Home() {
   return (
     <Suspense
       fallback={
-        <main className="welcome-screen state-intro">
+        <WelcomeScreenShell stateClass="state-intro">
           <section className="welcome-panel" aria-label="جاري التحميل">
             <p className="system-description">جاري التحميل…</p>
           </section>
-        </main>
+        </WelcomeScreenShell>
       }
     >
       <HomeContent />

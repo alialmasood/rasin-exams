@@ -105,6 +105,69 @@ export async function authenticateSystemAdmin(
   return { id: String(row.id), username: row.username, full_name: row.full_name };
 }
 
+export type PortalAuthUser = {
+  id: string;
+  username: string;
+  full_name: string;
+  role: "ADMIN" | "SUPER_ADMIN" | "COLLEGE";
+};
+
+/** مصادقة صفحة الدخول: مدير النظام أو حساب كلية نشط. */
+export async function authenticatePortalUser(
+  username: string,
+  password: string
+): Promise<PortalAuthUser | null> {
+  if (!isDatabaseConfigured()) return null;
+  const u = username.trim().toLowerCase();
+  if (!u || !password) return null;
+
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const legacyCol = await usersTableHasLegacyPasswordColumn();
+  const sql = legacyCol
+    ? `SELECT id, username, full_name, password_hash, password AS legacy_password, status, role
+       FROM users
+       WHERE deleted_at IS NULL AND LOWER(TRIM(username::text)) = $1
+       LIMIT 1`
+    : `SELECT id, username, full_name, password_hash, status, role
+       FROM users
+       WHERE deleted_at IS NULL AND LOWER(TRIM(username::text)) = $1
+       LIMIT 1`;
+
+  type AuthRow = {
+    id: string | number;
+    username: string;
+    full_name: string;
+    password_hash: string | null;
+    status: UserStatus;
+    role: unknown;
+    legacy_password?: string | null;
+  };
+
+  const result = await pool.query<AuthRow>(sql, [u]);
+  const row = result.rows[0];
+  if (!row || row.status !== "ACTIVE") return null;
+
+  const roleNorm = normalizeRole(row.role);
+  if (
+    roleNorm !== "ADMIN" &&
+    roleNorm !== "SUPER_ADMIN" &&
+    roleNorm !== "COLLEGE"
+  ) {
+    return null;
+  }
+
+  const legacyPwd = legacyCol ? row.legacy_password : undefined;
+  if (!verifyAgainstStoredHashes(password, row.password_hash, legacyPwd)) return null;
+
+  return {
+    id: String(row.id),
+    username: row.username,
+    full_name: row.full_name,
+    role: roleNorm as PortalAuthUser["role"],
+  };
+}
+
 export async function getSystemAdmin(): Promise<SystemAdminRow | null> {
   if (!isDatabaseConfigured()) return null;
   await ensureCoreSchema();

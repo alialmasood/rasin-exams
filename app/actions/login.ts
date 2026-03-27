@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { isDatabaseConfigured } from "@/lib/db";
 import { createSession } from "@/lib/session";
-import { authenticateSystemAdmin } from "@/lib/users";
+import { authenticatePortalUser } from "@/lib/users";
 
 export async function loginAction(formData: FormData) {
   if (!isDatabaseConfigured()) {
@@ -13,7 +13,7 @@ export async function loginAction(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  const user = await authenticateSystemAdmin(username, password);
+  const user = await authenticatePortalUser(username, password);
   if (!user) {
     redirect("/?error=credentials");
   }
@@ -22,11 +22,14 @@ export async function loginAction(formData: FormData) {
     await createSession({
       uid: user.id,
       username: user.username,
-      role: "ADMIN",
+      role: user.role,
     });
   } catch {
     redirect("/?error=config");
   }
 
+  if (user.role === "COLLEGE") {
+    redirect("/dashboard/college");
+  }
   redirect("/dashboard");
 }

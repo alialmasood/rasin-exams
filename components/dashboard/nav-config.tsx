@@ -30,14 +30,6 @@ function IconUsers() {
   );
 }
 
-function IconAcademic() {
-  return (
-    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658.813A48.5 48.5 0 0 1 12 4.493a48.5 48.5 0 0 1 8.88 3.467 50.79 50.79 0 0 0-2.658-.813m-15.482 0c-3.12 1.04-5.856 2.854-8.009 5.238M12 4.493v16.41" />
-    </svg>
-  );
-}
-
 function IconBuilding() {
   return (
     <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -46,10 +38,14 @@ function IconBuilding() {
   );
 }
 
-function IconChart() {
+function IconCollegeAccounts() {
   return (
     <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.086 12h2.25c.621 0 1.125.504 1.125 1.125v6.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM12 6.75c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v13.5c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 0 1 12 19.5V6.75Zm6.75-3a1.125 1.125 0 0 1 1.125 1.125v16.5a1.125 1.125 0 0 1-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.875a1.125 1.125 0 0 1 1.125-1.125h2.25Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4.5 6.75h4.5v4.5H4.5v-4.5ZM15 6.75h4.5v4.5H15v-4.5ZM4.5 15.75h4.5v4.5H4.5v-4.5ZM15 15.75h4.5v4.5H15v-4.5Z"
+      />
     </svg>
   );
 }
@@ -75,9 +71,26 @@ export const dashboardNavItems: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: <IconDashboard /> },
   { href: "/dashboard/exams", label: "الامتحانات", icon: <IconBook /> },
   { href: "/dashboard/students", label: "الطلاب", icon: <IconUsers /> },
-  { href: "/dashboard/teachers", label: "التدريسيون", icon: <IconAcademic /> },
-  { href: `/dashboard/rooms`, label: "القاعات", icon: <IconBuilding /> },
-  { href: `/dashboard/results`, label: "النتائج", icon: <IconChart /> },
-  { href: `/dashboard/reports`, label: "التقارير", icon: <IconDocument /> },
-  { href: `/dashboard/settings`, label: "الإعدادات", icon: <IconCog /> },
+  { href: "/dashboard/rooms", label: "القاعات", icon: <IconBuilding /> },
+  { href: "/dashboard/college-accounts", label: "إدارة الحسابات", icon: <IconCollegeAccounts /> },
+  { href: "/dashboard/reports", label: "التقارير", icon: <IconDocument /> },
+  { href: "/dashboard/settings", label: "الإعدادات", icon: <IconCog /> },
 ];
+
+/** حسابات الكلية: قائمة جانبية مختصرة. */
+export const collegeDashboardNavItems: NavItem[] = [
+  { href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> },
+  { href: "/dashboard/college/upload-status", label: "رفع الموقف", icon: <IconDocument /> },
+  { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconBook /> },
+  { href: "/dashboard/college/subjects", label: "الاقسام او الفروع", icon: <IconBook /> },
+  { href: "/dashboard/college/study-subjects", label: "المواد الدراسية", icon: <IconBook /> },
+  { href: "/dashboard/college/rooms-management", label: "ادارة القاعات", icon: <IconBuilding /> },
+  { href: "/dashboard/college/exam-schedules", label: "الجداول الامتحانية", icon: <IconBook /> },
+  { href: "/dashboard/college/statistics", label: "الاحصائيات", icon: <IconUsers /> },
+  { href: "/dashboard/college/reports", label: "التقارير", icon: <IconDocument /> },
+];
+
+export function getDashboardNavForRole(role: string): NavItem[] {
+  if (role === "COLLEGE") return collegeDashboardNavItems;
+  return dashboardNavItems;
+}
