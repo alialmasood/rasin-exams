@@ -1,9 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getDashboardNavForRole } from "@/components/dashboard/nav-config";
+import {
+  collegeDashboardNavSections,
+  getDashboardNavForRole,
+} from "@/components/dashboard/nav-config";
 import { logoutAction } from "@/app/dashboard/actions";
 
 const C = {
@@ -45,6 +49,29 @@ export function AdminDashboardShell({
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   const navItems = getDashboardNavForRole(role);
+  const isCollegePortal = role === "COLLEGE";
+  /** أسفل الشريط: للكلية اسم التشكيل/الكلية فقط؛ لغيرها اسم العرض في الواجهة. */
+  const sidebarFooterLabel =
+    (isCollegePortal ? sidebarTagline : displayName).trim() || username.trim();
+
+  function isNavItemActive(href: string): boolean {
+    if (href === "/dashboard" || href === "/dashboard/college") {
+      return pathname === href;
+    }
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function sidebarInitials(): string {
+    const base = sidebarFooterLabel;
+    const parts = base.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0]!.slice(0, 1) + parts[1]!.slice(0, 1)).toUpperCase();
+    }
+    if (parts.length === 1 && parts[0]!.length >= 2) {
+      return parts[0]!.slice(0, 2).toUpperCase();
+    }
+    return base.slice(0, 2).toUpperCase() || "؟";
+  }
 
   useEffect(() => {
     const onScroll = () => setHeaderScrolled(window.scrollY > 4);
@@ -69,14 +96,15 @@ export function AdminDashboardShell({
   const sidebarBody = (
     <>
       <div className="flex h-[4.5rem] shrink-0 items-center gap-3 border-b px-5" style={{ borderColor: C.border }}>
-        <div
-          className="flex size-11 shrink-0 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-md ring-2 ring-white/20"
-          style={{
-            background: `linear-gradient(145deg, ${C.secondary} 0%, ${C.primary} 100%)`,
-          }}
-          aria-hidden
-        >
-          ر
+        <div className="relative size-11 shrink-0">
+          <Image
+            src="/rassiin.png"
+            alt="شعار جامعة البصرة"
+            width={44}
+            height={44}
+            className="size-full object-contain object-center"
+            priority
+          />
         </div>
         <div className="min-w-0 text-right">
           <p className="truncate text-sm font-bold" style={{ color: C.primary }}>
@@ -88,58 +116,88 @@ export function AdminDashboardShell({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="القائمة الرئيسية">
-        {navItems.map((item) => {
-          const highlighted =
-            item.href === "/dashboard" || item.href === "/dashboard/college"
-              ? pathname === item.href
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`group relative flex items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-semibold transition-all duration-200 ${
-                highlighted
-                  ? "pl-3.5 text-white shadow-md ring-1 ring-white/20 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-9 before:w-[3px] before:-translate-y-1/2 before:rounded-r-md before:bg-sky-300 before:shadow-[0_0_12px_rgba(56,189,248,0.75)] before:content-['']"
-                  : "cursor-pointer pl-3 text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
-              }`}
-              style={
-                highlighted
-                  ? {
-                      background: "linear-gradient(135deg, #2563EB 0%, #4338CA 100%)",
-                    }
-                  : undefined
-              }
-            >
-              <span
-                className={`shrink-0 transition-colors [&_svg]:stroke-current ${
-                  highlighted ? "text-white" : "text-[#94A3B8] group-hover:text-[#475569]"
+      <nav
+        className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-2 pb-3"
+        aria-label="القائمة الرئيسية"
+      >
+        {isCollegePortal ? (
+          <>
+            {collegeDashboardNavSections.map((section, sectionIndex) => (
+              <div key={section.id} className={sectionIndex > 0 ? "mt-5 border-t border-slate-100 pt-4" : ""}>
+                <p
+                  className="mb-2 px-3 text-[11px] font-bold tracking-tight text-slate-500"
+                  id={`nav-section-${section.id}`}
+                >
+                  {section.title}
+                </p>
+                <div className="space-y-0.5" role="group" aria-labelledby={`nav-section-${section.id}`}>
+                  {section.items.map((item) => {
+                    const active = isNavItemActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={active ? "page" : undefined}
+                        className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-[13px] font-semibold leading-snug transition-all duration-200 ${
+                          active
+                            ? "border-indigo-200/60 bg-gradient-to-l from-[#2563EB] to-[#1d4ed8] pl-3 text-white shadow-md shadow-indigo-900/10 ring-1 ring-white/15 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-sky-200 before:shadow-[0_0_14px_rgba(186,230,253,0.9)] before:content-['']"
+                            : "cursor-pointer border-transparent pl-3 text-slate-600 hover:border-slate-200/90 hover:bg-slate-50 hover:text-slate-900"
+                        }`}
+                      >
+                        <span
+                          className={`shrink-0 transition-colors [&_svg]:stroke-[1.75] ${
+                            active ? "text-white" : "text-slate-400 group-hover:text-slate-600"
+                          }`}
+                        >
+                          {item.icon}
+                        </span>
+                        <span className="min-w-0 flex-1 text-right">{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </>
+        ) : (
+          navItems.map((item) => {
+            const active = isNavItemActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-[13px] font-semibold transition-all duration-200 ${
+                  active
+                    ? "border-indigo-200/60 bg-gradient-to-l from-[#2563EB] to-[#1d4ed8] pl-3 text-white shadow-md shadow-indigo-900/10 ring-1 ring-white/15 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-sky-200 before:shadow-[0_0_14px_rgba(186,230,253,0.9)] before:content-['']"
+                    : "cursor-pointer border-transparent pl-3 text-slate-600 hover:border-slate-200/90 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
-                {item.icon}
-              </span>
-              {item.label}
-            </Link>
-          );
-        })}
+                <span
+                  className={`shrink-0 transition-colors [&_svg]:stroke-[1.75] ${
+                    active ? "text-white" : "text-slate-400 group-hover:text-slate-600"
+                  }`}
+                >
+                  {item.icon}
+                </span>
+                <span className="min-w-0 flex-1 text-right">{item.label}</span>
+              </Link>
+            );
+          })
+        )}
       </nav>
 
-      <div className="shrink-0 border-t p-4" style={{ borderColor: C.border }}>
-        <div
-          className="rounded-2xl p-4 text-white shadow-lg ring-1 ring-white/10"
-          style={{
-            background: `linear-gradient(145deg, ${C.secondary} 0%, ${C.primary} 55%, #172554 100%)`,
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/15 text-sm font-bold ring-1 ring-white/25">
-              A
-            </span>
-            <div className="min-w-0 flex-1 text-right">
-              <p className="truncate text-sm font-bold">{sidebarTagline}</p>
-              <p className="truncate text-xs text-white/80">{roleDescription}</p>
-            </div>
-          </div>
+      <div className="shrink-0 border-t border-slate-200/80 bg-gradient-to-b from-[#f8fafc] via-[#f1f5fb] to-[#e8edf5]">
+        <div className="flex items-center gap-3 px-4 py-4">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200/90 bg-white text-[11px] font-bold tabular-nums text-slate-600 shadow-sm"
+            aria-hidden
+          >
+            {sidebarInitials()}
+          </span>
+          <p className="min-w-0 flex-1 truncate text-right text-sm font-semibold leading-snug text-slate-800">
+            {sidebarFooterLabel}
+          </p>
         </div>
       </div>
     </>
@@ -158,7 +216,7 @@ export function AdminDashboardShell({
 
       <aside
         id="dashboard-sidebar"
-        className={`fixed inset-y-0 right-0 z-50 flex w-[17.5rem] flex-col border-l bg-white shadow-[0_0_60px_-15px_rgba(30,58,138,0.18)] transition-transform duration-300 ease-out lg:translate-x-0 ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-[18.25rem] flex-col border-l bg-white shadow-[0_0_60px_-15px_rgba(30,58,138,0.18)] transition-transform duration-300 ease-out lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "translate-x-full"
         }`}
         style={{ borderColor: C.border }}
@@ -166,7 +224,7 @@ export function AdminDashboardShell({
         {sidebarBody}
       </aside>
 
-      <div className="flex min-h-screen flex-col lg:mr-[17.5rem]">
+      <div className="flex min-h-screen flex-col lg:mr-[18.25rem]">
         <header
           className="sticky top-0 z-30 border-b border-[rgba(226,232,240,0.45)] transition-[box-shadow] duration-300"
           style={{

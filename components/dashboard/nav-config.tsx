@@ -50,6 +50,79 @@ function IconCollegeAccounts() {
   );
 }
 
+function IconCalendar() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5a2.25 2.25 0 0 0 2.25-2.25m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5a2.25 2.25 0 0 1 2.25 2.25v7.5"
+      />
+    </svg>
+  );
+}
+
+function IconUploadCloud() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z"
+      />
+    </svg>
+  );
+}
+
+function IconClipboardList() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 12h3.75H9Zm0 4.5h3.75H9Zm3.75-9.75v-.735c0-1.036-.84-1.875-1.875-1.875H9.375c-1.036 0-1.875.84-1.875 1.875V6.75m8.25 0v10.5a2.25 2.25 0 0 1-2.25 2.25H8.25A2.25 2.25 0 0 1 6 17.25V6.75m12 0A2.25 2.25 0 0 0 15.75 4.5h-7.5A2.25 2.25 0 0 0 6 6.75"
+      />
+    </svg>
+  );
+}
+
+function IconChartBar() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 5.25c0-.621.504-1.125 1.125-1.125h2.25C20.496 4.125 21 4.629 21 5.25v14.625c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V5.25Z"
+      />
+    </svg>
+  );
+}
+
+function IconAcademic() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658.813A48.96 48.96 0 0 1 12 13.5a48.96 48.96 0 0 1 8.098-4.04 50.64 50.64 0 0 0-2.658-.814m15.482 0c.308.21.625.424.95.626m-.95-6.853a48.959 48.959 0 0 0-8.098 4.04 50.646 50.646 0 0 0-2.658.814 48.963 48.963 0 0 1-8.098-4.04m9.378 9.378-4.65-4.65a1.125 1.125 0 0 0-1.591 0l-4.65 4.65"
+      />
+    </svg>
+  );
+}
+
+function IconBranches() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 9.75v1.875A2.625 2.625 0 0 0 8.625 14.25H12m6.75-3v7.875a2.625 2.625 0 0 1-2.625 2.625H12" />
+    </svg>
+  );
+}
+
 function IconDocument() {
   return (
     <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -77,18 +150,56 @@ export const dashboardNavItems: NavItem[] = [
   { href: "/dashboard/settings", label: "الإعدادات", icon: <IconCog /> },
 ];
 
-/** حسابات الكلية: قائمة جانبية مختصرة. */
-export const collegeDashboardNavItems: NavItem[] = [
-  { href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> },
-  { href: "/dashboard/college/upload-status", label: "رفع الموقف", icon: <IconDocument /> },
-  { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconBook /> },
-  { href: "/dashboard/college/subjects", label: "الاقسام او الفروع", icon: <IconBook /> },
-  { href: "/dashboard/college/study-subjects", label: "المواد الدراسية", icon: <IconBook /> },
-  { href: "/dashboard/college/rooms-management", label: "ادارة القاعات", icon: <IconBuilding /> },
-  { href: "/dashboard/college/exam-schedules", label: "الجداول الامتحانية", icon: <IconBook /> },
-  { href: "/dashboard/college/statistics", label: "الاحصائيات", icon: <IconUsers /> },
-  { href: "/dashboard/college/reports", label: "التقارير", icon: <IconDocument /> },
+export type CollegeNavSection = {
+  id: string;
+  /** عنوان القسم في الشريط الجانبي */
+  title: string;
+  items: NavItem[];
+};
+
+/**
+ * بوابة الكلية / التشكيل: ترتيب رسمي حسب مسار العمل (بيانات أساسية ← جداول ← مواقف ← مؤشرات).
+ */
+export const collegeDashboardNavSections: CollegeNavSection[] = [
+  {
+    id: "overview",
+    title: "نظرة عامة",
+    items: [{ href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> }],
+  },
+  {
+    id: "master",
+    title: "البيانات الأساسية",
+    items: [
+      { href: "/dashboard/college/subjects", label: "الأقسام والفروع", icon: <IconBranches /> },
+      { href: "/dashboard/college/study-subjects", label: "المواد الدراسية", icon: <IconAcademic /> },
+      { href: "/dashboard/college/rooms-management", label: "إدارة القاعات", icon: <IconBuilding /> },
+    ],
+  },
+  {
+    id: "planning",
+    title: "التخطيط الامتحاني",
+    items: [{ href: "/dashboard/college/exam-schedules", label: "الجداول الامتحانية", icon: <IconCalendar /> }],
+  },
+  {
+    id: "situations",
+    title: "المواقف الامتحانية",
+    items: [
+      { href: "/dashboard/college/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> },
+      { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
+    ],
+  },
+  {
+    id: "insights",
+    title: "المؤشرات والتقارير",
+    items: [
+      { href: "/dashboard/college/statistics", label: "الإحصائيات", icon: <IconChartBar /> },
+      { href: "/dashboard/college/reports", label: "التقارير", icon: <IconDocument /> },
+    ],
+  },
 ];
+
+/** قائمة مسطحة (للاستخدامات التي تحتاج مصفوفة واحدة). */
+export const collegeDashboardNavItems: NavItem[] = collegeDashboardNavSections.flatMap((s) => s.items);
 
 export function getDashboardNavForRole(role: string): NavItem[] {
   if (role === "COLLEGE") return collegeDashboardNavItems;

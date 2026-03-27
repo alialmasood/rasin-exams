@@ -1,12 +1,25 @@
+import { redirect } from "next/navigation";
+import { getCollegeProfileByUserId } from "@/lib/college-accounts";
+import { listUploadedExamSituationsForFollowup } from "@/lib/college-exam-situations";
+import { getSession } from "@/lib/session";
+import { StatusFollowupPanel } from "./status-followup-panel";
+
 export const dynamic = "force-dynamic";
 
-export default function CollegeStatusFollowupPage() {
-  return (
-    <section className="space-y-3 rounded-3xl border border-[#E2E8F0] bg-white p-8 shadow-sm" dir="rtl">
-      <h1 className="text-2xl font-bold text-[#0F172A]">متابعة المواقف</h1>
-      <p className="text-sm text-[#64748B]">
-        صفحة متابعة المواقف مضافة في الشريط الجانبي. سنضيف جدول المتابعة وحالات الاعتماد لاحقًا.
-      </p>
-    </section>
-  );
+export default async function CollegeStatusFollowupPage() {
+  const session = await getSession();
+  if (!session) redirect("/");
+  if (session.role !== "COLLEGE") redirect("/dashboard");
+
+  const [rows, profile] = await Promise.all([
+    listUploadedExamSituationsForFollowup(session.uid),
+    getCollegeProfileByUserId(session.uid),
+  ]);
+
+  const collegeLabel =
+    profile?.account_kind === "FOLLOWUP"
+      ? (profile.holder_name ?? "—")
+      : (profile?.formation_name ?? "—");
+
+  return <StatusFollowupPanel rows={rows} collegeLabel={collegeLabel} />;
 }

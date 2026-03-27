@@ -173,6 +173,42 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
   });
 }
 
+/** صفوف قابلة للتمرير لمكوّنات العميل (تواريخ كسلاسل ISO). */
+export type StatusFollowupTableRow = {
+  schedule_id: string;
+  exam_date: string;
+  subject_name: string;
+  stage_level: number;
+  branch_name: string;
+  workflow_status: CollegeExamScheduleRow["workflow_status"];
+  dean_status: DeanSituationStatus;
+  head_submitted_at_iso: string | null;
+  dean_reviewed_at_iso: string | null;
+  is_complete: boolean;
+};
+
+/** مواقف رُفع موقفها من رئيس القسم — تظهر في «متابعة المواقف». مرتبة من الأحدث رفعاً. */
+export async function listUploadedExamSituationsForFollowup(
+  ownerUserId: string
+): Promise<StatusFollowupTableRow[]> {
+  const rows = await listOfficialExamSituationsForOwner(ownerUserId);
+  return rows
+    .filter((r) => r.is_uploaded)
+    .sort((a, b) => (b.head_submitted_at?.getTime() ?? 0) - (a.head_submitted_at?.getTime() ?? 0))
+    .map((r) => ({
+      schedule_id: r.schedule_id,
+      exam_date: r.exam_date,
+      subject_name: r.subject_name,
+      stage_level: r.stage_level,
+      branch_name: r.branch_name,
+      workflow_status: r.workflow_status,
+      dean_status: r.dean_status,
+      head_submitted_at_iso: r.head_submitted_at?.toISOString() ?? null,
+      dean_reviewed_at_iso: r.dean_reviewed_at?.toISOString() ?? null,
+      is_complete: r.is_complete,
+    }));
+}
+
 export type ExamSituationDetail = UploadStatusTableRow & {
   study_subject_id: string;
   branch_head_name: string;
