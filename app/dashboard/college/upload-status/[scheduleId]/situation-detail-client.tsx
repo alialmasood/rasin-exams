@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
+import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
 import { buildExamSituationReportHtml } from "@/lib/college-exam-situation-report-html";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { canUploadSituationInExamWindow, formatSituationWindowHintAr } from "@/lib/exam-situation-window";
@@ -30,6 +31,15 @@ const WORKFLOW_LABEL: Record<ExamSituationDetail["workflow_status"], string> = {
 
 /** لون النظام الأساسي — عناوين الأقسام والأيقونات والحدود التمييزية */
 const PRIMARY = "#1E3A8A";
+
+/** شريط جانبي بطاقات «ملخص الجلسة الامتحانية» */
+const SUMMARY_STAT_SIDE_ACCENT = "#F14917";
+
+/** إطار حقل «عدد المقاعد الكلي» في قسم القاعة */
+const HALL_SEATS_FIELD_ACCENT = "#F2441D";
+
+/** تنبيهات بطاقة «الحضور والغياب» (حد وخلفية مميزة) */
+const ATTENDANCE_ALERT_ACCENT = "#EB4C1B";
 
 function situationReportGeneratedAtLabel() {
   try {
@@ -74,8 +84,6 @@ function openSituationPrintWindow(html: string): boolean {
   }
 }
 
-const surfacePage =
-  "min-w-0 bg-gradient-to-b from-[#E2E8F0]/75 via-[#F1F5F9] to-[#EEF2F7] bg-fixed";
 const cardLift =
   "shadow-[0_2px_6px_-2px_rgba(15,23,42,0.06),0_12px_32px_-12px_rgba(30,58,138,0.12)]";
 
@@ -228,12 +236,31 @@ function SectionCard({
   title,
   children,
   className = "",
+  titleBarStyle = "default",
 }: {
   icon: ReactNode;
   title: string;
   children: ReactNode;
   className?: string;
+  /** default: شريط علوي متدرج | sidebar: أزرق لوحة التحكم (#274092 / #1f3578) */
+  titleBarStyle?: "default" | "sidebar";
 }) {
+  if (titleBarStyle === "sidebar") {
+    return (
+      <div
+        className={`relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white ${cardLift} ${className}`}
+      >
+        <div className="border-b border-[#1f3578] bg-[#274092] px-5 py-4 sm:px-6 sm:py-[1.125rem]">
+          <h2 className="flex items-center gap-3 text-base font-extrabold tracking-tight text-white sm:text-[1.07rem]">
+            <span className="flex shrink-0 items-center text-white [&_svg]:shrink-0">{icon}</span>
+            <span className="leading-snug">{title}</span>
+          </h2>
+        </div>
+        <div className="relative flex min-h-0 flex-1 flex-col p-5 sm:p-6">{children}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white p-5 sm:p-6 ${cardLift} ${className}`}
@@ -243,9 +270,7 @@ function SectionCard({
         aria-hidden
       />
       <h2 className="relative mb-5 flex items-center gap-3 pt-0.5 text-base font-extrabold tracking-tight text-[#0F172A] sm:text-[1.07rem]">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#EFF6FF] via-white to-[#E0E7FF]/60 text-[#1E3A8A] shadow-[0_1px_2px_rgba(30,58,138,0.08)] ring-1 ring-[#1E3A8A]/12 [&_svg]:size-5">
-          {icon}
-        </span>
+        <span className="flex shrink-0 items-center text-[#1E3A8A] [&_svg]:shrink-0">{icon}</span>
         <span className="leading-snug" style={{ color: PRIMARY }}>
           {title}
         </span>
@@ -257,7 +282,10 @@ function SectionCard({
 
 function ReadOnlyStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-200/85 border-s-[3px] border-s-[#1E3A8A]/45 bg-gradient-to-b from-white to-[#F8FAFC] px-3 py-3 shadow-sm ring-1 ring-slate-100/60">
+    <div
+      className="rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#F8FAFC] px-3 py-3 shadow-sm ring-1 ring-slate-100/60"
+      style={{ borderInlineStart: `3px solid ${SUMMARY_STAT_SIDE_ACCENT}` }}
+    >
       <p className="text-[10px] font-bold uppercase tracking-wider text-[#1E3A8A]/70">{label}</p>
       <p className="mt-1 text-sm font-bold leading-snug text-slate-900">{value}</p>
     </div>
@@ -267,9 +295,9 @@ function ReadOnlyStat({ label, value }: { label: string; value: string }) {
 /** حقل عرض رسمي بلون النظام — لبطاقات بيانات المادة / الكلية */
 function OfficialField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-h-[4.75rem] flex-col justify-center rounded-xl border border-[#1E3A8A]/14 bg-gradient-to-b from-[#FAFCFF] to-white px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ring-1 ring-[#1E3A8A]/5">
+    <div className="flex min-h-[4.75rem] min-w-0 flex-col justify-center rounded-xl border border-[#1E3A8A]/14 bg-gradient-to-b from-[#FAFCFF] to-white px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ring-1 ring-[#1E3A8A]/5 sm:px-3.5">
       <p className="text-[11px] font-bold leading-tight text-[#1E3A8A]/88">{label}</p>
-      <p className="mt-2 text-sm font-bold leading-snug text-slate-900">{value}</p>
+      <p className="mt-2 break-words text-sm font-bold leading-snug text-slate-900">{value}</p>
     </div>
   );
 }
@@ -285,11 +313,31 @@ export function SituationDetailClient({
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
-  const [attendance, setAttendance] = useState(String(detail.attendance_count));
-  const [absence, setAbsence] = useState(String(detail.absence_count));
-  const [absenceNames, setAbsenceNames] = useState(detail.absence_names);
+  const [attendanceM, setAttendanceM] = useState(String(detail.attendance_morning));
+  const [absenceM, setAbsenceM] = useState(String(detail.absence_morning));
+  const [attendanceE, setAttendanceE] = useState(String(detail.attendance_evening));
+  const [absenceE, setAbsenceE] = useState(String(detail.absence_evening));
+  const [absenceNamesM, setAbsenceNamesM] = useState(detail.absence_names_morning);
+  const [absenceNamesE, setAbsenceNamesE] = useState(detail.absence_names_evening);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setAttendanceM(String(detail.attendance_morning));
+    setAbsenceM(String(detail.absence_morning));
+    setAttendanceE(String(detail.attendance_evening));
+    setAbsenceE(String(detail.absence_evening));
+    setAbsenceNamesM(detail.absence_names_morning);
+    setAbsenceNamesE(detail.absence_names_evening);
+  }, [
+    detail.schedule_id,
+    detail.attendance_morning,
+    detail.absence_morning,
+    detail.attendance_evening,
+    detail.absence_evening,
+    detail.absence_names_morning,
+    detail.absence_names_evening,
+  ]);
 
   useEffect(() => {
     if (!toast) return;
@@ -302,53 +350,182 @@ export function SituationDetailClient({
   const canSubmitHeadByWorkflow =
     detail.workflow_status === "SUBMITTED" || detail.workflow_status === "APPROVED";
 
-  const attNum = useMemo(() => {
-    const n = Number.parseInt(attendance, 10);
+  const capM = detail.capacity_morning;
+  const capE = detail.capacity_evening;
+  const dualShift = capM > 0 && capE > 0;
+
+  const attNumM = useMemo(() => {
+    const n = Number.parseInt(attendanceM, 10);
     return Number.isFinite(n) ? n : NaN;
-  }, [attendance]);
-  const absNum = useMemo(() => {
-    const n = Number.parseInt(absence, 10);
+  }, [attendanceM]);
+  const absNumM = useMemo(() => {
+    const n = Number.parseInt(absenceM, 10);
     return Number.isFinite(n) ? n : NaN;
-  }, [absence]);
+  }, [absenceM]);
+  const attNumE = useMemo(() => {
+    const n = Number.parseInt(attendanceE, 10);
+    return Number.isFinite(n) ? n : NaN;
+  }, [attendanceE]);
+  const absNumE = useMemo(() => {
+    const n = Number.parseInt(absenceE, 10);
+    return Number.isFinite(n) ? n : NaN;
+  }, [absenceE]);
+
+  const attTotalNum = useMemo(() => {
+    if (Number.isNaN(attNumM) || Number.isNaN(attNumE)) return NaN;
+    return attNumM + attNumE;
+  }, [attNumM, attNumE]);
+  const absTotalNum = useMemo(() => {
+    if (Number.isNaN(absNumM) || Number.isNaN(absNumE)) return NaN;
+    return absNumM + absNumE;
+  }, [absNumM, absNumE]);
 
   const capacityMismatch = useMemo(() => {
+    if (dualShift) {
+      if (Number.isNaN(attNumM) || Number.isNaN(absNumM) || Number.isNaN(attNumE) || Number.isNaN(absNumE)) {
+        return false;
+      }
+      if (capM > 0 && attNumM + absNumM !== capM) return true;
+      if (capE > 0 && attNumE + absNumE !== capE) return true;
+      return false;
+    }
+    if (capM > 0 && capE <= 0) {
+      if (Number.isNaN(attNumM) || Number.isNaN(absNumM)) return false;
+      return attNumM + absNumM !== capM;
+    }
+    if (capE > 0 && capM <= 0) {
+      if (Number.isNaN(attNumE) || Number.isNaN(absNumE)) return false;
+      return attNumE + absNumE !== capE;
+    }
     const cap = detail.capacity_total;
     if (cap <= 0) return false;
-    if (Number.isNaN(attNum) || Number.isNaN(absNum)) return false;
-    return attNum + absNum !== cap;
-  }, [detail.capacity_total, attNum, absNum]);
+    if (Number.isNaN(attTotalNum) || Number.isNaN(absTotalNum)) return false;
+    return attTotalNum + absTotalNum !== cap;
+  }, [
+    dualShift,
+    capM,
+    capE,
+    attNumM,
+    absNumM,
+    attNumE,
+    absNumE,
+    attTotalNum,
+    absTotalNum,
+    detail.capacity_total,
+  ]);
 
   const absenceWithoutNames = useMemo(() => {
-    if (Number.isNaN(absNum)) return false;
-    if (absNum <= 0) return false;
-    return absenceNames.trim().length === 0;
-  }, [absNum, absenceNames]);
+    if (capM > 0 && !Number.isNaN(absNumM) && absNumM > 0 && absenceNamesM.trim().length === 0) return true;
+    if (capE > 0 && !Number.isNaN(absNumE) && absNumE > 0 && absenceNamesE.trim().length === 0) return true;
+    return false;
+  }, [capM, capE, absNumM, absNumE, absenceNamesM, absenceNamesE]);
 
   const attendanceRate =
-    detail.capacity_total > 0 && !Number.isNaN(attNum)
-      ? Math.min(100, Math.max(0, Math.round((attNum / detail.capacity_total) * 100)))
+    detail.capacity_total > 0 && !Number.isNaN(attTotalNum)
+      ? Math.min(100, Math.max(0, Math.round((attTotalNum / detail.capacity_total) * 100)))
       : null;
 
   const rateTier = useMemo(() => attendanceRateTier(attendanceRate), [attendanceRate]);
 
-  const parsedAbsenceNameCount = useMemo(() => countParsedAbsenceNames(absenceNames), [absenceNames]);
+  const parsedAbsenceNameCount = useMemo(
+    () => countParsedAbsenceNames(absenceNamesM) + countParsedAbsenceNames(absenceNamesE),
+    [absenceNamesM, absenceNamesE]
+  );
+
+  const capacityByShift = useMemo(
+    () =>
+      describeCapacityByShiftAr(
+        detail.capacity_morning,
+        detail.capacity_evening,
+        detail.capacity_total
+      ),
+    [detail.capacity_morning, detail.capacity_evening, detail.capacity_total]
+  );
 
   /** تفاصيل مطابقة للحقول المعروضة (قبل الحفظ) لتقرير الطباعة */
   const detailForPrint = useMemo((): ExamSituationDetail => {
-    const a = !Number.isNaN(attNum) ? attNum : detail.attendance_count;
-    const b = !Number.isNaN(absNum) ? absNum : detail.absence_count;
-    const cap = detail.capacity_total;
-    const names = absenceNames;
-    const dataComplete = cap > 0 && a + b === cap && (b === 0 || names.trim().length > 0);
-    const complete = detail.dean_status === "APPROVED" || dataComplete;
+    const aM = !Number.isNaN(attNumM) ? attNumM : detail.attendance_morning;
+    const bM = !Number.isNaN(absNumM) ? absNumM : detail.absence_morning;
+    const aE = !Number.isNaN(attNumE) ? attNumE : detail.attendance_evening;
+    const bE = !Number.isNaN(absNumE) ? absNumE : detail.absence_evening;
+    const namesM = absenceNamesM;
+    const namesE = absenceNamesE;
+    const attAgg = aM + aE;
+    const absAgg = bM + bE;
+    const namesMerged = mergeAbsenceNamesByShift(namesM, namesE);
+    const cm = detail.capacity_morning;
+    const ce = detail.capacity_evening;
+    const useShift = cm > 0 || ce > 0;
+    const shiftOk =
+      (cm > 0 ? aM + bM === cm && (bM === 0 || namesM.trim().length > 0) : aM === 0 && bM === 0) &&
+      (ce > 0 ? aE + bE === ce && (bE === 0 || namesE.trim().length > 0) : aE === 0 && bE === 0);
+    const dataComplete = useShift
+      ? cm + ce > 0 && shiftOk
+      : detail.capacity_total > 0 &&
+        attAgg + absAgg === detail.capacity_total &&
+        (absAgg === 0 || namesMerged.trim().length > 0);
     return {
       ...detail,
-      attendance_count: a,
-      absence_count: b,
-      absence_names: names,
-      is_complete: complete,
+      attendance_count: attAgg,
+      absence_count: absAgg,
+      absence_names: namesMerged,
+      attendance_morning: aM,
+      absence_morning: bM,
+      attendance_evening: aE,
+      absence_evening: bE,
+      absence_names_morning: namesM,
+      absence_names_evening: namesE,
+      is_complete: dataComplete,
     };
-  }, [detail, attNum, absNum, absenceNames]);
+  }, [detail, attNumM, absNumM, attNumE, absNumE, absenceNamesM, absenceNamesE]);
+
+  /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اختلاف بسيط مع `detail.is_complete`. */
+  const deanApproveDataOk = detail.is_complete || detailForPrint.is_complete;
+
+  const runAttendancePatch = useCallback(
+    async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      if (detail.capacity_morning > 0 && detail.capacity_evening > 0) {
+        fd.set("attendance_morning", attendanceM);
+        fd.set("absence_morning", absenceM);
+        fd.set("attendance_evening", attendanceE);
+        fd.set("absence_evening", absenceE);
+        fd.set("absence_names_morning", absenceNamesM);
+        fd.set("absence_names_evening", absenceNamesE);
+      } else {
+        const ac =
+          detail.capacity_evening > 0 && detail.capacity_morning <= 0 ? attendanceE : attendanceM;
+        const ab = detail.capacity_evening > 0 && detail.capacity_morning <= 0 ? absenceE : absenceM;
+        const names =
+          detail.capacity_evening > 0 && detail.capacity_morning <= 0 ? absenceNamesE : absenceNamesM;
+        fd.set("attendance_count", ac);
+        fd.set("absence_count", ab);
+        fd.set("absence_names", names);
+      }
+      const res: SituationActionState = await patchRoomAttendanceForSituationAction(null, fd);
+      if (!res) return false;
+      if (!res.ok) {
+        setToast({ type: "err", msg: res.message });
+        return false;
+      }
+      if (!opts?.silentSuccess) setToast({ type: "ok", msg: res.message });
+      router.refresh();
+      return true;
+    },
+    [
+      absenceE,
+      absenceM,
+      absenceNamesE,
+      absenceNamesM,
+      attendanceE,
+      attendanceM,
+      detail.capacity_evening,
+      detail.capacity_morning,
+      detail.schedule_id,
+      router,
+    ]
+  );
 
   const handlePrintReport = useCallback(() => {
     const html = buildExamSituationReportHtml(
@@ -363,22 +540,10 @@ export function SituationDetailClient({
   }, [collegeLabel, deanName, detailForPrint]);
 
   const flushSave = useCallback(() => {
-    const fd = new FormData();
-    fd.set("schedule_id", detail.schedule_id);
-    fd.set("attendance_count", attendance);
-    fd.set("absence_count", absence);
-    fd.set("absence_names", absenceNames);
-    startTransition(async () => {
-      const res: SituationActionState = await patchRoomAttendanceForSituationAction(null, fd);
-      if (!res) return;
-      if (res.ok) {
-        setToast({ type: "ok", msg: res.message });
-        router.refresh();
-      } else {
-        setToast({ type: "err", msg: res.message });
-      }
+    startTransition(() => {
+      void runAttendancePatch();
     });
-  }, [attendance, absence, absenceNames, detail.schedule_id, router]);
+  }, [runAttendancePatch]);
 
   const scheduleDebouncedSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -397,6 +562,7 @@ export function SituationDetailClient({
       if (res.ok) {
         setToast({ type: "ok", msg: res.message });
         router.refresh();
+        router.push("/dashboard/college/status-followup");
       } else {
         setToast({ type: "err", msg: res.message });
       }
@@ -405,10 +571,12 @@ export function SituationDetailClient({
 
   function onApproveDean() {
     const ta = document.getElementById("dean-note") as HTMLTextAreaElement | null;
-    const fd = new FormData();
-    fd.set("schedule_id", detail.schedule_id);
-    fd.set("dean_note", ta?.value ?? "");
     startTransition(async () => {
+      const saved = await runAttendancePatch({ silentSuccess: true });
+      if (!saved) return;
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      fd.set("dean_note", ta?.value ?? "");
       const res = await approveDeanSituationAction(null, fd);
       if (!res) return;
       if (res.ok) {
@@ -429,7 +597,7 @@ export function SituationDetailClient({
     "inline-flex min-h-10 w-auto shrink-0 items-center justify-center whitespace-normal rounded-sm border-2 border-[#1E3A8A] bg-[#1E3A8A] px-3.5 py-2 text-center text-sm font-bold leading-tight text-white transition-colors hover:border-[#163170] hover:bg-[#163170] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E3A8A] sm:min-h-10 sm:whitespace-nowrap sm:px-4 sm:py-0 sm:leading-none";
 
   return (
-    <section className={`${surfacePage} p-4 pb-10 sm:p-6 sm:pb-12`} dir="rtl">
+    <section className="min-w-0 p-4 pb-10 sm:p-6 sm:pb-12" dir="rtl">
       <div className="mx-auto max-w-[min(100%,1400px)] space-y-5">
         {/* Header علوي */}
         <header
@@ -441,7 +609,6 @@ export function SituationDetailClient({
           />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0 space-y-2">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-[#1E3A8A]/75">واجهة رسمية</p>
               <h1
                 className="text-xl font-extrabold tracking-tight sm:text-[1.7rem]"
                 style={{ color: PRIMARY }}
@@ -487,9 +654,6 @@ export function SituationDetailClient({
             className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#1E3A8A] to-[#60A5FA] opacity-80"
             aria-hidden
           />
-          <p className="relative mb-1 text-[11px] font-bold uppercase tracking-widest text-[#1E3A8A]/75">
-            نظرة موجزة
-          </p>
           <p className="relative mb-5 text-lg font-extrabold" style={{ color: PRIMARY }}>
             ملخص الجلسة الامتحانية
           </p>
@@ -512,14 +676,13 @@ export function SituationDetailClient({
               <SectionCard
                 icon={<IconBook className="h-5 w-5" />}
                 title="بيانات المادة"
+                titleBarStyle="sidebar"
                 className="flex h-full min-h-[19.5rem] w-full flex-col sm:min-h-[18rem]"
               >
                 <div className="flex flex-1 flex-col gap-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-4 gap-2 sm:gap-3">
                     <OfficialField label="اسم المادة" value={detail.subject_name} />
                     <OfficialField label="المرحلة الدراسية" value={`المرحلة ${detail.stage_level}`} />
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <OfficialField
                       label="النظام الدراسي"
                       value={STUDY_TYPE_AR[detail.study_type] ?? detail.study_type}
@@ -538,6 +701,7 @@ export function SituationDetailClient({
               <SectionCard
                 icon={<IconBuilding className="h-5 w-5" />}
                 title="بيانات الكلية والقسم"
+                titleBarStyle="sidebar"
                 className="flex h-full min-h-[19.5rem] w-full flex-col sm:min-h-[18rem]"
               >
                 <div className="flex flex-1 flex-col gap-3">
@@ -554,69 +718,106 @@ export function SituationDetailClient({
             </div>
           </div>
 
-          {/* 3. وقت الامتحان */}
-          <div className="col-span-12 lg:col-span-4">
-            <SectionCard icon={<IconClock className="h-5 w-5" />} title="وقت الامتحان">
-              <dl className="grid grid-cols-1 gap-4 text-sm">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-bold text-[#1E3A8A]/75">تاريخ الامتحان</dt>
-                    <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-bold text-slate-900 shadow-sm tabular-nums">
-                      {detail.exam_date}
-                    </dd>
+          {/* وقت الامتحان + القاعة — بطاقة واحدة، شريط عنوان برتقالي */}
+          <div className="col-span-12">
+            <SectionCard
+              icon={
+                <span className="flex items-center justify-center gap-1">
+                  <IconClock className="h-[1.15rem] w-[1.15rem] sm:h-5 sm:w-5" />
+                  <IconDoor className="h-[1.15rem] w-[1.15rem] sm:h-5 sm:w-5" />
+                </span>
+              }
+              title="وقت الامتحان والقاعة الامتحانية"
+              titleBarStyle="sidebar"
+            >
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-8">
+                <div className="min-w-0 lg:col-span-4">
+                  <p className="mb-3 border-b border-slate-200/90 pb-2 text-sm font-extrabold text-[#1E3A8A]">وقت الامتحان</p>
+                  <dl className="grid grid-cols-1 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="min-w-0">
+                        <dt className="text-xs font-bold text-[#1E3A8A]/75">تاريخ الامتحان</dt>
+                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-bold text-slate-900 shadow-sm tabular-nums">
+                          {detail.exam_date}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs font-bold text-[#1E3A8A]/75">مدة الامتحان</dt>
+                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm">
+                          {formatDuration(detail.duration_minutes)}
+                        </dd>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="min-w-0">
+                        <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت البداية</dt>
+                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm tabular-nums">
+                          {detail.start_time}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت الانتهاء</dt>
+                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm tabular-nums">
+                          {detail.end_time}
+                        </dd>
+                      </div>
+                    </div>
+                  </dl>
+                </div>
+                <div className="min-w-0 border-t border-slate-200/80 pt-6 lg:col-span-8 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-8">
+                  <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-slate-200/90 pb-2">
+                    <span className="shrink-0 text-sm font-extrabold text-[#1E3A8A]">القاعة الامتحانية</span>
+                    <span
+                      className="h-4 w-px shrink-0 bg-[#1E3A8A]/25"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 break-words text-sm font-bold text-slate-900">{detail.room_name}</span>
                   </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-bold text-[#1E3A8A]/75">مدة الامتحان</dt>
-                    <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm">
-                      {formatDuration(detail.duration_minutes)}
-                    </dd>
+                  <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
+                        <p className="mt-1.5 break-words rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
+                          {detail.supervisor_name}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
+                        <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
+                          {detail.invigilators || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className="w-full rounded-xl border-2 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-3 shadow-sm"
+                      style={{ borderColor: HALL_SEATS_FIELD_ACCENT }}
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                        <p className="text-xs font-bold text-[#1E3A8A]/75">
+                          عدد المقاعد الكلي (من إدارة القاعات)
+                        </p>
+                        <p className="text-[11px] font-semibold leading-snug text-slate-600">
+                          توزيع الدوام:{" "}
+                          <span className="font-bold text-slate-800">{capacityByShift.modeLabelAr}</span>
+                        </p>
+                      </div>
+                      <div className="mt-3 flex flex-row flex-nowrap gap-2 overflow-x-auto pb-0.5 sm:overflow-visible">
+                        {capacityByShift.detailRows.map((row, idx) => (
+                          <div
+                            key={`${idx}-${row.labelAr}`}
+                            className="flex min-w-[7.25rem] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200/80 bg-white/90 px-2 py-2.5 text-center shadow-sm sm:min-w-0 sm:flex-1 sm:px-3"
+                          >
+                            <span className="text-[10px] font-medium leading-tight text-slate-600 sm:text-[11px]">
+                              {row.labelAr}
+                            </span>
+                            <span className="text-sm font-bold tabular-nums text-slate-900 sm:text-base">
+                              {row.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت البداية</dt>
-                    <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 tabular-nums font-semibold text-slate-900 shadow-sm">
-                      {detail.start_time}
-                    </dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت الانتهاء</dt>
-                    <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 tabular-nums font-semibold text-slate-900 shadow-sm">
-                      {detail.end_time}
-                    </dd>
-                  </div>
-                </div>
-              </dl>
-            </SectionCard>
-          </div>
-
-          {/* 4. القاعة + جزء القراءة للمراقبة والسعة */}
-          <div className="col-span-12 lg:col-span-8">
-            <SectionCard icon={<IconDoor className="h-5 w-5" />} title="القاعة الامتحانية">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs font-bold text-[#1E3A8A]/75">القاعة</p>
-                  <p className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm">
-                    {detail.room_name}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
-                  <p className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
-                    {detail.supervisor_name}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
-                  <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
-                    {detail.invigilators || "—"}
-                  </p>
-                </div>
-                <div className="sm:col-span-3">
-                  <p className="text-xs font-bold text-[#1E3A8A]/75">عدد المقاعد الكلي (من إدارة القاعات)</p>
-                  <p className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-bold tabular-nums text-slate-900 shadow-sm">
-                    {detail.capacity_total}
-                  </p>
                 </div>
               </div>
             </SectionCard>
@@ -627,55 +828,192 @@ export function SituationDetailClient({
             <SectionCard
               icon={<IconClipboard className="h-5 w-5" />}
               title="الحضور والغياب"
-              className="relative border-[#1E3A8A]/24 bg-gradient-to-b from-white via-white to-[#F4F7FC]/95 p-6 shadow-[0_10px_36px_-8px_rgba(30,58,138,0.18)] ring-1 ring-[#1E3A8A]/14 sm:p-7"
+              titleBarStyle="sidebar"
+              className="relative border-[#1E3A8A]/24 bg-gradient-to-b from-white via-white to-[#F4F7FC]/95 shadow-[0_10px_36px_-8px_rgba(30,58,138,0.18)] ring-1 ring-[#1E3A8A]/14"
             >
               <p className="mb-4 rounded-xl border border-[#1E3A8A]/12 bg-gradient-to-b from-[#F8FAFC] to-white px-4 py-3 text-xs font-medium leading-relaxed text-slate-700 ring-1 ring-slate-100/80">
-                يُحفظ الحضور والغياب وأسماء الغياب مباشرة في «إدارة القاعات» لنفس القاعة المرتبطة بهذا الامتحان.
+                يُحفظ الحضور والغياب وأسماء الغياب مباشرة في «إدارة القاعات» لنفس القاعة. عند تسجيل سعة صباحية ومسائية، يُعبَّأ
+                الحضور والغياب لكل دوام على حدة بنفس منطق صفحة إدارة القاعات.
               </p>
 
               {capacityMismatch ? (
-                <div className="mb-3 flex gap-2 rounded-xl border border-[#1E3A8A]/22 bg-gradient-to-b from-[#EFF6FF]/90 to-white px-3 py-2 text-xs text-slate-800 ring-1 ring-[#1E3A8A]/10">
-                  <span className="font-bold text-[#1E3A8A]">تنبيه:</span>
-                  <span>
-                    مجموع الحضور والغياب ({!Number.isNaN(attNum) && !Number.isNaN(absNum) ? attNum + absNum : "—"}) لا يساوي سعة القاعة (
-                    {detail.capacity_total}). راجع الأرقام قبل رفع الموقف.
-                  </span>
+                <div
+                  role="alert"
+                  className="mb-3 flex gap-3 rounded-xl border-2 bg-gradient-to-b from-[#EB4C1B]/20 via-[#EB4C1B]/10 to-white px-3.5 py-3 text-xs leading-relaxed text-slate-900 shadow-sm ring-1 ring-[#EB4C1B]/25"
+                  style={{ borderColor: ATTENDANCE_ALERT_ACCENT }}
+                >
+                  <IconWarningTriangle className="h-7 w-7 shrink-0 text-[#EB4C1B]" />
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <span className="font-bold" style={{ color: ATTENDANCE_ALERT_ACCENT }}>
+                      تنبيه:
+                    </span>{" "}
+                    <span>
+                      {dualShift ? (
+                        <>
+                          مجموع الحضور + الغياب يجب أن يساوي سعة كل دوام: الصباحي ({capM}) والمسائي ({capE}). الإجمالي الحالي
+                          صباحي:{" "}
+                          {!Number.isNaN(attNumM) && !Number.isNaN(absNumM) ? attNumM + absNumM : "—"}، مسائي:{" "}
+                          {!Number.isNaN(attNumE) && !Number.isNaN(absNumE) ? attNumE + absNumE : "—"}.
+                        </>
+                      ) : (
+                        <>
+                          مجموع الحضور والغياب (
+                          {!Number.isNaN(attTotalNum) && !Number.isNaN(absTotalNum) ? attTotalNum + absTotalNum : "—"}) لا
+                          يساوي سعة القاعة لهذه المادة ({detail.capacity_total}). راجع الأرقام قبل رفع الموقف.
+                        </>
+                      )}
+                    </span>
+                  </div>
                 </div>
               ) : null}
               {absenceWithoutNames ? (
-                <div className="mb-3 flex gap-2 rounded-xl border border-[#1E3A8A]/22 bg-gradient-to-b from-[#EFF6FF]/90 to-white px-3 py-2 text-xs text-slate-800 ring-1 ring-[#1E3A8A]/10">
-                  <span className="font-bold text-[#1E3A8A]">تنبيه:</span>
-                  <span>يوجد غياب مسجّل دون إدراج أسماء الطلاب الغائبين في الحقل أدناه.</span>
+                <div
+                  role="alert"
+                  className="mb-3 flex gap-3 rounded-xl border-2 bg-gradient-to-b from-[#EB4C1B]/20 via-[#EB4C1B]/10 to-white px-3.5 py-3 text-xs leading-relaxed text-slate-900 shadow-sm ring-1 ring-[#EB4C1B]/25"
+                  style={{ borderColor: ATTENDANCE_ALERT_ACCENT }}
+                >
+                  <IconWarningTriangle className="h-7 w-7 shrink-0 text-[#EB4C1B]" />
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <span className="font-bold" style={{ color: ATTENDANCE_ALERT_ACCENT }}>
+                      تنبيه:
+                    </span>{" "}
+                    <span>
+                      يوجد غياب مسجّل دون إدراج أسماء الطلاب الغائبين في حقل أسماء الغياب للدوام ذي الغياب.
+                    </span>
+                  </div>
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {/* بطاقات موحّدة بلون النظام وتدرّجات خفيفة */}
-                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
-                  <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">عدد الحضور</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={attendance}
-                    onChange={(e) => setAttendance(e.target.value)}
-                    onBlur={scheduleDebouncedSave}
-                    className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
-                  />
-                </div>
-                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
-                  <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">عدد الغياب</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={absence}
-                    onChange={(e) => setAbsence(e.target.value)}
-                    onBlur={scheduleDebouncedSave}
-                    className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
-                  />
-                </div>
-                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[#1E3A8A]/90">نسبة الحضور</span>
+              <div className="flex flex-col gap-4">
+                {dualShift ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch">
+                    <div className="flex min-h-0 flex-col rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                      <p className="text-xs font-extrabold text-[#1E3A8A]">الدوام الصباحي — مقاعد معتمدة: {capM}</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-bold text-[#1E3A8A]/90">حضور (صباحي)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={attendanceM}
+                            onChange={(e) => setAttendanceM(e.target.value)}
+                            onBlur={scheduleDebouncedSave}
+                            className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs font-bold text-[#1E3A8A]/90">غياب (صباحي)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={absenceM}
+                            onChange={(e) => setAbsenceM(e.target.value)}
+                            onBlur={scheduleDebouncedSave}
+                            className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+                        <div className="mb-1 flex flex-wrap justify-between gap-2">
+                          <label className="text-xs font-semibold text-slate-600">أسماء الغياب (صباحي)</label>
+                          <span className="text-xs font-semibold tabular-nums text-slate-500">
+                            عدد الأسماء: {countParsedAbsenceNames(absenceNamesM)}
+                          </span>
+                        </div>
+                        <textarea
+                          value={absenceNamesM}
+                          onChange={(e) => setAbsenceNamesM(e.target.value)}
+                          onBlur={scheduleDebouncedSave}
+                          rows={5}
+                          placeholder="أسماء الغائبين في الدوام الصباحي..."
+                          className="min-h-[7.5rem] w-full flex-1 resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex min-h-0 flex-col rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                      <p className="text-xs font-extrabold text-[#1E3A8A]">الدوام المسائي — مقاعد معتمدة: {capE}</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-bold text-[#1E3A8A]/90">حضور (مسائي)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={attendanceE}
+                            onChange={(e) => setAttendanceE(e.target.value)}
+                            onBlur={scheduleDebouncedSave}
+                            className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs font-bold text-[#1E3A8A]/90">غياب (مسائي)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={absenceE}
+                            onChange={(e) => setAbsenceE(e.target.value)}
+                            onBlur={scheduleDebouncedSave}
+                            className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+                        <div className="mb-1 flex flex-wrap justify-between gap-2">
+                          <label className="text-xs font-semibold text-slate-600">أسماء الغياب (مسائي)</label>
+                          <span className="text-xs font-semibold tabular-nums text-slate-500">
+                            عدد الأسماء: {countParsedAbsenceNames(absenceNamesE)}
+                          </span>
+                        </div>
+                        <textarea
+                          value={absenceNamesE}
+                          onChange={(e) => setAbsenceNamesE(e.target.value)}
+                          onBlur={scheduleDebouncedSave}
+                          rows={5}
+                          placeholder="أسماء الغائبين في الدوام المسائي..."
+                          className="min-h-[7.5rem] w-full flex-1 resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                      <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">
+                        عدد الحضور
+                        {capE > 0 && capM <= 0 ? " (مسائي)" : capM > 0 ? " (صباحي)" : ""}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={capE > 0 && capM <= 0 ? attendanceE : attendanceM}
+                        onChange={(e) =>
+                          capE > 0 && capM <= 0 ? setAttendanceE(e.target.value) : setAttendanceM(e.target.value)
+                        }
+                        onBlur={scheduleDebouncedSave}
+                        className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                      />
+                    </div>
+                    <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                      <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">
+                        عدد الغياب
+                        {capE > 0 && capM <= 0 ? " (مسائي)" : capM > 0 ? " (صباحي)" : ""}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={capE > 0 && capM <= 0 ? absenceE : absenceM}
+                        onChange={(e) =>
+                          capE > 0 && capM <= 0 ? setAbsenceE(e.target.value) : setAbsenceM(e.target.value)
+                        }
+                        onBlur={scheduleDebouncedSave}
+                        className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="w-full rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-[#1E3A8A]/90">نسبة الحضور الإجمالية</span>
                     {attendanceRate !== null ? (
                       <span className="text-sm font-bold tabular-nums text-[#1E3A8A]">{attendanceRate}%</span>
                     ) : (
@@ -707,29 +1045,33 @@ export function SituationDetailClient({
                 </div>
               </div>
 
-              <div className="mt-4">
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <label className="block text-xs font-semibold text-slate-600">أسماء الغياب</label>
-                  <span className="text-xs font-semibold tabular-nums text-slate-500">
-                    عدد الأسماء: {parsedAbsenceNameCount}
-                  </span>
+              {!dualShift ? (
+                <div className="mt-4">
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-xs font-semibold text-slate-600">أسماء الغياب</label>
+                    <span className="text-xs font-semibold tabular-nums text-slate-500">
+                      عدد الأسماء: {parsedAbsenceNameCount}
+                    </span>
+                  </div>
+                  <textarea
+                    value={capE > 0 && capM <= 0 ? absenceNamesE : absenceNamesM}
+                    onChange={(e) =>
+                      capE > 0 && capM <= 0 ? setAbsenceNamesE(e.target.value) : setAbsenceNamesM(e.target.value)
+                    }
+                    onBlur={scheduleDebouncedSave}
+                    rows={8}
+                    placeholder={
+                      "اكتب أسماء الطلبة الغائبين...\nكل اسم في سطر مستقل أو افصل بينهم بفاصلة"
+                    }
+                    className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20"
+                  />
                 </div>
-                <textarea
-                  value={absenceNames}
-                  onChange={(e) => setAbsenceNames(e.target.value)}
-                  onBlur={scheduleDebouncedSave}
-                  rows={8}
-                  placeholder={
-                    "اكتب أسماء الطلبة الغائبين...\nكل اسم في سطر مستقل أو افصل بينهم بفاصلة"
-                  }
-                  className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20"
-                />
-              </div>
+              ) : null}
               <button
                 type="button"
                 onClick={flushSave}
                 disabled={isPending}
-                className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border-2 border-slate-300 bg-slate-50/80 px-5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#1E3A8A]/35 hover:bg-white disabled:opacity-60"
+                className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border border-[#1f3578] bg-[#274092] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2f4d9e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#274092]/45 disabled:opacity-60"
               >
                 حفظ الحضور والغياب
               </button>
@@ -753,20 +1095,70 @@ export function SituationDetailClient({
                 className="relative mb-2 flex flex-wrap items-center gap-3 text-2xl font-extrabold tracking-tight sm:text-[1.65rem]"
                 style={{ color: PRIMARY }}
               >
-                <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white text-[#1E3A8A] shadow-md ring-1 ring-[#1E3A8A]/15">
-                  <IconSeal className="h-7 w-7" />
-                </span>
+                <IconSeal className="h-7 w-7 shrink-0 text-[#1E3A8A]" aria-hidden />
                 الاعتماد النهائي ورفع الموقف الرسمي
               </h2>
               <p className="relative mb-8 max-w-3xl border-b border-[#1E3A8A]/10 pb-6 text-sm font-semibold leading-relaxed text-slate-700">
-                يُستخدم لاعتماد رفع موقف رئيس القسم ومتابعة اعتماد عميد / المعاون العلمي حسب الصلاحيات.
+                الترتيب المعتمد: بعد اكتمال الحضور والغياب يتم <strong>اعتماد الموقف</strong> من العميد أو المعاون
+                العلمي، ثم يُفعّل <strong>تأكيد رفع الموقف</strong> خلال نافذة الامتحان؛ بعد الرفع يظهر الموقف في
+                صفحة «متابعة المواقف».
               </p>
 
               <div className="relative grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
                 <div
+                  className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
+                >
+                  <p className="text-xs font-extrabold uppercase tracking-wide text-[#1E3A8A]">
+                    الخطوة 1 — اعتماد العميد / المعاون العلمي
+                  </p>
+                  <p className="mt-3 rounded-lg border border-slate-200/90 bg-[#F8FAFC] px-3 py-2 text-sm text-slate-700">
+                    اسم المعتمد المسجل:{" "}
+                    <span className="font-bold text-[#0F172A]">{deanName || "—"}</span>
+                  </p>
+                  <label htmlFor="dean-note" className="mt-4 block text-xs font-bold text-[#1E3A8A]/80">
+                    ملاحظات الاعتماد (اختياري)
+                  </label>
+                  <textarea
+                    id="dean-note"
+                    rows={3}
+                    placeholder="ملاحظات الاعتماد (اختياري)"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                  />
+                  <button
+                    type="button"
+                    onClick={onApproveDean}
+                    disabled={
+                      isPending ||
+                      detail.dean_status === "APPROVED" ||
+                      !deanApproveDataOk ||
+                      !canSubmitHeadByWorkflow
+                    }
+                    className="mt-5 inline-flex h-11 min-w-[10rem] items-center justify-center rounded-xl border-2 border-[#1E3A8A] bg-white px-5 text-sm font-extrabold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
+                  >
+                    اعتماد الموقف
+                  </button>
+                  {!canSubmitHeadByWorkflow ? (
+                    <p className="mt-3 text-xs font-medium text-amber-800">
+                      زر الاعتماد معطّل لأن حالة الجدول في سير العمل:{" "}
+                      <strong>{WORKFLOW_LABEL[detail.workflow_status]}</strong> — يجب أن يكون «مرفوعاً للمتابعة» أو
+                      «معتمداً» من صفحة الجداول الامتحانية.
+                    </p>
+                  ) : null}
+                  {canSubmitHeadByWorkflow && !deanApproveDataOk ? (
+                    <p className="mt-3 text-xs font-medium text-slate-600">
+                      أكمل تطابق الحضور والغياب مع السعة وأدخل أسماء الغياب عند وجود غياب؛ عند الضغط على الاعتماد يُحفظ
+                      الحضور تلقائياً ثم يُنفَّذ الاعتماد.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div
                   className={`rounded-[20px] border border-slate-200/90 bg-white/95 p-5 shadow-sm backdrop-blur-sm sm:p-6 ${cardLift}`}
                 >
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-extrabold uppercase tracking-wide text-[#1E3A8A]">
+                    الخطوة 2 — تأكيد رفع الموقف الرسمي
+                  </p>
+                  <p className="mt-3 text-sm text-slate-700">
                     حالة الرفع:{" "}
                     <strong className="text-slate-900">{detail.is_uploaded ? "مرفوع" : "غير مرفوع"}</strong>
                     {detail.dean_status === "APPROVED" ? (
@@ -782,8 +1174,15 @@ export function SituationDetailClient({
                     <div className="min-w-0 space-y-2.5 text-xs font-medium leading-relaxed text-slate-800">
                       <p className="text-sm font-extrabold text-[#1E3A8A]">تنبيه قبل التأكيد</p>
                       <p>
-                        قبل التأكيد، راجع تطابق أعداد الحضور والغياب مع سعة القاعة واستيفاء أسماء الغياب عند وجود غياب.
+                        لا يُفعّل «تأكيد رفع الموقف» إلا بعد <strong>اعتماد الموقف</strong> من العميد أو المعاون
+                        العلمي. راجع تطابق الحضور والغياب مع السعة وأسماء الغياب عند وجود غياب.
                       </p>
+                      {detail.dean_status !== "APPROVED" && !detail.is_uploaded ? (
+                        <p className="rounded-lg border border-[#1E3A8A]/15 bg-white/90 px-2 py-1.5 text-slate-800 shadow-sm">
+                          أكمل البيانات ثم استخدم «اعتماد الموقف» في الخطوة 1؛ بعدها يصبح زر التأكيد متاحاً (مع بقية
+                          الشروط).
+                        </p>
+                      ) : null}
                       {!scheduleAllowed ? (
                         <p className="rounded-lg border border-[#1E3A8A]/15 bg-white/90 px-2 py-1.5 text-slate-800 shadow-sm">
                           النافذة الزمنية لرفع الموقف غير مفتوحة حالياً.
@@ -804,42 +1203,14 @@ export function SituationDetailClient({
                     disabled={
                       isPending ||
                       !scheduleAllowed ||
-                      detail.dean_status === "APPROVED" ||
-                      !canSubmitHeadByWorkflow
+                      !canSubmitHeadByWorkflow ||
+                      detail.is_uploaded ||
+                      detail.dean_status !== "APPROVED"
                     }
                     className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-xl bg-[#1E3A8A] px-8 text-base font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] hover:shadow-[0_8px_22px_-4px_rgba(30,58,138,0.55)] active:scale-[0.995] disabled:pointer-events-none disabled:opacity-45 sm:w-auto sm:min-w-[320px]"
                   >
                     <IconCircleCheck className="h-6 w-6 shrink-0 opacity-95" aria-hidden />
                     تأكيد رفع الموقف
-                  </button>
-                </div>
-
-                <div
-                  className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
-                >
-                  <p className="text-xs font-extrabold uppercase tracking-wide text-[#1E3A8A]">
-                    اعتماد العميد / المعاون العلمي
-                  </p>
-                  <p className="mt-3 rounded-lg border border-slate-200/90 bg-[#F8FAFC] px-3 py-2 text-sm text-slate-700">
-                    اسم المعتمد المسجل:{" "}
-                    <span className="font-bold text-[#0F172A]">{deanName || "—"}</span>
-                  </p>
-                  <label htmlFor="dean-note" className="mt-4 block text-xs font-bold text-[#1E3A8A]/80">
-                    ملاحظات الاعتماد (اختياري)
-                  </label>
-                  <textarea
-                    id="dean-note"
-                    rows={3}
-                    placeholder="ملاحظات الاعتماد (اختياري)"
-                    className="mt-1.5 w-full rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
-                  />
-                  <button
-                    type="button"
-                    onClick={onApproveDean}
-                    disabled={isPending || !detail.is_uploaded || detail.dean_status === "APPROVED"}
-                    className="mt-5 inline-flex h-11 min-w-[10rem] items-center justify-center rounded-xl border-2 border-[#1E3A8A] bg-white px-5 text-sm font-extrabold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
-                  >
-                    اعتماد الموقف
                   </button>
                 </div>
               </div>

@@ -1,6 +1,24 @@
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
+/** حضور/غياب مفصول حسب الدوام الصباحي والمسائي لامتحان واحد في القاعة */
+export type ShiftAttendanceSplit = {
+  attM: number;
+  absM: number;
+  attE: number;
+  absE: number;
+  namesM: string;
+  namesE: string;
+};
+
+export function mergeShiftAbsenceNames(morning: string, evening: string): string {
+  const m = morning.trim();
+  const e = evening.trim();
+  if (!e) return m;
+  if (!m) return e;
+  return `${m}\n--- دوام مسائي ---\n${e}`;
+}
+
 export type CollegeExamRoomRow = {
   id: string;
   owner_user_id: string;
@@ -24,9 +42,21 @@ export type CollegeExamRoomRow = {
   attendance_count: number;
   absence_count: number;
   absence_names: string;
+  attendance_morning: number;
+  absence_morning: number;
+  attendance_evening: number;
+  absence_evening: number;
+  absence_names_morning: string;
+  absence_names_evening: string;
   attendance_count_2: number;
   absence_count_2: number;
   absence_names_2: string;
+  attendance_morning_2: number;
+  absence_morning_2: number;
+  attendance_evening_2: number;
+  absence_evening_2: number;
+  absence_names_morning_2: string;
+  absence_names_evening_2: string;
   /** المرحلة الدراسية المرتبطة بالامتحان الأول في القاعة */
   stage_level: number;
   /** المرحلة للامتحان الثاني عند وجوده */
@@ -129,9 +159,21 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     attendance_count: number;
     absence_count: number;
     absence_names: string | null;
+    attendance_morning: number;
+    absence_morning: number;
+    attendance_evening: number;
+    absence_evening: number;
+    absence_names_morning: string | null;
+    absence_names_evening: string | null;
     attendance_count_2: number;
     absence_count_2: number;
     absence_names_2: string | null;
+    attendance_morning_2: number;
+    absence_morning_2: number;
+    attendance_evening_2: number;
+    absence_evening_2: number;
+    absence_names_morning_2: string | null;
+    absence_names_evening_2: string | null;
     stage_level: number;
     stage_level_2: number | null;
     created_at: Date;
@@ -148,7 +190,11 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
             r.capacity_morning, r.capacity_evening, r.capacity_total,
             r.capacity_morning_2, r.capacity_evening_2, r.capacity_total_2,
             r.attendance_count, r.absence_count, r.absence_names,
+            r.attendance_morning, r.absence_morning, r.attendance_evening, r.absence_evening,
+            r.absence_names_morning, r.absence_names_evening,
             r.attendance_count_2, r.absence_count_2, r.absence_names_2,
+            r.attendance_morning_2, r.absence_morning_2, r.attendance_evening_2, r.absence_evening_2,
+            r.absence_names_morning_2, r.absence_names_evening_2,
             r.created_at, r.updated_at
      FROM college_exam_rooms r
      INNER JOIN college_study_subjects s ON s.id = r.study_subject_id
@@ -179,9 +225,21 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     attendance_count: row.attendance_count,
     absence_count: row.absence_count,
     absence_names: row.absence_names ?? "",
+    attendance_morning: Number(row.attendance_morning ?? 0),
+    absence_morning: Number(row.absence_morning ?? 0),
+    attendance_evening: Number(row.attendance_evening ?? 0),
+    absence_evening: Number(row.absence_evening ?? 0),
+    absence_names_morning: row.absence_names_morning ?? "",
+    absence_names_evening: row.absence_names_evening ?? "",
     attendance_count_2: Number(row.attendance_count_2 ?? 0),
     absence_count_2: Number(row.absence_count_2 ?? 0),
     absence_names_2: row.absence_names_2 ?? "",
+    attendance_morning_2: Number(row.attendance_morning_2 ?? 0),
+    absence_morning_2: Number(row.absence_morning_2 ?? 0),
+    attendance_evening_2: Number(row.attendance_evening_2 ?? 0),
+    absence_evening_2: Number(row.absence_evening_2 ?? 0),
+    absence_names_morning_2: row.absence_names_morning_2 ?? "",
+    absence_names_evening_2: row.absence_names_evening_2 ?? "",
     stage_level: Number(row.stage_level ?? 1),
     stage_level_2: row.stage_level_2 != null ? Number(row.stage_level_2) : null,
     created_at: row.created_at,
@@ -209,7 +267,28 @@ export type CreateCollegeExamRoomInput = {
   absenceNames2: string;
   stageLevel: string;
   stageLevel2: string;
+  /** عند الحفظ من نموذج يفصل الصباحي/المسائي */
+  shift1Attendance?: ShiftAttendanceSplit;
+  shift2Attendance?: ShiftAttendanceSplit;
 };
+
+export function inferredShiftFromTotals(
+  capM: number,
+  capE: number,
+  attendance: number,
+  absence: number,
+  names: string
+): ShiftAttendanceSplit {
+  const cM = Math.max(0, Math.floor(capM));
+  const cE = Math.max(0, Math.floor(capE));
+  if (cM > 0 && cE <= 0) {
+    return { attM: attendance, absM: absence, attE: 0, absE: 0, namesM: names, namesE: "" };
+  }
+  if (cM <= 0 && cE > 0) {
+    return { attM: 0, absM: 0, attE: attendance, absE: absence, namesM: "", namesE: names };
+  }
+  return { attM: attendance, absM: absence, attE: 0, absE: 0, namesM: names, namesE: "" };
+}
 
 function buildSlotPayload(input: CreateCollegeExamRoomInput): {
   capM: number;
@@ -315,6 +394,15 @@ export async function createCollegeExamRoom(
   const sl2 = parseSecondStageLevel(input.stageLevel2, slot.id2);
   if (!sl2.ok) return sl2;
 
+  const shift1 =
+    input.shift1Attendance ??
+    inferredShiftFromTotals(slot.capM, slot.capE, attendanceCount, absenceCount, input.absenceNames.trim());
+  const shift2: ShiftAttendanceSplit =
+    input.shift2Attendance ??
+    (slot.id2
+      ? inferredShiftFromTotals(slot.capM2, slot.capE2, slot.att2, slot.abs2, slot.absNames2)
+      : { attM: 0, absM: 0, attE: 0, absE: 0, namesM: "", namesE: "" });
+
   await pool.query(
     `INSERT INTO college_exam_rooms
       (owner_user_id, study_subject_id, study_subject_id_2, stage_level, stage_level_2, serial_no, room_name, supervisor_name, invigilators,
@@ -322,9 +410,11 @@ export async function createCollegeExamRoom(
        capacity_morning, capacity_evening, capacity_total,
        capacity_morning_2, capacity_evening_2, capacity_total_2,
        attendance_count, absence_count, absence_names,
+       attendance_morning, absence_morning, attendance_evening, absence_evening, absence_names_morning, absence_names_evening,
        attendance_count_2, absence_count_2, absence_names_2,
+       attendance_morning_2, absence_morning_2, attendance_evening_2, absence_evening_2, absence_names_morning_2, absence_names_evening_2,
        created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW())`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,NOW(),NOW())`,
     [
       input.ownerUserId,
       input.studySubjectId.trim(),
@@ -346,9 +436,21 @@ export async function createCollegeExamRoom(
       attendanceCount,
       absenceCount,
       input.absenceNames.trim(),
+      shift1.attM,
+      shift1.absM,
+      shift1.attE,
+      shift1.absE,
+      shift1.namesM || null,
+      shift1.namesE || null,
       slot.att2,
       slot.abs2,
       slot.absNames2 || null,
+      shift2.attM,
+      shift2.absM,
+      shift2.attE,
+      shift2.absE,
+      shift2.namesM || null,
+      shift2.namesE || null,
     ]
   );
   return { ok: true };
@@ -406,6 +508,15 @@ export async function updateCollegeExamRoom(
   const sl2 = parseSecondStageLevel(input.stageLevel2, slot.id2);
   if (!sl2.ok) return sl2;
 
+  const shift1 =
+    input.shift1Attendance ??
+    inferredShiftFromTotals(slot.capM, slot.capE, attendanceCount, absenceCount, input.absenceNames.trim());
+  const shift2: ShiftAttendanceSplit =
+    input.shift2Attendance ??
+    (slot.id2
+      ? inferredShiftFromTotals(slot.capM2, slot.capE2, slot.att2, slot.abs2, slot.absNames2)
+      : { attM: 0, absM: 0, attE: 0, absE: 0, namesM: "", namesE: "" });
+
   const r = await pool.query(
     `UPDATE college_exam_rooms
      SET study_subject_id = $1, study_subject_id_2 = $2, stage_level = $3, stage_level_2 = $4,
@@ -414,8 +525,13 @@ export async function updateCollegeExamRoom(
          capacity_morning = $11, capacity_evening = $12, capacity_total = $13,
          capacity_morning_2 = $14, capacity_evening_2 = $15, capacity_total_2 = $16,
          attendance_count = $17, absence_count = $18, absence_names = $19,
-         attendance_count_2 = $20, absence_count_2 = $21, absence_names_2 = $22, updated_at = NOW()
-     WHERE id = $23 AND owner_user_id = $24`,
+         attendance_morning = $20, absence_morning = $21, attendance_evening = $22, absence_evening = $23,
+         absence_names_morning = $24, absence_names_evening = $25,
+         attendance_count_2 = $26, absence_count_2 = $27, absence_names_2 = $28,
+         attendance_morning_2 = $29, absence_morning_2 = $30, attendance_evening_2 = $31, absence_evening_2 = $32,
+         absence_names_morning_2 = $33, absence_names_evening_2 = $34,
+         updated_at = NOW()
+     WHERE id = $35 AND owner_user_id = $36`,
     [
       input.studySubjectId.trim(),
       slot.id2,
@@ -436,9 +552,21 @@ export async function updateCollegeExamRoom(
       attendanceCount,
       absenceCount,
       input.absenceNames.trim(),
+      shift1.attM,
+      shift1.absM,
+      shift1.attE,
+      shift1.absE,
+      shift1.namesM || null,
+      shift1.namesE || null,
       slot.att2,
       slot.abs2,
       slot.absNames2 || null,
+      shift2.attM,
+      shift2.absM,
+      shift2.attE,
+      shift2.absE,
+      shift2.namesM || null,
+      shift2.namesE || null,
       input.id.trim(),
       input.ownerUserId,
     ]
@@ -447,31 +575,140 @@ export async function updateCollegeExamRoom(
   return { ok: true };
 }
 
-/** تحديث الحضور/الغياب لأحد الامتحانين حسب study_subject_id الجدول. */
-export async function patchCollegeExamRoomAttendance(input: {
-  roomId: string;
-  ownerUserId: string;
-  studySubjectId: string;
-  attendanceCount: string;
-  absenceCount: string;
-  absenceNames: string;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+export type PatchCollegeExamRoomAttendanceInput =
+  | {
+      roomId: string;
+      ownerUserId: string;
+      studySubjectId: string;
+      mode: "aggregate";
+      attendanceCount: string;
+      absenceCount: string;
+      absenceNames: string;
+    }
+  | {
+      roomId: string;
+      ownerUserId: string;
+      studySubjectId: string;
+      mode: "split";
+      attendanceMorning: string;
+      absenceMorning: string;
+      attendanceEvening: string;
+      absenceEvening: string;
+      absenceNamesMorning: string;
+      absenceNamesEvening: string;
+    };
+
+function normalizeShiftFromPatch(
+  capM: number,
+  capE: number,
+  input: PatchCollegeExamRoomAttendanceInput
+):
+  | { ok: true; shift: ShiftAttendanceSplit; aggAtt: number; aggAbs: number; aggNames: string }
+  | { ok: false; message: string } {
+  const cM = Math.max(0, Math.floor(capM));
+  const cE = Math.max(0, Math.floor(capE));
+
+  if (input.mode === "split") {
+    const attM = toInt(input.attendanceMorning);
+    const absM = toInt(input.absenceMorning);
+    const attE = toInt(input.attendanceEvening);
+    const absE = toInt(input.absenceEvening);
+    const namesM = input.absenceNamesMorning.trim();
+    const namesE = input.absenceNamesEvening.trim();
+    if (cM + cE <= 0) {
+      return { ok: false, message: "سعة القاعة لهذه المادة غير محددة في إدارة القاعات." };
+    }
+    if (cM > 0 && attM + absM !== cM) {
+      return {
+        ok: false,
+        message: "مجموع حضور وغياب الدوام الصباحي يجب أن يساوي سعة الصباحي المعتمدة في إدارة القاعات.",
+      };
+    }
+    if (cM === 0 && (attM !== 0 || absM !== 0)) {
+      return { ok: false, message: "لا توجد سعة صباحية مسجّلة؛ يجب أن يكون حضور وغياب الصباحي صفراً." };
+    }
+    if (cE > 0 && attE + absE !== cE) {
+      return {
+        ok: false,
+        message: "مجموع حضور وغياب الدوام المسائي يجب أن يساوي سعة المسائي المعتمدة في إدارة القاعات.",
+      };
+    }
+    if (cE === 0 && (attE !== 0 || absE !== 0)) {
+      return { ok: false, message: "لا توجد سعة مسائية مسجّلة؛ يجب أن يكون حضور وغياب المسائي صفراً." };
+    }
+    if (absM > 0 && !namesM) {
+      return { ok: false, message: "أدخل أسماء الغائبين للدوام الصباحي أو صفّر غياب الصباحي." };
+    }
+    if (absE > 0 && !namesE) {
+      return { ok: false, message: "أدخل أسماء الغائبين للدوام المسائي أو صفّر غياب المسائي." };
+    }
+    return {
+      ok: true,
+      shift: { attM, absM, attE, absE, namesM, namesE },
+      aggAtt: attM + attE,
+      aggAbs: absM + absE,
+      aggNames: mergeShiftAbsenceNames(namesM, namesE),
+    };
+  }
+
+  const att = toInt(input.attendanceCount);
+  const abs = toInt(input.absenceCount);
+  const names = input.absenceNames.trim();
+  if (cM > 0 && cE > 0) {
+    return {
+      ok: false,
+      message: "القاعة مسجّلة بدوام صباحي ومسائي — عبّئ الحضور والغياب لكل دوام على حدة.",
+    };
+  }
+  if (cM + cE <= 0) {
+    return { ok: false, message: "سعة القاعة لهذه المادة غير محددة في إدارة القاعات." };
+  }
+  if (att + abs !== cM + cE) {
+    return { ok: false, message: "مجموع الحضور والغياب يجب أن يساوي السعة المعتمدة لهذه المادة في القاعة." };
+  }
+  if (abs > 0 && !names) {
+    return { ok: false, message: "أدخل أسماء الغائبين أو صفّر الغياب." };
+  }
+  if (cE <= 0) {
+    return {
+      ok: true,
+      shift: { attM: att, absM: abs, attE: 0, absE: 0, namesM: names, namesE: "" },
+      aggAtt: att,
+      aggAbs: abs,
+      aggNames: names,
+    };
+  }
+  return {
+    ok: true,
+    shift: { attM: 0, absM: 0, attE: att, absE: abs, namesM: "", namesE: names },
+    aggAtt: att,
+    aggAbs: abs,
+    aggNames: names,
+  };
+}
+
+/** تحديث الحضور/الغياب لأحد الامتحانين حسب study_subject_id الجدول (مع دعم تفصيل صباحي/مسائي). */
+export async function patchCollegeExamRoomAttendance(
+  input: PatchCollegeExamRoomAttendanceInput
+): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
   await ensureCoreSchema();
   if (!/^\d+$/.test(input.roomId.trim())) return { ok: false, message: "معرّف القاعة غير صالح." };
   if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "معرّف المادة غير صالح." };
-  const attendanceCount = toInt(input.attendanceCount);
-  const absenceCount = toInt(input.absenceCount);
-  const absenceNames = input.absenceNames.trim();
-  if (attendanceCount < 0 || absenceCount < 0) return { ok: false, message: "قيم الحضور والغياب غير صالحة." };
   const pool = getDbPool();
   const capR = await pool.query<{
     study_subject_id: string | number;
     study_subject_id_2: string | number | null;
+    capacity_morning: number;
+    capacity_evening: number;
     capacity_total: number;
+    capacity_morning_2: number;
+    capacity_evening_2: number;
     capacity_total_2: number;
   }>(
-    `SELECT study_subject_id, study_subject_id_2, capacity_total, capacity_total_2
+    `SELECT study_subject_id, study_subject_id_2,
+            capacity_morning, capacity_evening, capacity_total,
+            capacity_morning_2, capacity_evening_2, capacity_total_2
      FROM college_exam_rooms WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
     [input.roomId.trim(), input.ownerUserId]
   );
@@ -482,30 +719,62 @@ export async function patchCollegeExamRoomAttendance(input: {
   const second = row.study_subject_id_2 != null ? String(row.study_subject_id_2) : null;
 
   if (sid === primary) {
-    const capacityTotal = Number(row.capacity_total ?? 0);
-    if (attendanceCount + absenceCount > capacityTotal) {
-      return { ok: false, message: "مجموع الحضور والغياب يتجاوز السعة المسجّلة للامتحان الأول في القاعة." };
-    }
+    const capM = Number(row.capacity_morning ?? 0);
+    const capE = Number(row.capacity_evening ?? 0);
+    const resolved = normalizeShiftFromPatch(capM, capE, input);
+    if (!resolved.ok) return resolved;
+    const { shift, aggAtt, aggAbs, aggNames } = resolved;
     const r = await pool.query(
       `UPDATE college_exam_rooms
-       SET attendance_count = $1, absence_count = $2, absence_names = $3, updated_at = NOW()
-       WHERE id = $4 AND owner_user_id = $5`,
-      [attendanceCount, absenceCount, absenceNames || null, input.roomId.trim(), input.ownerUserId]
+       SET attendance_count = $1, absence_count = $2, absence_names = $3,
+           attendance_morning = $4, absence_morning = $5, attendance_evening = $6, absence_evening = $7,
+           absence_names_morning = $8, absence_names_evening = $9,
+           updated_at = NOW()
+       WHERE id = $10 AND owner_user_id = $11`,
+      [
+        aggAtt,
+        aggAbs,
+        aggNames || null,
+        shift.attM,
+        shift.absM,
+        shift.attE,
+        shift.absE,
+        shift.namesM || null,
+        shift.namesE || null,
+        input.roomId.trim(),
+        input.ownerUserId,
+      ]
     );
     if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذر تحديث بيانات الحضور." };
     return { ok: true };
   }
 
   if (second && sid === second) {
-    const capacityTotal2 = Number(row.capacity_total_2 ?? 0);
-    if (attendanceCount + absenceCount > capacityTotal2) {
-      return { ok: false, message: "مجموع الحضور والغياب يتجاوز السعة المسجّلة للامتحان الثاني في القاعة." };
-    }
+    const capM = Number(row.capacity_morning_2 ?? 0);
+    const capE = Number(row.capacity_evening_2 ?? 0);
+    const resolved = normalizeShiftFromPatch(capM, capE, input);
+    if (!resolved.ok) return resolved;
+    const { shift, aggAtt, aggAbs, aggNames } = resolved;
     const r = await pool.query(
       `UPDATE college_exam_rooms
-       SET attendance_count_2 = $1, absence_count_2 = $2, absence_names_2 = $3, updated_at = NOW()
-       WHERE id = $4 AND owner_user_id = $5`,
-      [attendanceCount, absenceCount, absenceNames || null, input.roomId.trim(), input.ownerUserId]
+       SET attendance_count_2 = $1, absence_count_2 = $2, absence_names_2 = $3,
+           attendance_morning_2 = $4, absence_morning_2 = $5, attendance_evening_2 = $6, absence_evening_2 = $7,
+           absence_names_morning_2 = $8, absence_names_evening_2 = $9,
+           updated_at = NOW()
+       WHERE id = $10 AND owner_user_id = $11`,
+      [
+        aggAtt,
+        aggAbs,
+        aggNames || null,
+        shift.attM,
+        shift.absM,
+        shift.attE,
+        shift.absE,
+        shift.namesM || null,
+        shift.namesE || null,
+        input.roomId.trim(),
+        input.ownerUserId,
+      ]
     );
     if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذر تحديث بيانات الحضور." };
     return { ok: true };

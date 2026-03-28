@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
@@ -130,6 +130,7 @@ function AddStudySubjectDialog({
 }) {
   const [state, formAction, pending] = useActionState(createCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const successHandledRef = useRef(false);
   const mounted = useClientMounted();
 
   useEffect(() => {
@@ -139,7 +140,9 @@ function AddStudySubjectDialog({
   }, [open, mounted]);
 
   useEffect(() => {
-    if (state?.ok) onClose();
+    if (!state?.ok || successHandledRef.current) return;
+    successHandledRef.current = true;
+    onClose();
   }, [state, onClose]);
 
   if (!mounted) return null;
@@ -177,6 +180,7 @@ function EditStudySubjectDialog({
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const successHandledRef = useRef(false);
   const key = useMemo(() => `${row?.id ?? "none"}-${open ? "open" : "closed"}`, [row?.id, open]);
   const mounted = useClientMounted();
 
@@ -187,7 +191,9 @@ function EditStudySubjectDialog({
   }, [open, mounted]);
 
   useEffect(() => {
-    if (state?.ok) onClose();
+    if (!state?.ok || successHandledRef.current) return;
+    successHandledRef.current = true;
+    onClose();
   }, [state, onClose]);
 
   if (!mounted) return null;
@@ -248,6 +254,7 @@ export function StudySubjectsPanel({
 }) {
   const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
+  const [addDialogNonce, setAddDialogNonce] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<CollegeStudySubjectRow | null>(null);
   const editStageOptions = useMemo(() => {
@@ -279,6 +286,9 @@ export function StudySubjectsPanel({
   useEffect(() => {
     setPage(1);
   }, [query, filterStudyType, filterBranch]);
+
+  const closeAddDialog = useCallback(() => setAddOpen(false), []);
+  const closeEditDialog = useCallback(() => setEditingRow(null), []);
 
   const stats = useMemo(() => {
     const totalSubjects = rows.length;
@@ -340,19 +350,22 @@ export function StudySubjectsPanel({
       </header>
 
       <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
-              className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#172554]"
+              onClick={() => {
+                setAddDialogNonce((n) => n + 1);
+                setAddOpen(true);
+              }}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
             >
               إضافة مادة دراسية
             </button>
             <button
               type="button"
               onClick={exportCsv}
-              className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2 text-sm font-semibold text-[#334155] transition hover:bg-[#F8FAFC]"
+              className="rounded-xl border border-white/45 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-[2px] transition hover:border-white/60 hover:bg-white/20"
             >
               تصدير
             </button>
@@ -363,12 +376,12 @@ export function StudySubjectsPanel({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ابحث باسم المادة أو القسم"
-              className="h-10 w-[250px] rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+              className="h-10 w-[250px] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
             <select
               value={filterStudyType}
               onChange={(e) => setFilterStudyType(e.target.value as "ALL" | StudyType)}
-              className="h-10 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             >
               <option value="ALL">كل أنواع الدراسة</option>
               <option value="ANNUAL">سنوي</option>
@@ -379,7 +392,7 @@ export function StudySubjectsPanel({
             <select
               value={filterBranch}
               onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
-              className="h-10 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             >
               <option value="ALL">الكل</option>
               <option value="DEPARTMENT">الأقسام</option>
@@ -528,19 +541,25 @@ export function StudySubjectsPanel({
         </div>
       </div>
 
-      <AddStudySubjectDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        branches={branches}
-        stageOptions={stageOptions}
-      />
-      <EditStudySubjectDialog
-        row={editingRow}
-        open={Boolean(editingRow)}
-        onClose={() => setEditingRow(null)}
-        branches={branches}
-        stageOptions={editStageOptions}
-      />
+      {addOpen ? (
+        <AddStudySubjectDialog
+          key={addDialogNonce}
+          open
+          onClose={closeAddDialog}
+          branches={branches}
+          stageOptions={stageOptions}
+        />
+      ) : null}
+      {editingRow ? (
+        <EditStudySubjectDialog
+          key={editingRow.id}
+          row={editingRow}
+          open
+          onClose={closeEditDialog}
+          branches={branches}
+          stageOptions={editStageOptions}
+        />
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
+import { listCollegeSubjectUsageByOwner, listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { getSession } from "@/lib/session";
 import { SubjectsPanel } from "./subjects-panel";
 
@@ -12,6 +12,9 @@ export default async function CollegeSubjectsPage() {
     redirect("/dashboard");
   }
 
-  const rows = await listCollegeSubjectsByOwner(session.uid);
-  return <SubjectsPanel rows={rows} />;
+  const [rows, usageRows] = await Promise.all([
+    listCollegeSubjectsByOwner(session.uid),
+    listCollegeSubjectUsageByOwner(session.uid),
+  ]);
+  return <SubjectsPanel rows={rows} usageRows={usageRows} />;
 }

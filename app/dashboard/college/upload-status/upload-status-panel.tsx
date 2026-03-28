@@ -44,17 +44,17 @@ export function UploadStatusPanel({
 
       <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
         <table className="w-full min-w-[920px] border-collapse text-right">
-          <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
-            <tr className="border-b border-[#E2E8F0]">
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">تاريخ الامتحان</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">الوقت / المدة</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">القاعة</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">المادة</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">القسم</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">حالة الجدول</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">حالة رفع الموقف</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">مكتمل</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">تفاصيل</th>
+          <thead className="sticky top-0 z-10 border-b border-[#1f3578] bg-[#274092]">
+            <tr>
+              <th className="px-4 py-3 text-xs font-bold text-white">تاريخ الامتحان</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">الوقت / المدة</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">القاعة</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">المادة</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">القسم</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">حالة الجدول</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">حالة رفع الموقف</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">مكتمل</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">تفاصيل</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E2E8F0]">

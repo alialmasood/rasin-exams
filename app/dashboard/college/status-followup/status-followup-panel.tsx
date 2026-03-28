@@ -1,8 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
-import type { DeanSituationStatus, StatusFollowupTableRow } from "@/lib/college-exam-situations";
+import type {
+  DeanSituationStatus,
+  ExamDayUploadSummary,
+  StatusFollowupTableRow,
+} from "@/lib/college-exam-situations";
+import { getDailyFinalSituationReportHtmlAction } from "./actions";
 
 const WORKFLOW_LABEL: Record<CollegeExamScheduleRow["workflow_status"], string> = {
   DRAFT: "مسودة",
@@ -18,6 +24,37 @@ const DEAN_LABEL: Record<DeanSituationStatus, string> = {
   REJECTED: "مرفوض من العميد",
 };
 
+function openHtmlPrintWindow(html: string): boolean {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  try {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    const runPrint = () => {
+      try {
+        w.print();
+      } catch {
+        window.alert("تعذر بدء الطباعة. جرّب متصفحاً آخر أو أعد المحاولة.");
+      }
+    };
+    if (w.document.readyState === "complete") {
+      window.setTimeout(runPrint, 120);
+    } else {
+      w.addEventListener("load", () => window.setTimeout(runPrint, 120), { once: true });
+    }
+    return true;
+  } catch {
+    try {
+      w.close();
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
 function formatDateTimeBaghdad(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -31,17 +68,99 @@ function formatDateTimeBaghdad(iso: string | null): string {
   }
 }
 
+function formatExamDateAr(isoDate: string): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      dateStyle: "full",
+      timeZone: "Asia/Baghdad",
+    }).format(new Date(`${isoDate}T12:00:00`));
+  } catch {
+    return isoDate;
+  }
+}
+
 export function StatusFollowupPanel({
   rows,
   collegeLabel,
+  daySummaries,
 }: {
   rows: StatusFollowupTableRow[];
   collegeLabel: string;
+  daySummaries: ExamDayUploadSummary[];
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  const completedDays = daySummaries.filter(
+    (d) => d.total_sessions > 0 && d.uploaded_sessions >= d.total_sessions
+  );
+  const inProgressDays = daySummaries.filter(
+    (d) => d.total_sessions > 0 && d.uploaded_sessions < d.total_sessions
+  );
+
+  function onPrintDailyReport(examDate: string) {
+    startTransition(async () => {
+      const res = await getDailyFinalSituationReportHtmlAction(examDate);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      if (!openHtmlPrintWindow(res.html)) {
+        window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+      }
+    });
+  }
 
   return (
     <section className="space-y-6" dir="rtl">
+      {completedDays.length > 0 ? (
+        <div
+          className="space-y-3 rounded-[22px] border border-emerald-200/90 bg-gradient-to-b from-emerald-50/95 to-white px-5 py-4 shadow-sm"
+          role="status"
+        >
+          <p className="text-sm font-extrabold text-emerald-900">اكتمال مواقف يوم امتحاني</p>
+          <p className="text-sm leading-relaxed text-emerald-950/90">
+            للأيام التالية تم رفع موقف <strong>جميع</strong> المواد الامتحانية المجدولة (المرسلة أو المعتمدة في
+            الجداول). يمكنك طباعة <strong>التقرير النهائي</strong> لليوم أو حفظه كـ PDF من نافذة الطباعة.
+          </p>
+          <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {completedDays.map((d) => (
+              <li
+                key={d.exam_date}
+                className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2"
+              >
+                <span className="text-sm font-semibold text-[#0F172A]">{formatExamDateAr(d.exam_date)}</span>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => onPrintDailyReport(d.exam_date)}
+                  className="rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#163170] disabled:opacity-50"
+                >
+                  تقرير نهائي لليوم — طباعة / PDF
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {inProgressDays.length > 0 ? (
+        <div
+          className="rounded-[22px] border border-amber-200/90 bg-amber-50/60 px-5 py-4 text-sm text-amber-950/95"
+          role="status"
+        >
+          <p className="font-extrabold text-amber-900">متابعة رفع المواقف حسب اليوم</p>
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            {inProgressDays.map((d) => (
+              <li key={d.exam_date}>
+                <span className="font-semibold">{formatExamDateAr(d.exam_date)}</span>: مرفوع {d.uploaded_sessions} من{" "}
+                {d.total_sessions} جلسة — عند اكتمال العدد يظهر تنبيه التقرير النهائي أعلاه.
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <header className="relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"

@@ -249,28 +249,6 @@ export async function createCollegeExamSchedule(input: {
     return { ok: false, message: `لا يمكن الجدولة في هذا اليوم (${holidayName}).` };
   }
 
-  const contextLocked = await pool.query(
-    `SELECT 1
-     FROM college_exam_schedules
-     WHERE owner_user_id = $1
-       AND college_subject_id = $2
-       AND schedule_type = $3
-       AND COALESCE(term_label, '') = COALESCE($4, '')
-       AND COALESCE(academic_year, '') = COALESCE($5, '')
-       AND workflow_status IN ('SUBMITTED','APPROVED')
-     LIMIT 1`,
-    [
-      input.ownerUserId,
-      input.collegeSubjectId.trim(),
-      input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL",
-      input.termLabel.trim() || null,
-      input.academicYear.trim() || null,
-    ]
-  );
-  if ((contextLocked.rowCount ?? 0) > 0) {
-    return { ok: false, message: "هذا الجدول مرفوع للمتابعة ولا يمكن تعديل إدخالاته." };
-  }
-
   const stageNum = Number(input.stageLevel.trim());
   const dup = await pool.query(
     `SELECT 1
@@ -324,7 +302,7 @@ export async function createCollegeExamSchedule(input: {
     `INSERT INTO college_exam_schedules
       (owner_user_id, college_subject_id, study_subject_id, room_id, schedule_type, workflow_status, term_label,
        academic_year, stage_level, exam_date, start_time, end_time, duration_minutes, notes, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,'DRAFT',$6,$7,$8,$9,$10::time,$11::time,$12,$13,NOW(),NOW())
+     VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10::time,$11::time,$12,$13,NOW(),NOW())
      RETURNING id`,
     [
       input.ownerUserId,
@@ -470,8 +448,10 @@ export async function updateCollegeExamSchedule(input: {
     `UPDATE college_exam_schedules
      SET college_subject_id = $1, study_subject_id = $2, room_id = $3,
          schedule_type = $4, term_label = $5, academic_year = $6, stage_level = $7, exam_date = $8,
-         start_time = $9::time, end_time = $10::time, duration_minutes = $11, notes = $12, updated_at = NOW()
-     WHERE id = $13 AND owner_user_id = $14 AND workflow_status IN ('DRAFT','REJECTED')`,
+         start_time = $9::time, end_time = $10::time, duration_minutes = $11, notes = $12,
+         workflow_status = 'APPROVED', updated_at = NOW()
+     WHERE id = $13 AND owner_user_id = $14
+       AND UPPER(TRIM(workflow_status::text)) IN ('DRAFT','REJECTED','SUBMITTED','APPROVED')`,
     [
       input.collegeSubjectId.trim(),
       input.studySubjectId.trim(),
@@ -489,7 +469,7 @@ export async function updateCollegeExamSchedule(input: {
       input.ownerUserId,
     ]
   );
-  if ((upd.rowCount ?? 0) === 0) return { ok: false, message: "الإدخال غير موجود أو مرفوع/معتمد ولا يمكن تعديله." };
+  if ((upd.rowCount ?? 0) === 0) return { ok: false, message: "الإدخال غير موجود أو لا يمكن تعديله." };
   const rows = await listCollegeExamSchedulesByOwner(input.ownerUserId);
   const row = rows.find((r) => r.id === input.id.trim());
   if (!row) return { ok: false, message: "تم التحديث لكن تعذر تحميل السجل." };
@@ -512,53 +492,13 @@ export async function deleteCollegeExamSchedule(input: {
   if (!/^\d+$/.test(input.id.trim())) return { ok: false, message: "معرّف الإدخال غير صالح." };
   await ensureCoreSchema();
   const pool = getDbPool();
-  const r = await pool.query(`DELETE FROM college_exam_schedules WHERE id = $1 AND owner_user_id = $2 AND workflow_status IN ('DRAFT','REJECTED')`, [
+  const r = await pool.query(`DELETE FROM college_exam_schedules WHERE id = $1 AND owner_user_id = $2`, [
     input.id.trim(),
     input.ownerUserId,
   ]);
-  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "الإدخال غير موجود أو مرفوع/معتمد ولا يمكن حذفه." };
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "الإدخال غير موجود أو لا يمكن حذفه." };
   await writeScheduleAudit(input.ownerUserId, "EXAM_SCHEDULE_DELETED", input.id.trim(), {});
   return { ok: true, id: input.id.trim() };
-}
-
-export async function submitCollegeExamScheduleContext(input: {
-  ownerUserId: string;
-  collegeSubjectId: string;
-  scheduleType: string;
-  termLabel: string;
-  academicYear: string;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
-  await ensureCoreSchema();
-  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "يرجى اختيار القسم أو الفرع." };
-  if (!input.termLabel.trim()) return { ok: false, message: "يرجى اختيار الفصل الدراسي." };
-  if (!input.academicYear.trim()) return { ok: false, message: "يرجى تحديد العام الدراسي." };
-  const pool = getDbPool();
-  const r = await pool.query(
-    `UPDATE college_exam_schedules
-     SET workflow_status = 'SUBMITTED', updated_at = NOW()
-     WHERE owner_user_id = $1
-       AND college_subject_id = $2
-       AND schedule_type = $3
-       AND COALESCE(term_label, '') = COALESCE($4, '')
-       AND COALESCE(academic_year, '') = COALESCE($5, '')
-       AND workflow_status = 'DRAFT'`,
-    [
-      input.ownerUserId,
-      input.collegeSubjectId.trim(),
-      input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL",
-      input.termLabel.trim() || null,
-      input.academicYear.trim() || null,
-    ]
-  );
-  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "لا توجد مسودات ضمن هذا الجدول لرفعها." };
-  await writeScheduleAudit(input.ownerUserId, "EXAM_SCHEDULE_SUBMITTED", null, {
-    collegeSubjectId: input.collegeSubjectId.trim(),
-    scheduleType: input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL",
-    termLabel: input.termLabel.trim() || null,
-    academicYear: input.academicYear.trim() || null,
-  });
-  return { ok: true };
 }
 
 export async function reviewCollegeExamScheduleContext(input: {
@@ -584,7 +524,10 @@ export async function reviewCollegeExamScheduleContext(input: {
        AND schedule_type = $4
        AND COALESCE(term_label, '') = COALESCE($5, '')
        AND COALESCE(academic_year, '') = COALESCE($6, '')
-       AND workflow_status = 'SUBMITTED'`,
+       AND (
+         ($1::text = 'APPROVED' AND UPPER(TRIM(workflow_status::text)) = 'SUBMITTED')
+         OR ($1::text = 'REJECTED' AND UPPER(TRIM(workflow_status::text)) IN ('SUBMITTED', 'APPROVED'))
+       )`,
     [
       status,
       input.ownerUserId,
@@ -594,7 +537,15 @@ export async function reviewCollegeExamScheduleContext(input: {
       input.academicYear.trim() || null,
     ]
   );
-  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "لا توجد إدخالات مرفوعة ضمن هذا السياق." };
+  if ((r.rowCount ?? 0) === 0) {
+    return {
+      ok: false,
+      message:
+        status === "APPROVED"
+          ? "لا توجد إدخالات بحالة «مرفوع للمتابعة» لاعتمادها (الجداول المكتملة تُعتمد تلقائياً من الكلية)."
+          : "لا توجد إدخالات معتمدة أو مرفوعة لرفضها ضمن هذا السياق.",
+    };
+  }
   await writeScheduleAudit(input.reviewerUserId, `EXAM_SCHEDULE_${status}`, null, {
     ownerUserId: input.ownerUserId,
     collegeSubjectId: input.collegeSubjectId.trim(),

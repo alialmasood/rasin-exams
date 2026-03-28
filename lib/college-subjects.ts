@@ -125,3 +125,46 @@ export async function deleteCollegeSubject(input: {
   if ((r.rowCount ?? 0) === 0) return { ok: false, message: "العنصر غير موجود أو لا تملك صلاحية حذفه." };
   return { ok: true };
 }
+
+/** أعداد المواد الدراسية وجداول الامتحانات لكل قسم/فرع (للوحة الأقسام). */
+export type CollegeSubjectUsageRow = {
+  college_subject_id: string;
+  study_subjects_count: number;
+  exam_schedules_count: number;
+};
+
+export async function listCollegeSubjectUsageByOwner(ownerUserId: string): Promise<CollegeSubjectUsageRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{
+    college_subject_id: string | number;
+    study_subjects_count: string | number;
+    exam_schedules_count: string | number;
+  }>(
+    `SELECT c.id AS college_subject_id,
+            COALESCE(ss.cnt, 0)::bigint AS study_subjects_count,
+            COALESCE(ex.cnt, 0)::bigint AS exam_schedules_count
+     FROM college_subjects c
+     LEFT JOIN (
+       SELECT college_subject_id, COUNT(*)::int AS cnt
+       FROM college_study_subjects
+       WHERE owner_user_id = $1
+       GROUP BY college_subject_id
+     ) ss ON ss.college_subject_id = c.id
+     LEFT JOIN (
+       SELECT college_subject_id, COUNT(*)::int AS cnt
+       FROM college_exam_schedules
+       WHERE owner_user_id = $1
+       GROUP BY college_subject_id
+     ) ex ON ex.college_subject_id = c.id
+     WHERE c.owner_user_id = $1
+     ORDER BY c.created_at DESC`,
+    [ownerUserId]
+  );
+  return r.rows.map((row) => ({
+    college_subject_id: String(row.college_subject_id),
+    study_subjects_count: Number(row.study_subjects_count),
+    exam_schedules_count: Number(row.exam_schedules_count),
+  }));
+}

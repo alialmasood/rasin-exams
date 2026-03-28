@@ -7,6 +7,10 @@ import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import {
+  buildCollegeExamRoomsReportHtml,
+  printCollegeExamRoomsReportHtml,
+} from "@/lib/college-rooms-report-html";
+import {
   createCollegeExamRoomAction,
   deleteCollegeExamRoomAction,
   updateCollegeExamRoomAction,
@@ -24,13 +28,13 @@ function splitNameList(raw: string): string[] {
 function StackedNamesCell({ value }: { value: string }) {
   const items = splitNameList(value);
   if (items.length === 0) {
-    return <span className="text-[#94A3B8]">—</span>;
+    return <span className="text-[11px] text-[#94A3B8]">—</span>;
   }
   return (
-    <div className="flex min-w-0 max-w-full flex-col gap-1.5">
+    <div className="flex min-w-0 max-w-full flex-col gap-1 break-words">
       {items.map((name, i) => (
-        <span key={`${i}-${name.slice(0, 48)}`} className="block text-sm leading-snug text-[#334155]">
-          <span className="ms-1 inline-block font-semibold tabular-nums text-[#64748B]">{i + 1}.</span> {name}
+        <span key={`${i}-${name.slice(0, 48)}`} className="block break-words text-[11px] leading-snug text-[#334155]">
+          <span className="ms-1 inline-block font-semibold tabular-nums text-[10px] text-[#64748B]">{i + 1}.</span> {name}
         </span>
       ))}
     </div>
@@ -601,14 +605,14 @@ function DeleteRoomForm({ id }: { id: string }) {
 function SubjectsCell({ row }: { row: CollegeExamRoomRow }) {
   const dual = Boolean(row.study_subject_id_2);
   return (
-    <div className="min-w-[10rem] space-y-1 text-sm text-[#334155]">
-      <div className="font-medium text-[#0F172A]">{row.study_subject_name}</div>
-      <div className="text-xs text-[#64748B]">مرحلة {row.stage_level ?? 1}</div>
+    <div className="min-w-0 space-y-0.5 break-words text-[11px] leading-snug text-[#334155]">
+      <div className="font-semibold text-[#0F172A]">{row.study_subject_name}</div>
+      <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level ?? 1}</div>
       {dual && row.study_subject_name_2 ? (
         <div className="border-t border-[#E2E8F0] pt-1 text-[#475569]">
           <span>+ {row.study_subject_name_2}</span>
           {row.stage_level_2 != null ? (
-            <span className="mt-0.5 block text-xs text-[#64748B]">مرحلة {row.stage_level_2}</span>
+            <span className="mt-0.5 block text-[10px] text-[#64748B]">مرحلة {row.stage_level_2}</span>
           ) : null}
         </div>
       ) : null}
@@ -756,6 +760,88 @@ export function RoomsManagementPanel({
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [menuId, closeActionsMenu]);
 
+  const exportPdfReport = useCallback(() => {
+    let generatedLabel: string;
+    try {
+      generatedLabel = new Date().toLocaleString("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "full",
+        timeStyle: "short",
+      });
+    } catch {
+      generatedLabel = new Date().toISOString();
+    }
+    const html = buildCollegeExamRoomsReportHtml({
+      rows,
+      stats,
+      scheduleHintsByRoom,
+      collegeLabel,
+      generatedLabel,
+    });
+    if (!printCollegeExamRoomsReportHtml(html)) {
+      window.alert(
+        "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة لهذا الموقع، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
+      );
+    }
+  }, [rows, stats, scheduleHintsByRoom, collegeLabel]);
+
+  const exportExcel = useCallback(async () => {
+    try {
+      const xlsx = await import("xlsx");
+      const sorted = [...rows].sort((a, b) => {
+        if (a.serial_no !== b.serial_no) return a.serial_no - b.serial_no;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      const df = new Intl.DateTimeFormat("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      const data = sorted.map((r) => {
+        const dual = Boolean(r.study_subject_id_2);
+        const hints = scheduleHintsByRoom[r.id] ?? [];
+        const hintsText =
+          hints.length === 0
+            ? ""
+            : hints.map((h) => `${h.exam_date} ${h.start_time}-${h.end_time} (${h.study_subject_name})`).join("؛ ");
+        return {
+          الكلية: collegeLabel,
+          التسلسل: r.serial_no,
+          "اسم القاعة": r.room_name,
+          "مشرف القاعة": r.supervisor_name,
+          المراقبون: r.invigilators,
+          "المادة الامتحانية الأولى": r.study_subject_name,
+          "المرحلة (الامتحان الأول)": r.stage_level ?? 1,
+          "المادة الامتحانية الثانية": r.study_subject_name_2 || "",
+          "المرحلة (الامتحان الثاني)": r.stage_level_2 ?? "",
+          "نوع القاعة": dual ? "مزدوجة" : "منفردة",
+          "سعة الامتحان الأول (ملخص)": shiftCapacityLabel(r, 1),
+          "صباحي 1": r.capacity_morning,
+          "مسائي 1": r.capacity_evening,
+          "إجمالي سعة 1": r.capacity_total,
+          "صباحي 2": dual ? r.capacity_morning_2 : "",
+          "مسائي 2": dual ? r.capacity_evening_2 : "",
+          "إجمالي سعة 2": dual ? r.capacity_total_2 : "",
+          "حضور (امتحان 1)": r.attendance_count,
+          "حضور (امتحان 2)": r.attendance_count_2,
+          "غياب (امتحان 1)": r.absence_count,
+          "غياب (امتحان 2)": r.absence_count_2,
+          "أسماء الغياب 1": r.absence_names,
+          "أسماء الغياب 2": r.absence_names_2,
+          "مواعيد الجداول المرتبطة": hintsText,
+          "تاريخ الإضافة": df.format(new Date(r.created_at)),
+          "آخر تحديث": df.format(new Date(r.updated_at)),
+        };
+      });
+      const ws = xlsx.utils.json_to_sheet(data);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "القاعات");
+      xlsx.writeFile(wb, "college-exam-rooms.xlsx");
+    } catch {
+      window.alert("تعذر تصدير ملف Excel. أعد المحاولة.");
+    }
+  }, [rows, collegeLabel, scheduleHintsByRoom]);
+
   return (
     <section className={`relative space-y-6 ${pinnedDetailRowId ? "pb-[min(13.5rem,24vh)]" : ""}`} dir="rtl">
       <header className="relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
@@ -770,15 +856,31 @@ export function RoomsManagementPanel({
         </p>
       </header>
 
-      <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#172554]"
-          >
-            إضافة قاعة
-          </button>
+      <div className="min-w-0 overflow-x-hidden rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
+            >
+              إضافة قاعة
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportExcel()}
+              className="rounded-xl border border-white/45 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-[2px] transition hover:border-white/60 hover:bg-white/20"
+            >
+              تصدير Excel
+            </button>
+            <button
+              type="button"
+              onClick={exportPdfReport}
+              className="rounded-xl border border-white/45 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-[2px] transition hover:border-white/60 hover:bg-white/20"
+            >
+              تقرير PDF
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 border-b border-[#E2E8F0] bg-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -820,71 +922,92 @@ export function RoomsManagementPanel({
           <strong>تلميح:</strong> اضغط على صف في الجدول لعرض التفاصيل في الشريط السفلي الثابت؛ يمكن إغلاقها بالزر «إغلاق التفاصيل».
         </p>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] table-fixed border-collapse text-right">
+        <div className="w-full min-w-0 overflow-x-hidden">
+          <table className="w-full table-fixed border-collapse text-right">
             <colgroup>
-              <col className="w-[3.25rem]" />
-              <col className="w-[9.5rem]" />
-              <col className="w-[8.5rem]" />
-              <col className="w-[12rem]" />
-              <col />
-              <col className="w-[4.5rem]" />
-              <col className="w-[11.5rem]" />
-              <col className="w-[5.25rem]" />
-              <col className="w-[5.25rem]" />
-              <col className="w-[13rem]" />
-              <col className="w-[3.25rem]" />
+              <col style={{ width: "4%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "19%" }} />
+              <col style={{ width: "4%" }} />
             </colgroup>
             <thead className="bg-[#F1F5F9]">
               <tr className="border-b border-[#E2E8F0]">
                 <th
                   scope="col"
-                  className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold tabular-nums text-[#334155]"
+                  className="border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-center text-xs font-bold tabular-nums text-[#334155] sm:text-sm"
                   title="رقم التسلسل"
                 >
                   تسلسل
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-right text-xs font-bold break-words text-[#334155] sm:text-sm"
+                >
                   اسم القاعة
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-right text-xs font-bold break-words text-[#334155] sm:text-sm"
+                >
                   مشرف القاعة
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-top text-right text-xs font-bold break-words text-[#334155] sm:text-sm"
+                >
                   المراقبون
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-right text-xs font-bold break-words text-[#334155] sm:text-sm"
+                >
                   المادة والمرحلة
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-center text-xs font-bold text-[#334155] sm:text-sm"
+                >
                   الوضع
                 </th>
                 <th
                   scope="col"
-                  className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold leading-snug text-[#334155]"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-right text-xs font-bold leading-tight break-words text-[#334155] sm:text-sm"
                   title="إجمالي السعة مع تفصيل صباحي + مسائي لكل امتحان"
                 >
                   السعة
-                  <span className="mt-0.5 block text-xs font-semibold text-[#64748B]">صباحي / مسائي</span>
+                  <span className="mt-0.5 block text-[9px] font-semibold leading-tight text-[#64748B] sm:text-[10px]">صباحي / مسائي</span>
                 </th>
                 <th
                   scope="col"
-                  className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold tabular-nums text-[#334155]"
+                  className="border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-center text-xs font-bold tabular-nums text-[#334155] sm:text-sm"
                   title="حضور الامتحان الأول / الثاني في القاعة المزدوجة"
                 >
                   الحضور
                 </th>
                 <th
                   scope="col"
-                  className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold tabular-nums text-[#334155]"
+                  className="border-b border-[#E2E8F0] px-2 py-2.5 align-middle text-center text-xs font-bold tabular-nums text-[#334155] sm:text-sm"
                   title="غياب الامتحان الأول / الثاني في القاعة المزدوجة"
                 >
                   الغياب
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="max-w-0 border-b border-[#E2E8F0] px-2 py-2.5 align-top text-right text-xs font-bold break-words text-[#334155] sm:text-sm"
+                >
                   أسماء الغياب
                 </th>
-                <th scope="col" className="border-b border-[#E2E8F0] px-3 py-3 text-sm font-bold text-[#334155]">
+                <th
+                  scope="col"
+                  className="border-b border-[#E2E8F0] px-1 py-2.5 align-middle text-center text-xs font-bold text-[#334155] sm:text-sm"
+                >
                   <span className="sr-only">إجراءات</span>
                   <span aria-hidden className="block text-center">
                     ⋮
@@ -895,7 +1018,7 @@ export function RoomsManagementPanel({
             <tbody className="divide-y divide-[#E2E8F0] bg-white">
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={11}>
+                  <td className="px-4 py-10 text-center text-[11px] text-[#64748B]" colSpan={11}>
                     لا توجد قاعات امتحانية بعد.
                   </td>
                 </tr>
@@ -917,33 +1040,43 @@ export function RoomsManagementPanel({
                       }
                     }}
                   >
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-sm tabular-nums text-[#334155]">{row.serial_no}</td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-sm font-semibold text-[#0F172A]">{row.room_name}</td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-sm text-[#334155]">{row.supervisor_name}</td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-top text-[#334155]">
+                    <td className="border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-[11px] leading-none tabular-nums text-[#334155]">
+                      {row.serial_no}
+                    </td>
+                    <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-[11px] leading-snug font-semibold text-[#0F172A]">
+                      {row.room_name}
+                    </td>
+                    <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-[11px] leading-snug text-[#334155]">
+                      {row.supervisor_name}
+                    </td>
+                    <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-top break-words text-right text-[#334155]">
                       <StackedNamesCell value={row.invigilators} />
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-top">
+                    <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-right">
                       <SubjectsCell row={row} />
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-center">
-                      {row.study_subject_id_2 ? (
-                        <span className="inline-flex rounded-lg bg-[#FEF3C7] px-2 py-1 text-xs font-bold text-[#B45309]">امتحانان</span>
-                      ) : (
-                        <span className="text-xs text-[#64748B]">واحد</span>
-                      )}
+                    <td className="border-b border-[#E2E8F0] px-2 py-2 align-middle text-center">
+                      <div className="flex min-h-[1.75rem] items-center justify-center">
+                        {row.study_subject_id_2 ? (
+                          <span className="inline-flex max-w-full rounded-md bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-bold break-words text-[#B45309]">
+                            امتحانان
+                          </span>
+                        ) : (
+                          <span className="text-[10px] leading-none text-[#64748B]">واحد</span>
+                        )}
+                      </div>
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-top text-xs tabular-nums text-[#334155] sm:text-sm">
+                    <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-[11px] leading-snug tabular-nums text-[#334155]">
                       <div className="leading-snug">
                         <span className="font-semibold text-[#64748B]">١:</span> {shiftCapacityLabel(row, 1)}
                       </div>
                       {row.study_subject_id_2 ? (
-                        <div className="mt-1 leading-snug text-[#475569]">
+                        <div className="mt-0.5 leading-snug break-words text-[#475569]">
                           <span className="font-semibold text-[#64748B]">٢:</span> {shiftCapacityLabel(row, 2)}
                         </div>
                       ) : null}
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-center text-sm tabular-nums text-emerald-800">
+                    <td className="border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-[11px] leading-snug tabular-nums text-emerald-800">
                       {row.attendance_count}
                       {row.study_subject_id_2 ? (
                         <>
@@ -952,7 +1085,7 @@ export function RoomsManagementPanel({
                         </>
                       ) : null}
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-3 align-middle text-center text-sm tabular-nums text-red-800">
+                    <td className="border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-[11px] leading-snug tabular-nums text-red-800">
                       {row.absence_count}
                       {row.study_subject_id_2 ? (
                         <>
@@ -962,23 +1095,23 @@ export function RoomsManagementPanel({
                       ) : null}
                     </td>
                     <td
-                      className="border-b border-[#E2E8F0] px-3 py-3 align-top text-[#334155]"
+                      className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-top break-words text-right text-[11px] leading-snug text-[#334155]"
                       title={row.absence_names || undefined}
                     >
                       <StackedNamesCell value={row.absence_names} />
                       {row.study_subject_id_2 && row.absence_names_2 ? (
-                        <div className="mt-2 border-t border-[#E2E8F0] pt-2">
-                          <span className="text-xs font-semibold text-[#64748B]">امتحان ثانٍ:</span>
+                        <div className="mt-1.5 border-t border-[#E2E8F0] pt-1.5">
+                          <span className="mb-0.5 block text-[10px] font-semibold text-[#64748B]">امتحان ثانٍ:</span>
                           <StackedNamesCell value={row.absence_names_2} />
                         </div>
                       ) : null}
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-2 py-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                    <td className="border-b border-[#E2E8F0] px-1 py-2 text-center align-middle whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         aria-label="إجراءات"
                         aria-expanded={menuId === row.id}
-                        className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                        className="rounded-lg p-1.5 text-[#64748B] transition hover:bg-[#F1F5F9]"
                         onClick={(e) => {
                           e.stopPropagation();
                           if (menuId === row.id) {
@@ -996,7 +1129,7 @@ export function RoomsManagementPanel({
                           setMenuId(row.id);
                         }}
                       >
-                        <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <circle cx="12" cy="5" r="2" />
                           <circle cx="12" cy="12" r="2" />
                           <circle cx="12" cy="19" r="2" />

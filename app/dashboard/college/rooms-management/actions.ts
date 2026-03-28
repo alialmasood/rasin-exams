@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import {
   createCollegeExamRoom,
   deleteCollegeExamRoom,
+  inferredShiftFromTotals,
   updateCollegeExamRoom,
+  type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
 import { getSession } from "@/lib/session";
 
@@ -28,14 +30,22 @@ function mergeAbsenceNames(morning: string, evening: string): string {
   return `${m}\n--- دوام مسائي ---\n${e}`;
 }
 
+const ZERO_SHIFT: ShiftAttendanceSplit = { attM: 0, absM: 0, attE: 0, absE: 0, namesM: "", namesE: "" };
+
 /** عند وجود حقول s1_att_m ندمج صباحي/مسائي؛ وإلا نقرأ attendance_count الكلاسيكي (مثل إضافة قاعة). */
 function slot1FromForm(formData: FormData, useSplitAttendance: boolean) {
   if (!useSplitAttendance) {
+    const capM = toIntStr(fdStr(formData, "capacity_morning"));
+    const capE = toIntStr(fdStr(formData, "capacity_evening"));
+    const ac = toIntStr(fdStr(formData, "attendance_count"));
+    const ab = toIntStr(fdStr(formData, "absence_count"));
+    const names = fdStr(formData, "absence_names");
     return {
       capacityEvening: fdStr(formData, "capacity_evening"),
       attendanceCount: fdStr(formData, "attendance_count"),
       absenceCount: fdStr(formData, "absence_count"),
-      absenceNames: fdStr(formData, "absence_names"),
+      absenceNames: names,
+      shiftSplit: inferredShiftFromTotals(capM, capE, ac, ab, names),
     };
   }
   const capERaw = fdStr(formData, "capacity_evening");
@@ -47,11 +57,20 @@ function slot1FromForm(formData: FormData, useSplitAttendance: boolean) {
   const absE = hasEvening ? toIntStr(fdStr(formData, "s1_abs_e")) : 0;
   const namesM = fdStr(formData, "s1_names_m");
   const namesE = hasEvening ? fdStr(formData, "s1_names_e") : "";
+  const shiftSplit: ShiftAttendanceSplit = {
+    attM,
+    absM,
+    attE,
+    absE,
+    namesM,
+    namesE,
+  };
   return {
     capacityEvening: capERaw || "0",
     attendanceCount: String(attM + attE),
     absenceCount: String(absM + absE),
     absenceNames: mergeAbsenceNames(namesM, namesE),
+    shiftSplit,
   };
 }
 
@@ -62,14 +81,21 @@ function slot2FromForm(formData: FormData, useSplitAttendance: boolean, hasSecon
       attendanceCount: fdStr(formData, "attendance_count_2") || "0",
       absenceCount: fdStr(formData, "absence_count_2") || "0",
       absenceNames: fdStr(formData, "absence_names_2"),
+      shiftSplit: ZERO_SHIFT,
     };
   }
   if (!useSplitAttendance) {
+    const capM = toIntStr(fdStr(formData, "capacity_morning_2"));
+    const capE = toIntStr(fdStr(formData, "capacity_evening_2"));
+    const ac = toIntStr(fdStr(formData, "attendance_count_2"));
+    const ab = toIntStr(fdStr(formData, "absence_count_2"));
+    const names = fdStr(formData, "absence_names_2");
     return {
       capacityEvening: fdStr(formData, "capacity_evening_2"),
       attendanceCount: fdStr(formData, "attendance_count_2"),
       absenceCount: fdStr(formData, "absence_count_2"),
-      absenceNames: fdStr(formData, "absence_names_2"),
+      absenceNames: names,
+      shiftSplit: inferredShiftFromTotals(capM, capE, ac, ab, names),
     };
   }
   const cap2Raw = fdStr(formData, "capacity_evening_2");
@@ -81,11 +107,13 @@ function slot2FromForm(formData: FormData, useSplitAttendance: boolean, hasSecon
   const absE = hasEvening ? toIntStr(fdStr(formData, "s2_abs_e")) : 0;
   const namesM = fdStr(formData, "s2_names_m");
   const namesE = hasEvening ? fdStr(formData, "s2_names_e") : "";
+  const shiftSplit: ShiftAttendanceSplit = { attM, absM, attE, absE, namesM, namesE };
   return {
     capacityEvening: cap2Raw || "0",
     attendanceCount: String(attM + attE),
     absenceCount: String(absM + absE),
     absenceNames: mergeAbsenceNames(namesM, namesE),
+    shiftSplit,
   };
 }
 
@@ -118,6 +146,8 @@ export async function createCollegeExamRoomAction(
     absenceNames2: s2.absenceNames,
     stageLevel: fdStr(formData, "stage_level"),
     stageLevel2: fdStr(formData, "stage_level_2"),
+    shift1Attendance: s1.shiftSplit,
+    shift2Attendance: s2.shiftSplit,
   });
   if (!result.ok) return result;
   revalidatePath("/dashboard/college/rooms-management");
@@ -157,6 +187,8 @@ export async function updateCollegeExamRoomAction(
     absenceNames2: s2.absenceNames,
     stageLevel: fdStr(formData, "stage_level"),
     stageLevel2: fdStr(formData, "stage_level_2"),
+    shift1Attendance: s1.shiftSplit,
+    shift2Attendance: s2.shiftSplit,
   });
   if (!result.ok) return result;
   revalidatePath("/dashboard/college/rooms-management");

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { patchCollegeExamRoomAttendance } from "@/lib/college-rooms";
+import { patchCollegeExamRoomAttendance, type PatchCollegeExamRoomAttendanceInput } from "@/lib/college-rooms";
 import {
   approveDeanExamSituation,
   getExamSituationDetailForOwner,
@@ -21,14 +21,33 @@ export async function patchRoomAttendanceForSituationAction(
   if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
   const detail = await getExamSituationDetailForOwner(session.uid, scheduleId);
   if (!detail) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
-  const res = await patchCollegeExamRoomAttendance({
+  const cm = detail.capacity_morning;
+  const ce = detail.capacity_evening;
+  const base = {
     roomId: detail.room_id,
     ownerUserId: session.uid,
     studySubjectId: detail.study_subject_id,
-    attendanceCount: String(formData.get("attendance_count") ?? ""),
-    absenceCount: String(formData.get("absence_count") ?? ""),
-    absenceNames: String(formData.get("absence_names") ?? ""),
-  });
+  } as const;
+  const payload: PatchCollegeExamRoomAttendanceInput =
+    cm > 0 && ce > 0
+      ? {
+          ...base,
+          mode: "split",
+          attendanceMorning: String(formData.get("attendance_morning") ?? ""),
+          absenceMorning: String(formData.get("absence_morning") ?? ""),
+          attendanceEvening: String(formData.get("attendance_evening") ?? ""),
+          absenceEvening: String(formData.get("absence_evening") ?? ""),
+          absenceNamesMorning: String(formData.get("absence_names_morning") ?? ""),
+          absenceNamesEvening: String(formData.get("absence_names_evening") ?? ""),
+        }
+      : {
+          ...base,
+          mode: "aggregate",
+          attendanceCount: String(formData.get("attendance_count") ?? ""),
+          absenceCount: String(formData.get("absence_count") ?? ""),
+          absenceNames: String(formData.get("absence_names") ?? ""),
+        };
+  const res = await patchCollegeExamRoomAttendance(payload);
   if (!res.ok) return res;
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
@@ -47,6 +66,7 @@ export async function submitHeadSituationAction(
   if (!res.ok) return res;
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
+  revalidatePath("/dashboard/college/status-followup");
   return { ok: true, message: "تم تأكيد رفع الموقف للمتابعة." };
 }
 
@@ -66,5 +86,6 @@ export async function approveDeanSituationAction(
   if (!res.ok) return res;
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
+  revalidatePath("/dashboard/college/status-followup");
   return { ok: true, message: "تم اعتماد الموقف." };
 }

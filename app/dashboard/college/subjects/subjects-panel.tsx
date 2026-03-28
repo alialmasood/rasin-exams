@@ -1,13 +1,29 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CollegeSubjectRow } from "@/lib/college-subjects";
+import { createPortal } from "react-dom";
+import type { CollegeSubjectRow, CollegeSubjectUsageRow } from "@/lib/college-subjects";
+import {
+  buildCollegeSubjectsReportHtml,
+  printCollegeSubjectsReportHtml,
+} from "@/lib/college-subjects-report-html";
 import {
   createCollegeSubjectAction,
   deleteCollegeSubjectAction,
   updateCollegeSubjectAction,
 } from "./actions";
+
+const COLLEGE_BRANCH_MODAL_DIALOG_CLASS =
+  "college-branch-modal-dialog fixed inset-0 z-[200] m-auto box-border h-max max-h-[90dvh] w-[min(92vw,520px)] overflow-y-auto rounded-2xl border border-[#E2E8F0] p-0 shadow-xl";
+
+function useClientMounted() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  return mounted;
+}
 
 function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
   return (
@@ -25,24 +41,27 @@ function AddBranchDialog({ open, onClose }: { open: boolean; onClose: () => void
   const router = useRouter();
   const [state, formAction, pending] = useActionState(createCollegeSubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const successHandledRef = useRef(false);
+  const mounted = useClientMounted();
 
   useEffect(() => {
-    if (!dialogRef.current) return;
+    if (!mounted || !dialogRef.current) return;
     if (open && !dialogRef.current.open) dialogRef.current.showModal();
     if (!open && dialogRef.current.open) dialogRef.current.close();
-  }, [open]);
+  }, [open, mounted]);
 
   useEffect(() => {
-    if (!state) return;
-    if (state.ok) {
-      onClose();
-      router.refresh();
-    }
+    if (!state?.ok || successHandledRef.current) return;
+    successHandledRef.current = true;
+    onClose();
+    router.refresh();
   }, [state, onClose, router]);
 
-  return (
-    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
-      <form action={formAction} className="w-[min(92vw,520px)] space-y-4 p-6">
+  if (!mounted) return null;
+
+  return createPortal(
+    <dialog ref={dialogRef} className={COLLEGE_BRANCH_MODAL_DIALOG_CLASS} dir="rtl">
+      <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">ادخال القسم او الفرع</h2>
         <div>
           <label className="mb-1 block text-sm font-semibold text-[#334155]">النوع</label>
@@ -87,7 +106,8 @@ function AddBranchDialog({ open, onClose }: { open: boolean; onClose: () => void
           <SubmitButton pending={pending} label="حفظ" />
         </div>
       </form>
-    </dialog>
+    </dialog>,
+    document.body
   );
 }
 
@@ -103,25 +123,28 @@ function EditBranchDialog({
   const router = useRouter();
   const [state, formAction, pending] = useActionState(updateCollegeSubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const successHandledRef = useRef(false);
   const key = useMemo(() => `${row?.id ?? "none"}-${open ? "open" : "closed"}`, [row?.id, open]);
+  const mounted = useClientMounted();
 
   useEffect(() => {
-    if (!dialogRef.current) return;
+    if (!mounted || !dialogRef.current) return;
     if (open && !dialogRef.current.open) dialogRef.current.showModal();
     if (!open && dialogRef.current.open) dialogRef.current.close();
-  }, [open]);
+  }, [open, mounted]);
 
   useEffect(() => {
-    if (!state) return;
-    if (state.ok) {
-      onClose();
-      router.refresh();
-    }
+    if (!state?.ok || successHandledRef.current) return;
+    successHandledRef.current = true;
+    onClose();
+    router.refresh();
   }, [state, onClose, router]);
 
-  return (
-    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
-      <form key={key} action={formAction} className="w-[min(92vw,520px)] space-y-4 p-6">
+  if (!mounted) return null;
+
+  return createPortal(
+    <dialog ref={dialogRef} className={COLLEGE_BRANCH_MODAL_DIALOG_CLASS} dir="rtl">
+      <form key={key} action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">تعديل القسم او الفرع</h2>
         <input type="hidden" name="id" value={row?.id ?? ""} />
         <div>
@@ -169,7 +192,8 @@ function EditBranchDialog({
           <SubmitButton pending={pending} label="حفظ التعديلات" />
         </div>
       </form>
-    </dialog>
+    </dialog>,
+    document.body
   );
 }
 
@@ -190,9 +214,18 @@ function DeleteBranchForm({ id }: { id: string }) {
   );
 }
 
-export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
+export function SubjectsPanel({
+  rows,
+  usageRows = [],
+}: {
+  rows: CollegeSubjectRow[];
+  usageRows?: CollegeSubjectUsageRow[];
+}) {
   const [addOpen, setAddOpen] = useState(false);
+  /** يزيد عند كل فتح لمودال الإضافة لإعادة ضبط useActionState وتفادي إعادة تشغيل نجاح قديم */
+  const [addDialogNonce, setAddDialogNonce] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const openActionsRef = useRef<HTMLDivElement | null>(null);
   const [editingRow, setEditingRow] = useState<CollegeSubjectRow | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
@@ -211,9 +244,49 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
       return byType && byQuery;
     });
   }, [rows, filter, normalizedQuery]);
+
+  const usageMap = useMemo(() => {
+    const m = new Map<string, { study_subjects_count: number; exam_schedules_count: number }>();
+    for (const u of usageRows) {
+      m.set(u.college_subject_id, {
+        study_subjects_count: u.study_subjects_count,
+        exam_schedules_count: u.exam_schedules_count,
+      });
+    }
+    return m;
+  }, [usageRows]);
+
+  const filteredUsageTotals = useMemo(() => {
+    let study = 0;
+    let exams = 0;
+    for (const row of filteredRows) {
+      const u = usageMap.get(row.id);
+      if (u) {
+        study += u.study_subjects_count;
+        exams += u.exam_schedules_count;
+      }
+    }
+    return { study, exams };
+  }, [filteredRows, usageMap]);
+
+  const closeAddDialog = useCallback(() => setAddOpen(false), []);
+  const closeEditDialog = useCallback(() => setEditingRow(null), []);
+
   useEffect(() => {
     setPage(1);
   }, [query, filter]);
+
+  useEffect(() => {
+    if (menuId === null) return;
+    function closeOnOutside(e: MouseEvent) {
+      const el = openActionsRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setMenuId(null);
+      }
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    return () => document.removeEventListener("mousedown", closeOnOutside);
+  }, [menuId]);
 
   const stats = useMemo(() => {
     const departments = rows.filter((r) => r.branch_type === "DEPARTMENT").length;
@@ -223,6 +296,25 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
       .sort((a, b) => b.getTime() - a.getTime())[0];
     return { departments, branches, latest };
   }, [rows]);
+
+  const exportPdfReport = useCallback(() => {
+    let generatedLabel: string;
+    try {
+      generatedLabel = new Date().toLocaleString("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "full",
+        timeStyle: "short",
+      });
+    } catch {
+      generatedLabel = new Date().toISOString();
+    }
+    const html = buildCollegeSubjectsReportHtml({ rows, usageRows, generatedLabel });
+    if (!printCollegeSubjectsReportHtml(html)) {
+      window.alert(
+        "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة لهذا الموقع، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
+      );
+    }
+  }, [rows, usageRows]);
 
   const exportCsv = () => {
     const header = ["النوع", "اسم القسم او الفرع", "اسم رئيس القسم", "تاريخ الاضافة"];
@@ -270,28 +362,38 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
           <div className="max-w-3xl">
             <h1 className="text-3xl font-extrabold text-[#0F172A]">الأقسام والفروع</h1>
             <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
-              إدارة الأقسام العلمية والفروع وربطها برئاسة القسم داخل الكلية.
+              إدارة الأقسام العلمية أو الإنسانية والفروع وربطها برئاسة القسم داخل الكلية.
             </p>
           </div>
         </div>
       </header>
 
       <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
-              className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#172554]"
+              onClick={() => {
+                setAddDialogNonce((n) => n + 1);
+                setAddOpen(true);
+              }}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
             >
               إضافة قسم أو فرع
             </button>
             <button
               type="button"
-              onClick={exportCsv}
-              className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2 text-sm font-semibold text-[#334155] transition hover:bg-[#F8FAFC]"
+              onClick={exportPdfReport}
+              className="rounded-xl border border-white/45 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-[2px] transition hover:border-white/60 hover:bg-white/20"
             >
-              تصدير
+              تصدير تقرير PDF
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-xl border border-white/45 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-[2px] transition hover:border-white/60 hover:bg-white/20"
+            >
+              تصدير CSV
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -300,12 +402,12 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ابحث باسم القسم أو رئيس القسم"
-              className="h-10 w-[260px] rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+              className="h-10 w-[260px] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
-              className="h-10 rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm outline-none focus:border-blue-500"
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             >
               <option value="ALL">الكل</option>
               <option value="DEPARTMENT">الأقسام</option>
@@ -374,33 +476,39 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
                     )}
                   </td>
                   <td className="relative px-4 py-3 text-left">
-                    <button
-                      type="button"
-                      aria-label="إجراءات"
-                      className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
-                      onClick={() => setMenuId((s) => (s === row.id ? null : row.id))}
+                    <div
+                      ref={menuId === row.id ? openActionsRef : null}
+                      className="relative inline-block text-left"
                     >
-                      <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                        <circle cx="12" cy="5" r="2" />
-                        <circle cx="12" cy="12" r="2" />
-                        <circle cx="12" cy="19" r="2" />
-                      </svg>
-                    </button>
-                    {menuId === row.id ? (
-                      <div className="absolute left-4 top-12 z-20 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                        <button
-                          type="button"
-                          className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                          onClick={() => {
-                            setEditingRow(row);
-                            setMenuId(null);
-                          }}
-                        >
-                          تعديل
-                        </button>
-                        <DeleteBranchForm id={row.id} />
-                      </div>
-                    ) : null}
+                      <button
+                        type="button"
+                        aria-label="إجراءات"
+                        aria-expanded={menuId === row.id}
+                        className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                        onClick={() => setMenuId((s) => (s === row.id ? null : row.id))}
+                      >
+                        <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <circle cx="12" cy="5" r="2" />
+                          <circle cx="12" cy="12" r="2" />
+                          <circle cx="12" cy="19" r="2" />
+                        </svg>
+                      </button>
+                      {menuId === row.id ? (
+                        <div className="absolute left-0 top-full z-20 mt-1 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                            onClick={() => {
+                              setEditingRow(row);
+                              setMenuId(null);
+                            }}
+                          >
+                            تعديل
+                          </button>
+                          <DeleteBranchForm id={row.id} />
+                        </div>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -450,10 +558,78 @@ export function SubjectsPanel({ rows }: { rows: CollegeSubjectRow[] }) {
             </button>
           </div>
         </div>
+
+        <div className="border-t border-[#E2E8F0] bg-gradient-to-b from-[#F8FAFC] to-white px-5 py-5">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+              <h2 className="text-base font-bold text-[#0F172A]">ربط المواد والامتحانات بالأقسام</h2>
+              <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+                لكل قسم أو فرع: عدد المواد الدراسية المسجّلة تحته، وعدد جداول الامتحانات المرتبطة به. الأرقام
+                تتبع نفس التصفية والبحث أعلاه.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2.5 shadow-sm">
+                <p className="text-[11px] font-semibold text-[#64748B]">مجموع المواد (المعروضة)</p>
+                <p className="text-lg font-extrabold tabular-nums text-[#1E3A8A]">{filteredUsageTotals.study}</p>
+              </div>
+              <div className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2.5 shadow-sm">
+                <p className="text-[11px] font-semibold text-[#64748B]">مجموع جداول الامتحانات (المعروضة)</p>
+                <p className="text-lg font-extrabold tabular-nums text-[#1E3A8A]">{filteredUsageTotals.exams}</p>
+              </div>
+            </div>
+          </div>
+          {filteredRows.length === 0 ? (
+            <p className="text-center text-sm text-[#64748B]">لا توجد أقسام ضمن التصفية الحالية.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredRows.map((row) => {
+                const u = usageMap.get(row.id) ?? { study_subjects_count: 0, exam_schedules_count: 0 };
+                return (
+                  <div
+                    key={`usage-${row.id}`}
+                    className="rounded-2xl border border-[#E5ECF6] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.04)]"
+                  >
+                    <div className="flex items-start justify-between gap-2 border-b border-[#F1F5F9] pb-2">
+                      <p className="min-w-0 flex-1 text-right text-sm font-bold text-[#0F172A]">{row.branch_name}</p>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          row.branch_type === "BRANCH"
+                            ? "bg-sky-50 text-sky-800 ring-1 ring-sky-200/60"
+                            : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/60"
+                        }`}
+                      >
+                        {row.branch_type === "BRANCH" ? "فرع" : "قسم"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-[#EFF6FF] px-3 py-2.5 text-center">
+                        <p className="text-[10px] font-bold text-[#64748B]">المواد الدراسية</p>
+                        <p className="mt-0.5 text-xl font-extrabold tabular-nums text-[#1D4ED8]">
+                          {u.study_subjects_count}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-[#FFF7ED] px-3 py-2.5 text-center">
+                        <p className="text-[10px] font-bold text-[#64748B]">جداول الامتحانات</p>
+                        <p className="mt-0.5 text-xl font-extrabold tabular-nums text-[#C2410C]">
+                          {u.exam_schedules_count}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <AddBranchDialog open={addOpen} onClose={() => setAddOpen(false)} />
-      <EditBranchDialog row={editingRow} open={Boolean(editingRow)} onClose={() => setEditingRow(null)} />
+      {addOpen ? (
+        <AddBranchDialog key={addDialogNonce} open onClose={closeAddDialog} />
+      ) : null}
+      {editingRow ? (
+        <EditBranchDialog key={editingRow.id} row={editingRow} open onClose={closeEditDialog} />
+      ) : null}
     </section>
   );
 }

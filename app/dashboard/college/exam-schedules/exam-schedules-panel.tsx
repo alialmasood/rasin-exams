@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
@@ -13,9 +14,10 @@ import {
   createHolidayAction,
   deleteHolidayAction,
   deleteExamScheduleAction,
-  submitExamScheduleContextAction,
   updateExamScheduleAction,
 } from "./actions";
+import { downloadCollegeScheduleGroupPdf, shareCollegeScheduleGroupForWhatsApp } from "@/lib/exam-schedule-group-pdf";
+import { ExamScheduleTicketModal } from "./exam-schedule-ticket-modal";
 
 type ScheduleType = "FINAL" | "SEMESTER";
 type FormState = {
@@ -38,6 +40,12 @@ const SCHEDULE_TYPE_LABEL: Record<ScheduleType, string> = {
   SEMESTER: "جدول امتحانات فصلية",
 };
 
+/** عرض مختصر في جدول «الجداول الامتحانية المضافة» فقط */
+const SCHEDULE_TYPE_TABLE_SHORT: Record<ScheduleType, string> = {
+  FINAL: "نهائي",
+  SEMESTER: "فصلي",
+};
+
 function suggestedAcademicYear() {
   const d = new Date();
   const y = d.getFullYear();
@@ -45,7 +53,7 @@ function suggestedAcademicYear() {
 }
 const WORKFLOW_LABEL = {
   DRAFT: "مسودة",
-  SUBMITTED: "مرفوع",
+  SUBMITTED: "معتمد",
   APPROVED: "معتمد",
   REJECTED: "مرفوض",
 } as const;
@@ -93,6 +101,25 @@ function weekdayAr(dateIso: string) {
 
 function timeRangeLabel(start: string, end: string) {
   return `${start || "--:--"} - ${end || "--:--"}`;
+}
+
+function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel: string) {
+  return rows.map((r) => ({
+    "اسم الكلية / التشكيل": collegeLabel,
+    "القسم / الفرع": r.college_subject_name,
+    "نوع الجدول": SCHEDULE_TYPE_LABEL[r.schedule_type],
+    "العام الدراسي": r.academic_year || "—",
+    "الفصل الدراسي": r.term_label || "—",
+    "المادة الدراسية": r.study_subject_name,
+    "المرحلة": `المرحلة ${r.stage_level}`,
+    "اليوم": weekdayAr(r.exam_date),
+    "التاريخ": r.exam_date,
+    "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
+    "مدة الامتحان": formatDuration(r.duration_minutes),
+    "القاعة": r.room_name,
+    "الملاحظات": r.notes || "",
+    "الحالة": WORKFLOW_LABEL[r.workflow_status],
+  }));
 }
 
 function sortSchedules(rows: CollegeExamScheduleRow[]) {
@@ -157,6 +184,13 @@ export function ExamSchedulesPanel({
   const [holidayName, setHolidayName] = useState("");
   const [holidaysModalOpen, setHolidaysModalOpen] = useState(false);
   const holidaysDialogRef = useRef<HTMLDialogElement>(null);
+  const [scheduleMenuId, setScheduleMenuId] = useState<string | null>(null);
+  const [scheduleMenuCoords, setScheduleMenuCoords] = useState<{ top: number; left: number } | null>(null);
+  const scheduleMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const scheduleMenuPanelRef = useRef<HTMLDivElement | null>(null);
+  const [viewTicketRow, setViewTicketRow] = useState<CollegeExamScheduleRow | null>(null);
+  const [pdfExportSubjectId, setPdfExportSubjectId] = useState<string | null>(null);
+  const [whatsAppShareSubjectId, setWhatsAppShareSubjectId] = useState<string | null>(null);
 
   const emptyForm: FormState = {
     collegeSubjectId: "",
@@ -193,6 +227,54 @@ export function ExamSchedulesPanel({
     if (holidaysModalOpen && !el.open) el.showModal();
     if (!holidaysModalOpen && el.open) el.close();
   }, [holidaysModalOpen]);
+
+  const closeScheduleMenu = useCallback(() => {
+    setScheduleMenuId(null);
+    setScheduleMenuCoords(null);
+  }, []);
+
+  const refreshScheduleMenuPosition = useCallback(() => {
+    const btn = scheduleMenuBtnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const menuMinW = 192;
+    const pad = 8;
+    let left = rect.left;
+    if (left + menuMinW > window.innerWidth - pad) left = window.innerWidth - menuMinW - pad;
+    if (left < pad) left = pad;
+    setScheduleMenuCoords({ top: rect.bottom + 6, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!scheduleMenuId) {
+      setScheduleMenuCoords(null);
+      return;
+    }
+    refreshScheduleMenuPosition();
+    window.addEventListener("resize", refreshScheduleMenuPosition);
+    window.addEventListener("scroll", refreshScheduleMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", refreshScheduleMenuPosition);
+      window.removeEventListener("scroll", refreshScheduleMenuPosition, true);
+    };
+  }, [scheduleMenuId, refreshScheduleMenuPosition]);
+
+  useEffect(() => {
+    if (!scheduleMenuId) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (scheduleMenuPanelRef.current?.contains(t)) return;
+      if (scheduleMenuBtnRef.current?.contains(t)) return;
+      closeScheduleMenu();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [scheduleMenuId, closeScheduleMenu]);
+
+  const scheduleMenuRow = useMemo(
+    () => (scheduleMenuId ? rows.find((r) => r.id === scheduleMenuId) : undefined),
+    [rows, scheduleMenuId],
+  );
 
   const durationMin = useMemo(() => {
     const s = toMin(form.startTime);
@@ -239,19 +321,6 @@ export function ExamSchedulesPanel({
       currentType: SCHEDULE_TYPE_LABEL[form.scheduleType],
     };
   }, [rows, form.scheduleType]);
-
-  const contextRows = useMemo(() => {
-    if (!form.collegeSubjectId) return [];
-    return rows.filter(
-      (r) =>
-        r.college_subject_id === form.collegeSubjectId &&
-        r.schedule_type === form.scheduleType &&
-        (r.term_label ?? "") === (form.termLabel || "") &&
-        (r.academic_year ?? "") === (form.academicYear || "").trim()
-    );
-  }, [rows, form.collegeSubjectId, form.scheduleType, form.termLabel, form.academicYear]);
-  const contextSubmitted =
-    contextRows.length > 0 && contextRows.every((r) => r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED");
 
   const pageSize = 8;
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
@@ -438,26 +507,30 @@ export function ExamSchedulesPanel({
 
   async function onExportExcel() {
     const xlsx = await import("xlsx");
-    const data = filteredRows.map((r) => ({
-      "اسم الكلية / التشكيل": collegeLabel,
-      "القسم / الفرع": r.college_subject_name,
-      "نوع الجدول": SCHEDULE_TYPE_LABEL[r.schedule_type],
-      "العام الدراسي": r.academic_year || "—",
-      "الفصل الدراسي": r.term_label || "—",
-      "المادة الدراسية": r.study_subject_name,
-      "المرحلة": `المرحلة ${r.stage_level}`,
-      "اليوم": weekdayAr(r.exam_date),
-      "التاريخ": r.exam_date,
-      "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
-      "مدة الامتحان": formatDuration(r.duration_minutes),
-      "القاعة": r.room_name,
-      "الملاحظات": r.notes || "",
-      "الحالة": WORKFLOW_LABEL[r.workflow_status],
-    }));
+    const data = buildExamScheduleExcelRows(filteredRows, collegeLabel);
     const ws = xlsx.utils.json_to_sheet(data);
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "ExamSchedules");
     xlsx.writeFile(wb, "exam-schedules.xlsx");
+  }
+
+  async function exportGroupScheduleExcel(subjectId: string, subjectNameForFile: string) {
+    const list = filteredRows.filter((r) => r.college_subject_id === subjectId);
+    if (list.length === 0) return;
+    const xlsx = await import("xlsx");
+    const data = buildExamScheduleExcelRows(list, collegeLabel);
+    const ws = xlsx.utils.json_to_sheet(data);
+    const wb = xlsx.utils.book_new();
+    let sheetName = subjectNameForFile.replace(/[\[\]*\/\\?:]/g, "").trim().slice(0, 31);
+    if (!sheetName) sheetName = "Sheet1";
+    xlsx.utils.book_append_sheet(wb, ws, sheetName);
+    const asciiSlug = subjectNameForFile
+      .normalize("NFKD")
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 48);
+    xlsx.writeFile(wb, `exam-schedule-${asciiSlug || "department"}.xlsx`);
   }
 
   function onPrintPage() {
@@ -482,33 +555,6 @@ export function ExamSchedulesPanel({
     popup.print();
   }
 
-  async function onSubmitContext() {
-    const fd = new FormData();
-    fd.set("college_subject_id", form.collegeSubjectId);
-    fd.set("schedule_type", form.scheduleType);
-    fd.set("academic_year", form.academicYear.trim());
-    fd.set("term_label", form.termLabel);
-    startTransition(async () => {
-      const res = await submitExamScheduleContextAction(fd);
-      if (!res.ok) {
-        setToast({ type: "error", msg: res.message });
-        return;
-      }
-      const ay = form.academicYear.trim();
-      setRows((prev) =>
-        prev.map((r) =>
-          r.college_subject_id === form.collegeSubjectId &&
-          r.schedule_type === form.scheduleType &&
-          (r.term_label ?? "") === (form.termLabel || "") &&
-          (r.academic_year ?? "") === ay
-            ? { ...r, workflow_status: "SUBMITTED" }
-            : r
-        )
-      );
-      setToast({ type: "success", msg: res.message });
-    });
-  }
-
   const calendarMeta = useMemo(() => {
     const daysInMonth = new Date(calendarCursor.year, calendarCursor.month + 1, 0).getDate();
     const firstDay = new Date(calendarCursor.year, calendarCursor.month, 1).getDay();
@@ -523,7 +569,7 @@ export function ExamSchedulesPanel({
       const d = new Date(r.exam_date);
       if (d.getFullYear() === calendarCursor.year && d.getMonth() === calendarCursor.month) {
         map.set(r.exam_date, (map.get(r.exam_date) ?? 0) + 1);
-        if (r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED") {
+        if (r.workflow_status === "APPROVED" || r.workflow_status === "SUBMITTED") {
           submittedMap.set(r.exam_date, (submittedMap.get(r.exam_date) ?? 0) + 1);
         }
       }
@@ -567,7 +613,9 @@ export function ExamSchedulesPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-extrabold text-[#0F172A]">الجدول الامتحاني</h1>
-            <p className="mt-1.5 text-sm text-[#64748B]">إدارة وتنظيم جداول الامتحانات النهائية والفصلية للأقسام والفروع</p>
+            <p className="mt-1.5 text-sm text-[#64748B]">
+              إدارة جداول الامتحانات؛ كل إدخال مكتمل يُحفظ كـ <strong className="font-semibold text-[#334155]">معتمد</strong> مباشرة.
+            </p>
           </div>
           <div className="flex gap-2">
             <button
@@ -586,14 +634,6 @@ export function ExamSchedulesPanel({
               className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white"
             >
               إضافة جدول امتحاني
-            </button>
-            <button
-              type="button"
-              onClick={onSubmitContext}
-              disabled={mounted ? !form.collegeSubjectId || contextSubmitted || isPending : undefined}
-              className="rounded-xl border border-[#1E3A8A] px-4 py-2 text-sm font-bold text-[#1E3A8A] disabled:opacity-60"
-            >
-              رفع الجدول إلى المتابعة
             </button>
             <button type="button" onClick={onPrintPage} className="rounded-xl border border-[#CBD5E1] px-4 py-2 text-sm">
               طباعة
@@ -683,7 +723,9 @@ export function ExamSchedulesPanel({
             </div>
           </div>
           {generalLocked ? <p className="mt-3 text-xs text-emerald-700">تم تثبيت البيانات العامة. يمكنك إضافة مواد متعددة بدون إعادة تحديدها.</p> : null}
-          {contextSubmitted ? <p className="mt-2 text-xs font-semibold text-amber-700">هذا الجدول مرفوع/معتمد (قراءة فقط).</p> : null}
+          <p className="mt-2 text-xs text-[#64748B]">
+            عند اكتمال الحقول وحفظ الإدخال يُسجَّل الصف كـ <strong className="text-[#0F172A]">معتمد</strong> تلقائياً — دون خطوة «رفع للمتابعة».
+          </p>
 
           <h3 className="mt-6 border-t border-[#E2E8F0] pt-4 text-lg font-bold text-[#0F172A]">تفاصيل المادة الامتحانية</h3>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -789,7 +831,7 @@ export function ExamSchedulesPanel({
               إغلاق
             </button>
             <button type="button" onClick={resetForm} disabled={isPending} className="rounded-xl border border-[#CBD5E1] px-4 py-2 text-sm disabled:opacity-60">إعادة تعيين</button>
-            <button type="button" onClick={onSubmitForm} disabled={isPending || contextSubmitted} className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+            <button type="button" onClick={onSubmitForm} disabled={isPending} className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
               {isPending ? "جاري المعالجة..." : form.id ? "حفظ التعديلات" : "إضافة إلى التقويم الامتحاني"}
             </button>
           </div>
@@ -878,8 +920,8 @@ export function ExamSchedulesPanel({
                       {r.notes ? <p className="mt-0.5 text-xs text-[#64748B]">ملاحظات: {r.notes}</p> : null}
                     </div>
                     <div className="flex gap-1">
-                      <button type="button" onClick={() => onEdit(r)} disabled={r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED"} className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs disabled:opacity-50">تعديل</button>
-                      <button type="button" onClick={() => setDeleteId(r.id)} disabled={r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED"} className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-700 disabled:opacity-50">حذف</button>
+                      <button type="button" onClick={() => onEdit(r)} className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs">تعديل</button>
+                      <button type="button" onClick={() => setDeleteId(r.id)} className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-700">حذف</button>
                     </div>
                   </div>
                 </article>
@@ -1052,47 +1094,86 @@ export function ExamSchedulesPanel({
         </div>
       </dialog>
 
-      <section className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <div className="border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
-          <h3 className="text-lg font-bold text-[#0F172A]">الجداول الامتحانية المضافة</h3>
+      <section className="min-w-0 overflow-x-hidden overflow-y-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+        <div className="border-b border-[#1f3578] bg-[#274092] px-5 py-4">
+          <h3 className="text-lg font-bold text-white">الجداول الامتحانية المضافة</h3>
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث..." className="h-10 rounded-xl border border-[#CBD5E1] px-3 text-sm" />
-            <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="h-10 rounded-xl border border-[#CBD5E1] px-3 text-sm">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="بحث..."
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+            />
+            <select
+              value={filterDepartment}
+              onChange={(e) => setFilterDepartment(e.target.value)}
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+            >
               <option value="ALL">فلتر القسم/الفرع</option>
-              {subjects.map((s) => <option key={s.id} value={s.id}>{s.branch_name}</option>)}
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.branch_name}
+                </option>
+              ))}
             </select>
-            <select value={filterType} onChange={(e) => setFilterType(e.target.value as "ALL" | ScheduleType)} className="h-10 rounded-xl border border-[#CBD5E1] px-3 text-sm">
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as "ALL" | ScheduleType)}
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+            >
               <option value="ALL">فلتر نوع الجدول</option>
               <option value="FINAL">نهائية</option>
               <option value="SEMESTER">فصلية</option>
             </select>
-            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="h-10 rounded-xl border border-[#CBD5E1] px-3 text-sm" />
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+            />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] border-collapse text-right">
+        <div className="w-full min-w-0 overflow-x-hidden">
+          <table className="w-full table-fixed border-collapse text-right">
+            <colgroup>
+              <col style={{ width: "4%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "17%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "6%" }} />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
               <tr className="border-b border-[#E2E8F0]">
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">التسلسل</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">اسم الكلية / التشكيل</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">القسم / الفرع</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">نوع الجدول</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">المادة الدراسية</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">المرحلة</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">اليوم</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">التاريخ</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">وقت الامتحان</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">مدة الامتحان</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">القاعة</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">الملاحظات</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">الحالة</th>
-                <th className="px-3 py-3 text-xs font-bold text-[#334155]">الإجراءات</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">التسلسل</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">الكلية</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">القسم / الفرع</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">نوع الجدول</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">المادة</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المرحلة</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">التاريخ</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">اليوم</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">الوقت</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المدة</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">القاعة</th>
+                <th className="px-1 py-2.5 text-center text-sm font-bold text-[#334155]">
+                  <span className="sr-only">إجراءات</span>
+                  <span aria-hidden className="block text-center">
+                    ⋮
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] bg-white">
               {pagedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-12 text-center text-sm text-[#64748B]">
+                  <td colSpan={12} className="px-4 py-12 text-center text-sm text-[#64748B]">
                     لا توجد بيانات مطابقة.
                   </td>
                 </tr>
@@ -1100,43 +1181,165 @@ export function ExamSchedulesPanel({
                 groupedPagedRows.map((g) => (
                   <Fragment key={`wrap-${g.subjectId}`}>
                     <tr key={`g-${g.subjectId}`} className="bg-[#EEF2FF]">
-                      <td colSpan={14} className="px-3 py-2 text-xs font-bold text-[#1E3A8A]">
-                        جدول: {g.subjectName}
+                      <td colSpan={12} className="px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-[#1E3A8A]">جدول: {g.subjectName}</span>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={pdfExportSubjectId === g.subjectId}
+                              onClick={() => {
+                                void (async () => {
+                                  setPdfExportSubjectId(g.subjectId);
+                                  try {
+                                    const rowsForPdf = filteredRows.filter((r) => r.college_subject_id === g.subjectId);
+                                    await downloadCollegeScheduleGroupPdf({
+                                      collegeLabel,
+                                      departmentName: g.subjectName,
+                                      rows: rowsForPdf,
+                                    });
+                                    setToast({ type: "success", msg: "تم تنزيل جدول الامتحانات بصيغة PDF." });
+                                  } catch {
+                                    setToast({ type: "error", msg: "تعذر إنشاء ملف PDF. حاول مرة أخرى." });
+                                  } finally {
+                                    setPdfExportSubjectId(null);
+                                  }
+                                })();
+                              }}
+                              className="rounded-lg border border-[#1E3A8A]/35 bg-white px-3 py-1.5 text-xs font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EEF2FF] disabled:cursor-wait disabled:opacity-70"
+                            >
+                              {pdfExportSubjectId === g.subjectId ? "جاري التصدير…" : "تصدير PDF"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await exportGroupScheduleExcel(g.subjectId, g.subjectName);
+                                    setToast({ type: "success", msg: "تم تنزيل جدول الامتحانات بصيغة Excel." });
+                                  } catch {
+                                    setToast({ type: "error", msg: "تعذر تصدير Excel. حاول مرة أخرى." });
+                                  }
+                                })();
+                              }}
+                              className="rounded-lg border border-emerald-700/30 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
+                            >
+                              تصدير Excel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={whatsAppShareSubjectId === g.subjectId || pdfExportSubjectId === g.subjectId}
+                              onClick={() => {
+                                void (async () => {
+                                  setWhatsAppShareSubjectId(g.subjectId);
+                                  try {
+                                    const rowsForShare = filteredRows.filter((r) => r.college_subject_id === g.subjectId);
+                                    const result = await shareCollegeScheduleGroupForWhatsApp({
+                                      collegeLabel,
+                                      departmentName: g.subjectName,
+                                      rows: rowsForShare,
+                                    });
+                                    if (result === "cancelled") {
+                                      /* أغلق المستخدم نافذة المشاركة */
+                                    } else if (result === "shared_pdf") {
+                                      setToast({
+                                        type: "success",
+                                        msg: "اختر «واتساب» من نافذة المشاركة لإرسال ملف PDF الرسمي.",
+                                      });
+                                    } else if (result === "shared_png") {
+                                      setToast({
+                                        type: "success",
+                                        msg: "اختر «واتساب» من نافذة المشاركة لإرسال صورة الجدول الرسمية.",
+                                      });
+                                    } else {
+                                      setToast({
+                                        type: "success",
+                                        msg: "تم تنزيل PDF. في واتساب اختر إرفاق ملف وأضف الملف الذي نُزّل للتو.",
+                                      });
+                                    }
+                                  } catch {
+                                    setToast({ type: "error", msg: "تعذر تجهيز المشاركة. حاول مرة أخرى." });
+                                  } finally {
+                                    setWhatsAppShareSubjectId(null);
+                                  }
+                                })();
+                              }}
+                              className="rounded-lg border border-[#25D366]/50 bg-[#25D366]/10 px-3 py-1.5 text-xs font-bold text-[#128C7E] shadow-sm transition hover:bg-[#25D366]/18 disabled:cursor-wait disabled:opacity-70"
+                            >
+                              {whatsAppShareSubjectId === g.subjectId ? "جاري التجهيز…" : "إرسال واتساب"}
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                     {g.rows.map((r, i) => (
                       <tr key={r.id} className="hover:bg-[#F8FAFC]">
-                        <td className="px-3 py-3 text-sm">{(safePage - 1) * pageSize + i + 1}</td>
-                        <td className="px-3 py-3 text-sm">{collegeLabel}</td>
-                        <td className="px-3 py-3 text-sm">{r.college_subject_name}</td>
-                        <td className="px-3 py-3 text-sm">{SCHEDULE_TYPE_LABEL[r.schedule_type]}</td>
-                    <td className="px-3 py-3 text-sm font-semibold text-[#0F172A]">{r.study_subject_name}</td>
-                    <td className="px-3 py-3 text-sm">المرحلة {r.stage_level}</td>
-                        <td className="px-3 py-3 text-sm">{weekdayAr(r.exam_date)}</td>
-                        <td className="px-3 py-3 text-sm">{r.exam_date}</td>
-                        <td className="px-3 py-3 text-sm">{timeRangeLabel(r.start_time, r.end_time)}</td>
-                        <td className="px-3 py-3 text-sm">{formatDuration(r.duration_minutes)}</td>
-                        <td className="px-3 py-3 text-sm">{r.room_name}</td>
-                        <td className="max-w-[180px] truncate px-3 py-3 text-sm" title={r.notes ?? ""}>{r.notes || "—"}</td>
-                    <td className="px-3 py-3 text-sm">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
-                        r.workflow_status === "APPROVED"
-                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-300/50"
-                          : r.workflow_status === "SUBMITTED"
-                            ? "bg-sky-50 text-sky-700 ring-1 ring-sky-300/50"
-                            : r.workflow_status === "REJECTED"
-                              ? "bg-rose-50 text-rose-700 ring-1 ring-rose-300/50"
-                              : "bg-amber-50 text-amber-700 ring-1 ring-amber-300/50"
-                      }`}>
-                        {WORKFLOW_LABEL[r.workflow_status]}
-                      </span>
-                    </td>
-                        <td className="px-3 py-3 text-sm">
-                          <div className="flex gap-1">
-                            <button type="button" className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs">عرض</button>
-                            <button type="button" onClick={() => onEdit(r)} disabled={r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED"} className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs disabled:opacity-50">تعديل</button>
-                            <button type="button" onClick={() => setDeleteId(r.id)} disabled={r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED"} className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-700 disabled:opacity-50">حذف</button>
-                          </div>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                          {(safePage - 1) * pageSize + i + 1}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                          {collegeLabel}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                          {r.college_subject_name}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                          {SCHEDULE_TYPE_TABLE_SHORT[r.schedule_type]}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm font-semibold text-[#0F172A]">
+                          {r.study_subject_name}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                          {r.stage_level}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                          {r.exam_date}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                          {weekdayAr(r.exam_date)}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                          {timeRangeLabel(r.start_time, r.end_time)}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                          {formatDuration(r.duration_minutes)}
+                        </td>
+                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                          {r.room_name}
+                        </td>
+                        <td
+                          className="border-b border-[#E2E8F0] px-1 py-2 text-center align-middle whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            aria-label="إجراءات"
+                            aria-expanded={scheduleMenuId === r.id}
+                            aria-haspopup="menu"
+                            className="rounded-lg p-1.5 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (scheduleMenuId === r.id) {
+                                closeScheduleMenu();
+                                return;
+                              }
+                              scheduleMenuBtnRef.current = e.currentTarget;
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const menuMinW = 192;
+                              const pad = 8;
+                              let left = rect.left;
+                              if (left + menuMinW > window.innerWidth - pad) left = window.innerWidth - menuMinW - pad;
+                              if (left < pad) left = pad;
+                              setScheduleMenuCoords({ top: rect.bottom + 6, left });
+                              setScheduleMenuId(r.id);
+                            }}
+                          >
+                            <svg className="size-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                              <circle cx="12" cy="5" r="2" />
+                              <circle cx="12" cy="12" r="2" />
+                              <circle cx="12" cy="19" r="2" />
+                            </svg>
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1154,6 +1357,61 @@ export function ExamSchedulesPanel({
           </div>
         </div>
       </section>
+
+      {scheduleMenuRow && scheduleMenuCoords && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={scheduleMenuPanelRef}
+              className="fixed z-[280] min-w-[12rem] rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg"
+              style={{ top: scheduleMenuCoords.top, left: scheduleMenuCoords.left }}
+              dir="rtl"
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                onClick={() => {
+                  setViewTicketRow(scheduleMenuRow);
+                  closeScheduleMenu();
+                }}
+              >
+                عرض
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                onClick={() => {
+                  setBuilderOpen(true);
+                  onEdit(scheduleMenuRow);
+                  closeScheduleMenu();
+                }}
+              >
+                تعديل
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50"
+                onClick={() => {
+                  setDeleteId(scheduleMenuRow.id);
+                  closeScheduleMenu();
+                }}
+              >
+                حذف
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      <ExamScheduleTicketModal
+        open={Boolean(viewTicketRow)}
+        row={viewTicketRow}
+        collegeLabel={collegeLabel}
+        onClose={() => setViewTicketRow(null)}
+      />
 
       {deleteId ? (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 p-4">

@@ -14,6 +14,18 @@
   font-family: "Alhurra", "Noto Kufi Arabic", "Segoe UI", Tahoma, sans-serif;
 }
 
+/** قائمة الشريط الجانبي: تمرير بالعجلة/اللمس دون إظهار شريط التمرير */
+.sidebar-nav-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 :root {
   --background: #f4f8ff;
   --foreground: #0f2f57;
@@ -684,6 +696,22 @@ body {
 }
 
 .study-subject-modal-dialog[open]::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* مودال الأقسام/الفروع (كلية): تمركز في منتصف الشاشة */
+.college-branch-modal-dialog[open] {
+  position: fixed;
+  inset: 0;
+  width: min(92vw, 520px);
+  max-width: calc(100vw - 1rem);
+  height: max-content;
+  max-height: 90dvh;
+  margin: auto;
+  border-width: 1px;
+}
+
+.college-branch-modal-dialog[open]::backdrop {
   background: rgba(15, 23, 42, 0.45);
 }
 

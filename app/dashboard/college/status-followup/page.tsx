@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
-import { listUploadedExamSituationsForFollowup } from "@/lib/college-exam-situations";
+import {
+  listExamDayUploadSummariesForOwner,
+  listUploadedExamSituationsForFollowup,
+} from "@/lib/college-exam-situations";
 import { getSession } from "@/lib/session";
 import { StatusFollowupPanel } from "./status-followup-panel";
 
@@ -11,9 +14,10 @@ export default async function CollegeStatusFollowupPage() {
   if (!session) redirect("/");
   if (session.role !== "COLLEGE") redirect("/dashboard");
 
-  const [rows, profile] = await Promise.all([
+  const [rows, profile, daySummaries] = await Promise.all([
     listUploadedExamSituationsForFollowup(session.uid),
     getCollegeProfileByUserId(session.uid),
+    listExamDayUploadSummariesForOwner(session.uid),
   ]);
 
   const collegeLabel =
@@ -21,5 +25,7 @@ export default async function CollegeStatusFollowupPage() {
       ? (profile.holder_name ?? "—")
       : (profile?.formation_name ?? "—");
 
-  return <StatusFollowupPanel rows={rows} collegeLabel={collegeLabel} />;
+  return (
+    <StatusFollowupPanel rows={rows} collegeLabel={collegeLabel} daySummaries={daySummaries} />
+  );
 }

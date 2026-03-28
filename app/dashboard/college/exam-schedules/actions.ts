@@ -4,7 +4,6 @@ import {
   createCollegeExamSchedule,
   deleteCollegeExamSchedule,
   reviewCollegeExamScheduleContext,
-  submitCollegeExamScheduleContext,
   updateCollegeExamSchedule,
 } from "@/lib/college-exam-schedules";
 import { createCollegeHoliday, deleteCollegeHoliday } from "@/lib/college-holidays";
@@ -69,20 +68,6 @@ export async function deleteExamScheduleAction(formData: FormData): Promise<Exam
   const result = await deleteCollegeExamSchedule({ id, ownerUserId: session.uid });
   if (!result.ok) return result;
   return { ok: true, message: "تم حذف الإدخال", data: { id } };
-}
-
-export async function submitExamScheduleContextAction(formData: FormData): Promise<ExamScheduleActionResult> {
-  const session = await getSession();
-  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
-  const result = await submitCollegeExamScheduleContext({
-    ownerUserId: session.uid,
-    collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
-    scheduleType: String(formData.get("schedule_type") ?? ""),
-    termLabel: String(formData.get("term_label") ?? ""),
-    academicYear: String(formData.get("academic_year") ?? ""),
-  });
-  if (!result.ok) return result;
-  return { ok: true, message: "تم رفع الجدول إلى المتابعة بنجاح." };
 }
 
 export async function createHolidayAction(formData: FormData): Promise<ExamScheduleActionResult> {

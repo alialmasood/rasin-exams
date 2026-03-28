@@ -658,10 +658,62 @@ async function ensureCollegeExamRoomsTable(pool: Pool) {
       `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS stage_level SMALLINT NOT NULL DEFAULT 1`
     );
     await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS stage_level_2 SMALLINT`);
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS attendance_morning INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_morning INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS attendance_evening INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_evening INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_morning TEXT`);
+    await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_evening TEXT`);
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS attendance_morning_2 INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_morning_2 INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS attendance_evening_2 INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_evening_2 INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_morning_2 TEXT`);
+    await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_evening_2 TEXT`);
     await pool.query(`
       UPDATE public.college_exam_rooms
       SET capacity_morning = capacity_total
       WHERE capacity_morning = 0 AND capacity_evening = 0 AND COALESCE(capacity_total, 0) > 0
+    `);
+    await pool.query(`
+      UPDATE public.college_exam_rooms
+      SET
+        attendance_morning = attendance_count,
+        absence_morning = absence_count,
+        absence_names_morning = absence_names
+      WHERE attendance_morning = 0 AND absence_morning = 0 AND attendance_evening = 0 AND absence_evening = 0
+        AND (
+          attendance_count > 0 OR absence_count > 0
+          OR TRIM(COALESCE(absence_names, '')) <> ''
+        )
+    `);
+    await pool.query(`
+      UPDATE public.college_exam_rooms
+      SET
+        attendance_morning_2 = attendance_count_2,
+        absence_morning_2 = absence_count_2,
+        absence_names_morning_2 = absence_names_2
+      WHERE attendance_morning_2 = 0 AND absence_morning_2 = 0 AND attendance_evening_2 = 0 AND absence_evening_2 = 0
+        AND (
+          attendance_count_2 > 0 OR absence_count_2 > 0
+          OR TRIM(COALESCE(absence_names_2, '')) <> ''
+        )
     `);
   } catch (err: unknown) {
     if (!isPermissionError(err)) throw err;
@@ -784,6 +836,15 @@ async function ensureCollegeExamSchedulesTable(pool: Pool) {
       const msg = String((err as { message?: string }).message ?? "");
       if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
     }
+  }
+  try {
+    await pool.query(`
+      UPDATE public.college_exam_schedules
+      SET workflow_status = 'APPROVED', updated_at = NOW()
+      WHERE UPPER(TRIM(workflow_status::text)) IN ('SUBMITTED', 'DRAFT')
+    `);
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
   }
 }
 
