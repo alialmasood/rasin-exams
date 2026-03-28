@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Alhurra";
+  src: url("/fonts/Alhurra-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/** عنوان النظام واسم الكلية في الشريط الجانبي */
+.sidebar-system-title,
+.sidebar-footer-label {
+  font-family: "Alhurra", "Noto Kufi Arabic", "Segoe UI", Tahoma, sans-serif;
+}
+
 :root {
   --background: #f4f8ff;
   --foreground: #0f2f57;
@@ -655,6 +669,22 @@ body {
 .college-account-dialog[open]::backdrop {
   background: rgba(15, 23, 42, 0.45);
   animation: college-modal-backdrop-in 0.22s ease-out forwards;
+}
+
+/* مودال المواد الدراسية: تمركز ثابت في منتصف الشاشة فوق طبقة المتصفح */
+.study-subject-modal-dialog[open] {
+  position: fixed;
+  inset: 0;
+  width: min(92vw, 560px);
+  max-width: calc(100vw - 1rem);
+  height: max-content;
+  max-height: 90dvh;
+  margin: auto;
+  border-width: 1px;
+}
+
+.study-subject-modal-dialog[open]::backdrop {
+  background: rgba(15, 23, 42, 0.45);
 }
 
 .college-account-dialog[open] .college-account-dialog__surface {

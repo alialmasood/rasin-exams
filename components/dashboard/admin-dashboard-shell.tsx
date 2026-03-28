@@ -19,7 +19,14 @@ const C = {
   border: "#E2E8F0",
   text: "#0F172A",
   textMuted: "#64748B",
+  /** لون الشريط الجانبي الموحّد (حسب مرجع المستخدم) */
+  sidebarBg: "#274092",
 } as const;
+
+const sidebarNavActiveClass =
+  "border-transparent bg-white pl-3 text-[#274092] shadow-sm ring-1 ring-white/40";
+const sidebarNavInactiveClass =
+  "cursor-pointer border-transparent pl-3 text-white/90 hover:bg-white/12 hover:text-white";
 
 type Props = {
   username: string;
@@ -95,7 +102,7 @@ export function AdminDashboardShell({
 
   const sidebarBody = (
     <>
-      <div className="flex h-[4.5rem] shrink-0 items-center gap-3 border-b px-5" style={{ borderColor: C.border }}>
+      <div className="flex h-[4.5rem] shrink-0 items-center gap-3 border-b border-white/15 px-5">
         <div className="relative size-11 shrink-0">
           <Image
             src="/rassiin.png"
@@ -106,12 +113,17 @@ export function AdminDashboardShell({
             priority
           />
         </div>
-        <div className="min-w-0 text-right">
-          <p className="truncate text-sm font-bold" style={{ color: C.primary }}>
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-right">
+          <p className="sidebar-system-title shrink-0 text-[15px] font-medium leading-none text-white md:text-[17px]">
             نظام رصين
           </p>
-          <p className="truncate text-xs font-medium" style={{ color: C.textMuted }}>
-            Raseen System
+          <span
+            className="h-[1.125rem] w-px shrink-0 self-center rounded-full opacity-90 md:h-5"
+            style={{ backgroundColor: C.accent }}
+            aria-hidden
+          />
+          <p className="shrink-0 whitespace-nowrap text-[12px] font-semibold leading-none text-white md:text-[13px] lg:text-sm">
+            جامعة البصرة
           </p>
         </div>
       </div>
@@ -123,9 +135,9 @@ export function AdminDashboardShell({
         {isCollegePortal ? (
           <>
             {collegeDashboardNavSections.map((section, sectionIndex) => (
-              <div key={section.id} className={sectionIndex > 0 ? "mt-5 border-t border-slate-100 pt-4" : ""}>
+              <div key={section.id} className={sectionIndex > 0 ? "mt-5 border-t border-white/15 pt-4" : ""}>
                 <p
-                  className="mb-2 px-3 text-[11px] font-bold tracking-tight text-slate-500"
+                  className="mb-2 px-3 text-[11px] font-bold tracking-tight text-white/55"
                   id={`nav-section-${section.id}`}
                 >
                   {section.title}
@@ -138,15 +150,13 @@ export function AdminDashboardShell({
                         key={item.href}
                         href={item.href}
                         aria-current={active ? "page" : undefined}
-                        className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-[13px] font-semibold leading-snug transition-all duration-200 ${
-                          active
-                            ? "border-indigo-200/60 bg-gradient-to-l from-[#2563EB] to-[#1d4ed8] pl-3 text-white shadow-md shadow-indigo-900/10 ring-1 ring-white/15 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-sky-200 before:shadow-[0_0_14px_rgba(186,230,253,0.9)] before:content-['']"
-                            : "cursor-pointer border-transparent pl-3 text-slate-600 hover:border-slate-200/90 hover:bg-slate-50 hover:text-slate-900"
+                        className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-sm font-semibold leading-snug transition-all duration-200 ${
+                          active ? sidebarNavActiveClass : sidebarNavInactiveClass
                         }`}
                       >
                         <span
                           className={`shrink-0 transition-colors [&_svg]:stroke-[1.75] ${
-                            active ? "text-white" : "text-slate-400 group-hover:text-slate-600"
+                            active ? "text-[#274092]" : "text-white/70 group-hover:text-white"
                           }`}
                         >
                           {item.icon}
@@ -167,15 +177,13 @@ export function AdminDashboardShell({
                 key={item.href}
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-[13px] font-semibold transition-all duration-200 ${
-                  active
-                    ? "border-indigo-200/60 bg-gradient-to-l from-[#2563EB] to-[#1d4ed8] pl-3 text-white shadow-md shadow-indigo-900/10 ring-1 ring-white/15 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-sky-200 before:shadow-[0_0_14px_rgba(186,230,253,0.9)] before:content-['']"
-                    : "cursor-pointer border-transparent pl-3 text-slate-600 hover:border-slate-200/90 hover:bg-slate-50 hover:text-slate-900"
+                className={`group relative flex items-center gap-3 rounded-xl border py-2.5 pr-3 text-sm font-semibold transition-all duration-200 ${
+                  active ? sidebarNavActiveClass : sidebarNavInactiveClass
                 }`}
               >
                 <span
                   className={`shrink-0 transition-colors [&_svg]:stroke-[1.75] ${
-                    active ? "text-white" : "text-slate-400 group-hover:text-slate-600"
+                    active ? "text-[#274092]" : "text-white/70 group-hover:text-white"
                   }`}
                 >
                   {item.icon}
@@ -187,15 +195,15 @@ export function AdminDashboardShell({
         )}
       </nav>
 
-      <div className="shrink-0 border-t border-slate-200/80 bg-gradient-to-b from-[#f8fafc] via-[#f1f5fb] to-[#e8edf5]">
+      <div className="shrink-0 border-t border-white/15">
         <div className="flex items-center gap-3 px-4 py-4">
           <span
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200/90 bg-white text-[11px] font-bold tabular-nums text-slate-600 shadow-sm"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/25 bg-white/15 text-[11px] font-bold tabular-nums text-white shadow-sm"
             aria-hidden
           >
             {sidebarInitials()}
           </span>
-          <p className="min-w-0 flex-1 truncate text-right text-sm font-semibold leading-snug text-slate-800">
+          <p className="sidebar-footer-label min-w-0 flex-1 truncate text-right text-base font-normal leading-snug text-white md:text-lg">
             {sidebarFooterLabel}
           </p>
         </div>
@@ -216,10 +224,10 @@ export function AdminDashboardShell({
 
       <aside
         id="dashboard-sidebar"
-        className={`fixed inset-y-0 right-0 z-50 flex w-[18.25rem] flex-col border-l bg-white shadow-[0_0_60px_-15px_rgba(30,58,138,0.18)] transition-transform duration-300 ease-out lg:translate-x-0 ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-[18.25rem] flex-col border-l border-[#1f3578] shadow-[0_0_60px_-15px_rgba(0,0,0,0.35)] transition-transform duration-300 ease-out lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "translate-x-full"
         }`}
-        style={{ borderColor: C.border }}
+        style={{ backgroundColor: C.sidebarBg }}
       >
         {sidebarBody}
       </aside>
@@ -297,8 +305,7 @@ export function AdminDashboardShell({
               <button
                 type="button"
                 onClick={() => setAccountMenuOpen((v) => !v)}
-                className="flex items-center gap-2 rounded-2xl border bg-white py-1.5 pl-2 pr-3 shadow-sm transition hover:border-[#2563EB]/25 hover:shadow-md"
-                style={{ borderColor: C.border }}
+                className="flex items-center gap-2 rounded-xl border-0 bg-transparent py-1.5 pl-1 pr-1 shadow-none transition hover:bg-slate-900/5"
                 aria-expanded={accountMenuOpen}
                 aria-haspopup="true"
               >

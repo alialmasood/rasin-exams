@@ -1,7 +1,9 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
+import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
 import {
   createCollegeStudySubjectAction,
@@ -15,6 +17,18 @@ const STUDY_TYPE_LABEL: Record<StudyType, string> = {
   COURSES: "مقررات",
   BOLOGNA: "بولونيا",
 };
+
+/** تمركز بصري: inset-0 + margin:auto + ارتفاع المحتوى؛ يُعرض عبر portal على body لتفادي سياق الـ RTL/التخطيط */
+const STUDY_SUBJECT_MODAL_DIALOG_CLASS =
+  "study-subject-modal-dialog fixed inset-0 z-[200] m-auto box-border h-max max-h-[90dvh] w-[min(92vw,560px)] overflow-y-auto rounded-2xl border border-[#E2E8F0] p-0 shadow-xl";
+
+function useClientMounted() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  return mounted;
+}
 
 function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
   return (
@@ -30,11 +44,14 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
 
 function SubjectFormFields({
   branches,
+  stageOptions,
   defaults,
 }: {
   branches: CollegeSubjectRow[];
-  defaults?: { collegeSubjectId?: string; subjectName?: string; studyType?: StudyType };
+  stageOptions: number[];
+  defaults?: { collegeSubjectId?: string; subjectName?: string; studyType?: StudyType; studyStageLevel?: number };
 }) {
+  const defaultStage = String(defaults?.studyStageLevel ?? stageOptions[0] ?? 1);
   return (
     <>
       <div>
@@ -55,16 +72,33 @@ function SubjectFormFields({
           ))}
         </select>
       </div>
-      <div>
-        <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم المادة الدراسية</label>
-        <input
-          name="subject_name"
-          required
-          minLength={2}
-          maxLength={220}
-          defaultValue={defaults?.subjectName ?? ""}
-          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-        />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم المادة الدراسية</label>
+          <input
+            name="subject_name"
+            required
+            minLength={2}
+            maxLength={220}
+            defaultValue={defaults?.subjectName ?? ""}
+            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
+          <select
+            name="study_stage_level"
+            required
+            defaultValue={defaultStage}
+            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+          >
+            {stageOptions.map((s) => (
+              <option key={s} value={String(s)}>
+                المرحلة {s}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       <div>
         <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
@@ -87,29 +121,34 @@ function AddStudySubjectDialog({
   open,
   onClose,
   branches,
+  stageOptions,
 }: {
   open: boolean;
   onClose: () => void;
   branches: CollegeSubjectRow[];
+  stageOptions: number[];
 }) {
   const [state, formAction, pending] = useActionState(createCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const mounted = useClientMounted();
 
   useEffect(() => {
-    if (!dialogRef.current) return;
+    if (!mounted || !dialogRef.current) return;
     if (open && !dialogRef.current.open) dialogRef.current.showModal();
     if (!open && dialogRef.current.open) dialogRef.current.close();
-  }, [open]);
+  }, [open, mounted]);
 
   useEffect(() => {
     if (state?.ok) onClose();
   }, [state, onClose]);
 
-  return (
-    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
-      <form action={formAction} className="w-[min(92vw,560px)] space-y-4 p-6">
+  if (!mounted) return null;
+
+  return createPortal(
+    <dialog ref={dialogRef} className={STUDY_SUBJECT_MODAL_DIALOG_CLASS} dir="rtl">
+      <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">إضافة مادة دراسية</h2>
-        <SubjectFormFields branches={branches} />
+        <SubjectFormFields branches={branches} stageOptions={stageOptions} />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3 pt-1">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
@@ -118,7 +157,8 @@ function AddStudySubjectDialog({
           <SubmitButton pending={pending} label="حفظ المادة" />
         </div>
       </form>
-    </dialog>
+    </dialog>,
+    document.body
   );
 }
 
@@ -127,37 +167,44 @@ function EditStudySubjectDialog({
   open,
   onClose,
   branches,
+  stageOptions,
 }: {
   row: CollegeStudySubjectRow | null;
   open: boolean;
   onClose: () => void;
   branches: CollegeSubjectRow[];
+  stageOptions: number[];
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const key = useMemo(() => `${row?.id ?? "none"}-${open ? "open" : "closed"}`, [row?.id, open]);
+  const mounted = useClientMounted();
 
   useEffect(() => {
-    if (!dialogRef.current) return;
+    if (!mounted || !dialogRef.current) return;
     if (open && !dialogRef.current.open) dialogRef.current.showModal();
     if (!open && dialogRef.current.open) dialogRef.current.close();
-  }, [open]);
+  }, [open, mounted]);
 
   useEffect(() => {
     if (state?.ok) onClose();
   }, [state, onClose]);
 
-  return (
-    <dialog ref={dialogRef} className="rounded-2xl border border-[#E2E8F0] p-0 shadow-xl" dir="rtl">
-      <form key={key} action={formAction} className="w-[min(92vw,560px)] space-y-4 p-6">
+  if (!mounted) return null;
+
+  return createPortal(
+    <dialog ref={dialogRef} className={STUDY_SUBJECT_MODAL_DIALOG_CLASS} dir="rtl">
+      <form key={key} action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">تعديل مادة دراسية</h2>
         <input type="hidden" name="id" value={row?.id ?? ""} />
         <SubjectFormFields
           branches={branches}
+          stageOptions={stageOptions}
           defaults={{
             collegeSubjectId: row?.college_subject_id,
             subjectName: row?.subject_name,
             studyType: row?.study_type,
+            studyStageLevel: row?.study_stage_level,
           }}
         />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
@@ -168,7 +215,8 @@ function EditStudySubjectDialog({
           <SubmitButton pending={pending} label="حفظ التعديلات" />
         </div>
       </form>
-    </dialog>
+    </dialog>,
+    document.body
   );
 }
 
@@ -190,15 +238,24 @@ function DeleteStudySubjectForm({ id }: { id: string }) {
 }
 
 export function StudySubjectsPanel({
+  collegeLabel,
   branches,
   rows,
 }: {
+  collegeLabel: string;
   branches: CollegeSubjectRow[];
   rows: CollegeStudySubjectRow[];
 }) {
+  const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<CollegeStudySubjectRow | null>(null);
+  const editStageOptions = useMemo(() => {
+    const lv = editingRow?.study_stage_level;
+    if (lv == null) return stageOptions;
+    if (stageOptions.includes(lv)) return stageOptions;
+    return [...stageOptions, lv].sort((a, b) => a - b);
+  }, [editingRow?.study_stage_level, stageOptions]);
   const [query, setQuery] = useState("");
   const [filterStudyType, setFilterStudyType] = useState<"ALL" | StudyType>("ALL");
   const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
@@ -241,11 +298,12 @@ export function StudySubjectsPanel({
   }, [stats.latest]);
 
   const exportCsv = () => {
-    const header = ["المادة الدراسية", "القسم/الفرع", "نوع الدراسة", "تاريخ الإضافة"];
+    const header = ["المادة الدراسية", "القسم/الفرع", "نوع الدراسة", "المرحلة الدراسية", "تاريخ الإضافة"];
     const lines = filteredRows.map((row) => [
       row.subject_name,
       `${row.linked_branch_name} (${row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})`,
       STUDY_TYPE_LABEL[row.study_type],
+      `المرحلة ${row.study_stage_level}`,
       new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at)),
     ]);
     const csv = [header, ...lines]
@@ -364,6 +422,7 @@ export function StudySubjectsPanel({
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المادة الدراسية</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">القسم/الفرع</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">نوع الدراسة</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">المرحلة الدراسية</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">تاريخ الإضافة</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">إجراءات</th>
             </tr>
@@ -371,7 +430,7 @@ export function StudySubjectsPanel({
           <tbody className="divide-y divide-[#E2E8F0] bg-white">
             {pagedRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={6}>
+                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={7}>
                   لا توجد مواد دراسية بعد.
                 </td>
               </tr>
@@ -384,6 +443,7 @@ export function StudySubjectsPanel({
                     {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
                   </td>
                   <td className="px-4 py-3 text-sm text-[#334155]">{STUDY_TYPE_LABEL[row.study_type]}</td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">المرحلة {row.study_stage_level}</td>
                   <td className="px-4 py-3 text-sm text-[#64748B]">
                     {new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(
                       new Date(row.created_at)
@@ -468,12 +528,18 @@ export function StudySubjectsPanel({
         </div>
       </div>
 
-      <AddStudySubjectDialog open={addOpen} onClose={() => setAddOpen(false)} branches={branches} />
+      <AddStudySubjectDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        branches={branches}
+        stageOptions={stageOptions}
+      />
       <EditStudySubjectDialog
         row={editingRow}
         open={Boolean(editingRow)}
         onClose={() => setEditingRow(null)}
         branches={branches}
+        stageOptions={editStageOptions}
       />
     </section>
   );

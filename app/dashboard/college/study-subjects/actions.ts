@@ -25,6 +25,7 @@ export async function createCollegeStudySubjectAction(
       collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
       subjectName: String(formData.get("subject_name") ?? ""),
       studyType: String(formData.get("study_type") ?? ""),
+      studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
     if (!result.ok) return result;
     revalidatePath("/dashboard/college/study-subjects");
@@ -49,6 +50,7 @@ export async function updateCollegeStudySubjectAction(
       collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
       subjectName: String(formData.get("subject_name") ?? ""),
       studyType: String(formData.get("study_type") ?? ""),
+      studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
     if (!result.ok) return result;
     revalidatePath("/dashboard/college/study-subjects");

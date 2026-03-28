@@ -8,6 +8,26 @@ import { useSearchParams } from "next/navigation";
 
 type ViewState = "intro" | "reveal" | "login";
 
+/** يُستدعى ضمن تفاعل المستخدم فقط؛ يخفي شريط عنوان المتصفح حيث يُسمح بذلك */
+function requestViewportFullscreen(): void {
+  if (typeof document === "undefined") return;
+  const el = document.documentElement;
+  const legacy = el as unknown as {
+    webkitRequestFullscreen?: () => void;
+    msRequestFullscreen?: () => void;
+  };
+  const go =
+    el.requestFullscreen?.bind(el) ??
+    legacy.webkitRequestFullscreen?.bind(el) ??
+    legacy.msRequestFullscreen?.bind(el);
+  if (!go) return;
+  try {
+    void Promise.resolve(go()).catch(() => undefined);
+  } catch {
+    /* رفض المتصفح أو وضع تطبيق مثبّت */
+  }
+}
+
 function WelcomeScreenShell({
   stateClass,
   children,
@@ -84,7 +104,10 @@ function HomeContent() {
         <button
           type="button"
           className="enter-button"
-          onClick={() => setUserOpenedLogin(true)}
+          onClick={() => {
+            requestViewportFullscreen();
+            setUserOpenedLogin(true);
+          }}
           aria-hidden={viewState === "login"}
           tabIndex={viewState === "login" ? -1 : 0}
         >
@@ -94,7 +117,14 @@ function HomeContent() {
           الدخول إلى النظام
         </button>
 
-        <form className="login-form" aria-label="تسجيل الدخول" action={loginAction}>
+        <form
+          className="login-form"
+          aria-label="تسجيل الدخول"
+          action={loginAction}
+          onSubmit={() => {
+            requestViewportFullscreen();
+          }}
+        >
           {errorMessage ? (
             <p className="login-error" role="alert">
               {errorMessage}

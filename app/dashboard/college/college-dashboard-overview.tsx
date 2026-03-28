@@ -288,7 +288,7 @@ export function CollegeDashboardOverview({
             </>
           ) : (
             <>
-              أهلًا وسهلًا معالي عميد الكلية{" "}
+              أهلًا وسهلًا السيد عميد الكلية{" "}
               <span className="text-[#1E3A8A]">{deanOrHolder || "—"}</span>
             </>
           )}

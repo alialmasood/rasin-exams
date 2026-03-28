@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
 import { getSession } from "@/lib/session";
@@ -12,10 +13,16 @@ export default async function CollegeStudySubjectsPage() {
   if (session.role !== "COLLEGE") {
     redirect("/dashboard");
   }
+  const profile = await getCollegeProfileByUserId(session.uid);
+  const collegeLabel =
+    profile?.account_kind === "FOLLOWUP"
+      ? (profile.holder_name ?? "حساب متابعة")
+      : (profile?.formation_name ?? "حساب كلية");
+
   const [branches, rows] = await Promise.all([
     listCollegeSubjectsByOwner(session.uid),
     listCollegeStudySubjectsByOwner(session.uid),
   ]);
 
-  return <StudySubjectsPanel branches={branches} rows={rows} />;
+  return <StudySubjectsPanel collegeLabel={collegeLabel} branches={branches} rows={rows} />;
 }

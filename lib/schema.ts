@@ -537,6 +537,20 @@ async function ensureCollegeStudySubjectsTable(pool: Pool) {
     console.warn("[schema] تعذر توسيع college_study_subjects بإضافة study_type (صلاحيات).");
   }
 
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_study_subjects ADD COLUMN IF NOT EXISTS study_stage_level INTEGER NOT NULL DEFAULT 1`
+    );
+    await pool.query(
+      `UPDATE public.college_study_subjects
+       SET study_stage_level = 1
+       WHERE study_stage_level IS NULL`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+    console.warn("[schema] تعذر توسيع college_study_subjects بإضافة study_stage_level (صلاحيات).");
+  }
+
   if (!(await constraintExists(pool, "college_study_subjects_owner_user_id_fkey"))) {
     try {
       await pool.query(`
