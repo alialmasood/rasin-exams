@@ -61,6 +61,79 @@ function shiftCapacityLabel(row: CollegeExamRoomRow, slot: 1 | 2) {
   return `${row.capacity_total_2} (ص ${row.capacity_morning_2} + م ${row.capacity_evening_2})`;
 }
 
+/** تجميع عندما تتكرر نفس المادة (الفتحة 1 أو 2) في أكثر من قاعة — لإظهار الإجمالي للمستخدم. */
+type SubjectMultiRoomAggregate = {
+  subjectId: string;
+  subjectName: string;
+  roomCount: number;
+  totalCapacity: number;
+  totalMorning: number;
+  totalEvening: number;
+  totalAttendance: number;
+  totalAbsence: number;
+  /** ترتيب معرفات القاعات حسب التسلسل المعروض */
+  roomOrderIds: string[];
+};
+
+function buildSubjectMultiRoomAggregates(rows: CollegeExamRoomRow[], slot: 1 | 2): Map<string, SubjectMultiRoomAggregate> {
+  const bySubject = new Map<string, CollegeExamRoomRow[]>();
+  for (const r of rows) {
+    const sid = slot === 1 ? r.study_subject_id : r.study_subject_id_2;
+    if (!sid) continue;
+    if (!bySubject.has(sid)) bySubject.set(sid, []);
+    bySubject.get(sid)!.push(r);
+  }
+  const out = new Map<string, SubjectMultiRoomAggregate>();
+  for (const [sid, list] of bySubject) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort((a, b) => {
+      if (a.serial_no !== b.serial_no) return a.serial_no - b.serial_no;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    const name =
+      slot === 1
+        ? sorted[0]!.study_subject_name
+        : (sorted[0]!.study_subject_name_2 ?? sorted[0]!.study_subject_name);
+    let totalCapacity = 0;
+    let totalMorning = 0;
+    let totalEvening = 0;
+    let totalAttendance = 0;
+    let totalAbsence = 0;
+    for (const r of sorted) {
+      if (slot === 1) {
+        totalCapacity += r.capacity_total;
+        totalMorning += r.capacity_morning;
+        totalEvening += r.capacity_evening;
+        totalAttendance += r.attendance_count;
+        totalAbsence += r.absence_count;
+      } else {
+        totalCapacity += r.capacity_total_2;
+        totalMorning += r.capacity_morning_2;
+        totalEvening += r.capacity_evening_2;
+        totalAttendance += r.attendance_count_2;
+        totalAbsence += r.absence_count_2;
+      }
+    }
+    out.set(sid, {
+      subjectId: sid,
+      subjectName: name,
+      roomCount: sorted.length,
+      totalCapacity,
+      totalMorning,
+      totalEvening,
+      totalAttendance,
+      totalAbsence,
+      roomOrderIds: sorted.map((x) => x.id),
+    });
+  }
+  return out;
+}
+
+function roomIndexInSubjectDistribution(agg: SubjectMultiRoomAggregate, roomId: string): number {
+  const i = agg.roomOrderIds.indexOf(roomId);
+  return i >= 0 ? i + 1 : 1;
+}
+
 const inputNumberClass =
   "h-11 w-full appearance-none rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none [appearance:textfield] focus:border-blue-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
@@ -602,26 +675,89 @@ function DeleteRoomForm({ id }: { id: string }) {
   );
 }
 
-function SubjectsCell({ row }: { row: CollegeExamRoomRow }) {
+function MultiRoomSubjectHint({
+  slotLabel,
+  agg,
+  roomIndex,
+}: {
+  slotLabel: "الامتحان الأول" | "الامتحان الثاني";
+  agg: SubjectMultiRoomAggregate;
+  roomIndex: number;
+}) {
+  return (
+    <div className="mt-1.5 rounded-lg border border-[#A5B4FC] bg-[#EEF2FF] px-2 py-1.5 text-[10px] leading-relaxed text-[#312E81]">
+      <p className="font-bold text-[#1E1B4B]">
+        توزيع {slotLabel} على عدة قاعات — القاعة {roomIndex} من {agg.roomCount}
+      </p>
+      <p className="mt-1 text-[#4338CA]">
+        جميع هذه القاعات لمادة واحدة؛ الأعداد أدناه هي <span className="font-semibold">حصة هذه القاعة فقط</span>، أما{" "}
+        <span className="font-semibold">المجموع الكلي للمادة</span> عند جمع القاعات: سعة إجمالية{" "}
+        <strong className="tabular-nums">{agg.totalCapacity}</strong> (صباحي {agg.totalMorning} + مسائي {agg.totalEvening})،
+        حضور <strong className="tabular-nums">{agg.totalAttendance}</strong>، غياب{" "}
+        <strong className="tabular-nums">{agg.totalAbsence}</strong>.
+      </p>
+    </div>
+  );
+}
+
+function SubjectsCell({
+  row,
+  aggregateSlot1,
+  aggregateSlot2,
+}: {
+  row: CollegeExamRoomRow;
+  aggregateSlot1?: SubjectMultiRoomAggregate;
+  aggregateSlot2?: SubjectMultiRoomAggregate;
+}) {
   const dual = Boolean(row.study_subject_id_2);
+  const idx1 = aggregateSlot1 ? roomIndexInSubjectDistribution(aggregateSlot1, row.id) : 0;
+  const idx2 = aggregateSlot2 ? roomIndexInSubjectDistribution(aggregateSlot2, row.id) : 0;
   return (
     <div className="min-w-0 space-y-0.5 break-words text-[11px] leading-snug text-[#334155]">
-      <div className="font-semibold text-[#0F172A]">{row.study_subject_name}</div>
+      <div className="flex flex-wrap items-center gap-1">
+        <div className="font-semibold text-[#0F172A]">{row.study_subject_name}</div>
+        {aggregateSlot1 ? (
+          <span className="inline-flex shrink-0 rounded-full bg-[#4F46E5] px-1.5 py-0.5 text-[9px] font-bold text-white">
+            جزء من توزيع ({idx1}/{aggregateSlot1.roomCount})
+          </span>
+        ) : null}
+      </div>
       <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level ?? 1}</div>
+      {aggregateSlot1 ? <MultiRoomSubjectHint slotLabel="الامتحان الأول" agg={aggregateSlot1} roomIndex={idx1} /> : null}
       {dual && row.study_subject_name_2 ? (
         <div className="border-t border-[#E2E8F0] pt-1 text-[#475569]">
-          <span>+ {row.study_subject_name_2}</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <span>+ {row.study_subject_name_2}</span>
+            {aggregateSlot2 ? (
+              <span className="inline-flex shrink-0 rounded-full bg-[#7C3AED] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                جزء من توزيع ({idx2}/{aggregateSlot2.roomCount})
+              </span>
+            ) : null}
+          </div>
           {row.stage_level_2 != null ? (
             <span className="mt-0.5 block text-[10px] text-[#64748B]">مرحلة {row.stage_level_2}</span>
           ) : null}
+          {aggregateSlot2 ? <MultiRoomSubjectHint slotLabel="الامتحان الثاني" agg={aggregateSlot2} roomIndex={idx2} /> : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function RowDetailHint({ row, hints }: { row: CollegeExamRoomRow; hints: CollegeRoomScheduleHint[] }) {
+function RowDetailHint({
+  row,
+  hints,
+  aggregateSlot1,
+  aggregateSlot2,
+}: {
+  row: CollegeExamRoomRow;
+  hints: CollegeRoomScheduleHint[];
+  aggregateSlot1?: SubjectMultiRoomAggregate;
+  aggregateSlot2?: SubjectMultiRoomAggregate;
+}) {
   const dual = Boolean(row.study_subject_id_2);
+  const idx1 = aggregateSlot1 ? roomIndexInSubjectDistribution(aggregateSlot1, row.id) : 0;
+  const idx2 = aggregateSlot2 ? roomIndexInSubjectDistribution(aggregateSlot2, row.id) : 0;
 
   return (
     <div className="space-y-3 text-sm leading-6 text-[#334155]">
@@ -631,6 +767,14 @@ function RowDetailHint({ row, hints }: { row: CollegeExamRoomRow; hints: College
           <span className="ms-2 rounded-full bg-[#DBEAFE] px-2 py-0.5 text-xs font-semibold text-[#1D4ED8]">قاعة بامتحانين</span>
         ) : null}
       </p>
+      {aggregateSlot1 ? (
+        <p className="rounded-lg border border-[#A5B4FC] bg-[#EEF2FF] px-3 py-2 text-xs leading-relaxed text-[#312E81]">
+          <strong>توزيع المادة على عدة قاعات:</strong> هذه القاعة {idx1} من {aggregateSlot1.roomCount} لمادة «
+          {aggregateSlot1.subjectName}». المجموع الكلي للمادة على كل القاعات: سعة {aggregateSlot1.totalCapacity} (ص{" "}
+          {aggregateSlot1.totalMorning} + م {aggregateSlot1.totalEvening})، حضور {aggregateSlot1.totalAttendance}، غياب{" "}
+          {aggregateSlot1.totalAbsence}.
+        </p>
+      ) : null}
       <ul className="list-disc space-y-1 pe-4">
         <li>
           الامتحان 1: <strong>{row.study_subject_name}</strong> — مرحلة {row.stage_level ?? 1} — سعة{" "}
@@ -645,6 +789,13 @@ function RowDetailHint({ row, hints }: { row: CollegeExamRoomRow; hints: College
           </li>
         ) : null}
       </ul>
+      {aggregateSlot2 ? (
+        <p className="rounded-lg border border-[#C4B5FD] bg-[#F5F3FF] px-3 py-2 text-xs leading-relaxed text-[#4C1D95]">
+          <strong>توزيع الامتحان الثاني على عدة قاعات:</strong> هذه القاعة {idx2} من {aggregateSlot2.roomCount}. المجموع الكلي
+          على كل القاعات: سعة {aggregateSlot2.totalCapacity} (ص {aggregateSlot2.totalMorning} + م{" "}
+          {aggregateSlot2.totalEvening})، حضور {aggregateSlot2.totalAttendance}، غياب {aggregateSlot2.totalAbsence}.
+        </p>
+      ) : null}
       {hints.length > 0 ? (
         <div>
           <p className="mb-1 font-semibold text-[#0F172A]">مواعيد مرتبطة بالجدول (حسب ما أُدخل في «الجداول الامتحانية»):</p>
@@ -703,6 +854,13 @@ export function RoomsManagementPanel({
       const slot2 = r.study_subject_id_2 ? r.capacity_morning_2 + r.capacity_evening_2 : 0;
       return a + slot1 + slot2;
     }, 0);
+    const subjectIdRoomSlots = new Map<string, number>();
+    for (const r of rows) {
+      const bump = (sid: string) => subjectIdRoomSlots.set(sid, (subjectIdRoomSlots.get(sid) ?? 0) + 1);
+      bump(r.study_subject_id);
+      if (r.study_subject_id_2) bump(r.study_subject_id_2);
+    }
+    const subjectsSpreadAcrossMultipleRooms = [...subjectIdRoomSlots.values()].filter((c) => c > 1).length;
     return {
       totalRooms,
       distinctExamSubjectsInRooms,
@@ -711,8 +869,12 @@ export function RoomsManagementPanel({
       singleExamRooms,
       doubleExamRooms,
       totalCapacityFromShifts,
+      subjectsSpreadAcrossMultipleRooms,
     };
   }, [rows]);
+
+  const multiRoomAggSlot1 = useMemo(() => buildSubjectMultiRoomAggregates(rows, 1), [rows]);
+  const multiRoomAggSlot2 = useMemo(() => buildSubjectMultiRoomAggregates(rows, 2), [rows]);
 
   const pinnedDetailRow = pinnedDetailRowId ? rows.find((r) => r.id === pinnedDetailRowId) : null;
   const menuRow = menuId ? rows.find((r) => r.id === menuId) : undefined;
@@ -852,7 +1014,8 @@ export function RoomsManagementPanel({
         />
         <h1 className="text-3xl font-extrabold text-[#0F172A]">إدارة القاعات</h1>
         <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
-          تعريف القاعات وربطها بمادة أو مادتين امتحانيتين في النافذة الزمنية نفسها، مع توزيع الطلبة صباحي/مسائي لكل امتحان.
+          تعريف القاعات وربطها بمادة أو مادتين امتحانيتين في النافذة الزمنية نفسها، مع توزيع الطلبة صباحي/مسائي لكل امتحان. يمكنك
+          إضافة أكثر من قاعة لنفس المادة الدراسية لتوزيع الطلبة بينها؛ يُحسب الحضور والغياب لكل قاعة ثم يُجمَع في التقارير.
         </p>
       </header>
 
@@ -891,7 +1054,7 @@ export function RoomsManagementPanel({
           <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
             <p className="text-xs font-semibold text-[#64748B]">عدد المواد الامتحانية</p>
             <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.distinctExamSubjectsInRooms}</p>
-            <p className="mt-0.5 text-[11px] leading-4 text-[#64748B]">مادة مميزة مربوطة بقاعة (بدون تكرار بين القاعات)</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-[#64748B]">معرّفات مواد فريدة ظاهرة في القاعات (قد تتكرر المادة على عدة قاعات)</p>
           </div>
           <div className="rounded-2xl border border-[#DCFCE7] bg-[#F0FDF4] px-4 py-3">
             <p className="text-xs font-semibold text-[#166534]">عدد الامتحانات المنفردة</p>
@@ -902,6 +1065,11 @@ export function RoomsManagementPanel({
             <p className="text-xs font-semibold text-[#92400E]">عدد الامتحانات المزدوجة</p>
             <p className="mt-1 text-2xl font-extrabold text-[#B45309]">{stats.doubleExamRooms}</p>
             <p className="mt-0.5 text-[11px] leading-4 text-[#B45309]/85">قاعات بمادتين في الوقت نفسه</p>
+          </div>
+          <div className="rounded-2xl border border-[#C7D2FE] bg-[#EEF2FF] px-4 py-3">
+            <p className="text-xs font-semibold text-[#3730A3]">مواد موزّعة على عدة قاعات</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#4338CA]">{stats.subjectsSpreadAcrossMultipleRooms}</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-[#3730A3]/85">عدد المواد التي لها أكثر من قاعة بنفس التعريف</p>
           </div>
           <div className="rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 sm:col-span-2 lg:col-span-2">
             <p className="text-xs font-semibold text-[#1E40AF]">عدد المقاعد الامتحانية الكلي</p>
@@ -919,7 +1087,9 @@ export function RoomsManagementPanel({
         </div>
 
         <p className="border-b border-[#E2E8F0] bg-[#FFFBEB] px-5 py-2 text-sm text-[#92400E]">
-          <strong>تلميح:</strong> اضغط على صف في الجدول لعرض التفاصيل في الشريط السفلي الثابت؛ يمكن إغلاقها بالزر «إغلاق التفاصيل».
+          <strong>تلميح:</strong> اضغط على صف في الجدول لعرض التفاصيل في الشريط السفلي الثابت؛ يمكن إغلاقها بالزر «إغلاق التفاصيل». عندما تُعرَّف{" "}
+          <strong>أكثر من قاعة لنفس المادة الامتحانية</strong>، يظهر في عمود «المادة والمرحلة» إجمالي السعة والحضور والغياب لجميع القاعات
+          المرتبطة بتلك المادة، مع توضيح أن أعمدة السعة والحضور في الصف تمثّل <strong>هذه القاعة فقط</strong>.
         </p>
 
         <div className="w-full min-w-0 overflow-x-hidden">
@@ -1023,11 +1193,17 @@ export function RoomsManagementPanel({
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                rows.map((row) => {
+                  const isMultiDistributed =
+                    multiRoomAggSlot1.has(row.study_subject_id) ||
+                    (Boolean(row.study_subject_id_2) && multiRoomAggSlot2.has(row.study_subject_id_2!));
+                  return (
                   <tr
                     key={row.id}
                     tabIndex={0}
-                    className={`cursor-pointer transition-colors hover:bg-[#F8FAFC] ${pinnedDetailRowId === row.id ? "bg-[#EFF6FF]" : ""}`}
+                    className={`cursor-pointer border-s-[3px] border-transparent transition-colors hover:bg-[#F8FAFC] ${
+                      isMultiDistributed ? "border-s-indigo-400 bg-indigo-50/25" : ""
+                    } ${pinnedDetailRowId === row.id ? "bg-[#EFF6FF]" : ""}`}
                     onClick={() => {
                       closeActionsMenu();
                       setPinnedDetailRowId(row.id);
@@ -1053,7 +1229,13 @@ export function RoomsManagementPanel({
                       <StackedNamesCell value={row.invigilators} />
                     </td>
                     <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-right">
-                      <SubjectsCell row={row} />
+                      <SubjectsCell
+                        row={row}
+                        aggregateSlot1={multiRoomAggSlot1.get(row.study_subject_id)}
+                        aggregateSlot2={
+                          row.study_subject_id_2 ? multiRoomAggSlot2.get(row.study_subject_id_2) : undefined
+                        }
+                      />
                     </td>
                     <td className="border-b border-[#E2E8F0] px-2 py-2 align-middle text-center">
                       <div className="flex min-h-[1.75rem] items-center justify-center">
@@ -1137,7 +1319,8 @@ export function RoomsManagementPanel({
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1166,7 +1349,16 @@ export function RoomsManagementPanel({
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <p className="mb-2 text-xs font-bold text-[#64748B]">تفاصيل القاعة المختارة</p>
-                    <RowDetailHint row={pinnedDetailRow} hints={scheduleHintsByRoom[pinnedDetailRow.id] ?? []} />
+                    <RowDetailHint
+                      row={pinnedDetailRow}
+                      hints={scheduleHintsByRoom[pinnedDetailRow.id] ?? []}
+                      aggregateSlot1={multiRoomAggSlot1.get(pinnedDetailRow.study_subject_id)}
+                      aggregateSlot2={
+                        pinnedDetailRow.study_subject_id_2
+                          ? multiRoomAggSlot2.get(pinnedDetailRow.study_subject_id_2)
+                          : undefined
+                      }
+                    />
                   </div>
                   <button
                     type="button"

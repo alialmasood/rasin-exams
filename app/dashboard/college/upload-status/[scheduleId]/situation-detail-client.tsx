@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import type { ExamSituationDetail } from "@/lib/college-exam-situations";
+import type { ExamSituationBundle, ExamSituationDetail } from "@/lib/college-exam-situations";
 import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
-import { buildExamSituationReportHtml } from "@/lib/college-exam-situation-report-html";
+import {
+  buildExamSituationBundleReportHtml,
+  buildExamSituationReportHtml,
+} from "@/lib/college-exam-situation-report-html";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { canUploadSituationInExamWindow, formatSituationWindowHintAr } from "@/lib/exam-situation-window";
 import {
@@ -303,15 +306,27 @@ function OfficialField({ label, value }: { label: string; value: string }) {
 }
 
 export function SituationDetailClient({
-  detail,
+  bundle,
   collegeLabel,
   deanName,
 }: {
-  detail: ExamSituationDetail;
+  bundle: ExamSituationBundle;
   collegeLabel: string;
   deanName: string;
 }) {
   const router = useRouter();
+  const [activeScheduleId, setActiveScheduleId] = useState(bundle.active_schedule_id);
+  const detail = useMemo(
+    () => bundle.sessions.find((s) => s.schedule_id === activeScheduleId) ?? bundle.sessions[0]!,
+    [bundle.sessions, activeScheduleId]
+  );
+  const multiRoom = bundle.sessions.length > 1;
+  const aggregates = bundle.aggregates;
+
+  useEffect(() => {
+    setActiveScheduleId(bundle.active_schedule_id);
+  }, [bundle.active_schedule_id]);
+
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
   const [attendanceM, setAttendanceM] = useState(String(detail.attendance_morning));
   const [absenceM, setAbsenceM] = useState(String(detail.absence_morning));
@@ -527,17 +542,22 @@ export function SituationDetailClient({
     ]
   );
 
+  const sessionsForPrint = useMemo(
+    () =>
+      bundle.sessions.map((s) => (s.schedule_id === detail.schedule_id ? detailForPrint : s)),
+    [bundle.sessions, detail.schedule_id, detailForPrint]
+  );
+
   const handlePrintReport = useCallback(() => {
-    const html = buildExamSituationReportHtml(
-      detailForPrint,
-      collegeLabel,
-      deanName,
-      situationReportGeneratedAtLabel()
-    );
+    const gen = situationReportGeneratedAtLabel();
+    const html =
+      bundle.sessions.length > 1
+        ? buildExamSituationBundleReportHtml(sessionsForPrint, collegeLabel, deanName, gen)
+        : buildExamSituationReportHtml(detailForPrint, collegeLabel, deanName, gen);
     if (!openSituationPrintWindow(html)) {
       window.alert("تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة ثم أعد المحاولة.");
     }
-  }, [collegeLabel, deanName, detailForPrint]);
+  }, [bundle.sessions.length, collegeLabel, deanName, detailForPrint, sessionsForPrint]);
 
   const flushSave = useCallback(() => {
     startTransition(() => {
@@ -646,6 +666,55 @@ export function SituationDetailClient({
           </div>
         </header>
 
+        {multiRoom ? (
+          <div className={`rounded-[22px] border border-slate-200/90 bg-white px-4 py-4 sm:px-5 ${cardLift}`}>
+            <p className="mb-2 text-sm font-extrabold" style={{ color: PRIMARY }}>
+              نفس المادة والوقت — موزّعة على {bundle.sessions.length} قاعة
+            </p>
+            <p className="mb-3 text-xs text-slate-600">
+              اختر القاعة لتعديل حضورها وغيابها. الإجمالي أدناه يجمع كل القاعات المرتبطة بهذه الجلسة.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {bundle.sessions.map((s) => (
+                <button
+                  key={s.schedule_id}
+                  type="button"
+                  onClick={() => setActiveScheduleId(s.schedule_id)}
+                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
+                    s.schedule_id === activeScheduleId
+                      ? "border-[#1E3A8A] bg-[#EFF6FF] text-[#1E3A8A]"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  {s.room_name.trim() || "قاعة"}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {multiRoom ? (
+          <div className={`rounded-[22px] border border-emerald-200/90 bg-emerald-50/40 px-5 py-4 sm:px-6 ${cardLift}`}>
+            <p className="mb-3 text-sm font-extrabold text-emerald-900">إجمالي المادة على جميع القاعات (صباحي + مسائي)</p>
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <ReadOnlyStat label="سعة إجمالية" value={String(aggregates.capacity_total)} />
+              <ReadOnlyStat label="حضور إجمالي" value={String(aggregates.attendance_count)} />
+              <ReadOnlyStat label="غياب إجمالي" value={String(aggregates.absence_count)} />
+              <ReadOnlyStat
+                label="أسماء الغياب (مفرّزة)"
+                value={aggregates.absence_names_sorted.trim() || "—"}
+              />
+            </div>
+            {(aggregates.capacity_morning > 0 || aggregates.capacity_evening > 0) && (
+              <p className="mt-3 text-xs text-emerald-900/90">
+                صباحي: سعة {aggregates.capacity_morning}، حضور {aggregates.attendance_morning}، غياب{" "}
+                {aggregates.absence_morning} — مسائي: سعة {aggregates.capacity_evening}، حضور{" "}
+                {aggregates.attendance_evening}، غياب {aggregates.absence_evening}
+              </p>
+            )}
+          </div>
+        ) : null}
+
         {/* بطاقة ملخص — وزن بصري أعلى من بطاقات التفاصيل */}
         <div
           className={`relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white px-5 py-6 sm:px-7 sm:py-7 ${cardLift}`}
@@ -655,7 +724,7 @@ export function SituationDetailClient({
             aria-hidden
           />
           <p className="relative mb-5 text-lg font-extrabold" style={{ color: PRIMARY }}>
-            ملخص الجلسة الامتحانية
+            {multiRoom ? "ملخص القاعة المحددة" : "ملخص الجلسة الامتحانية"}
           </p>
           <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
             <ReadOnlyStat label="اسم المادة" value={detail.subject_name} />

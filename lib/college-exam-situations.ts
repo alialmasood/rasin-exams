@@ -1,37 +1,13 @@
+import { mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { canUploadSituationInExamWindow } from "@/lib/exam-situation-window";
 import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import type { StudyType } from "@/lib/college-study-subjects";
+import type { DeanSituationStatus, UploadStatusTableRow } from "@/lib/upload-status-display";
 
-export type DeanSituationStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED";
-
-export type UploadStatusTableRow = {
-  schedule_id: string;
-  exam_date: string;
-  start_time: string;
-  end_time: string;
-  duration_minutes: number;
-  schedule_type: "FINAL" | "SEMESTER";
-  workflow_status: CollegeExamScheduleRow["workflow_status"];
-  room_id: string;
-  room_name: string;
-  capacity_total: number;
-  attendance_count: number;
-  absence_count: number;
-  subject_name: string;
-  study_type: StudyType;
-  branch_name: string;
-  academic_year: string | null;
-  stage_level: number;
-  head_submitted_at: Date | null;
-  dean_status: DeanSituationStatus;
-  dean_reviewed_at: Date | null;
-  /** مرفوع من رئيس القسم */
-  is_uploaded: boolean;
-  /** مكتمل: تطابق الحضور+الغياب مع السعة مع إدراج أسماء الغياب عند وجود غياب (قبل اعتماد العميد أو بعده) */
-  is_complete: boolean;
-};
+export type { DeanSituationStatus, UploadStatusListItem, UploadStatusTableRow } from "@/lib/upload-status-display";
+export { buildUploadStatusListItems } from "@/lib/upload-status-display";
 
 function normalizeDean(s: string | null | undefined): DeanSituationStatus {
   const v = (s ?? "NONE").toUpperCase();
@@ -109,6 +85,8 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
   const pool = getDbPool();
   const r = await pool.query<{
     schedule_id: string | number;
+    college_subject_id: string;
+    study_subject_id: string;
     exam_date: string;
     start_time: string;
     end_time: string;
@@ -138,7 +116,8 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
     dean_reviewed_at: Date | null;
     absence_names: string | null;
   }>(
-    `SELECT e.id AS schedule_id, e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
+    `SELECT e.id AS schedule_id, e.college_subject_id::text AS college_subject_id, e.study_subject_id::text AS study_subject_id,
+            e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             r.id AS room_id, r.room_name,
             CASE
@@ -253,6 +232,8 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
       : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names);
     return {
       schedule_id: String(row.schedule_id),
+      college_subject_id: String(row.college_subject_id),
+      study_subject_id: String(row.study_subject_id),
       exam_date: row.exam_date,
       start_time: row.start_time.slice(0, 5),
       end_time: row.end_time.slice(0, 5),
@@ -315,7 +296,6 @@ export async function listUploadedExamSituationsForFollowup(
 }
 
 export type ExamSituationDetail = UploadStatusTableRow & {
-  study_subject_id: string;
   branch_head_name: string;
   supervisor_name: string;
   invigilators: string;
@@ -335,6 +315,7 @@ export type ExamSituationDetail = UploadStatusTableRow & {
 
 type ExamSituationDetailDbRow = {
   schedule_id: string | number;
+  college_subject_id: string;
   schedule_study_subject_id: string;
   exam_date: string;
   start_time: string;
@@ -372,7 +353,8 @@ type ExamSituationDetailDbRow = {
 
 /** SELECT + JOINs لصف تفاصيل الموقف — يُكمَل بشرط WHERE. */
 const EXAM_SITUATION_DETAIL_SQL_BASE = `
-    SELECT e.id AS schedule_id, e.study_subject_id::text AS schedule_study_subject_id,
+    SELECT e.id AS schedule_id, e.college_subject_id::text AS college_subject_id,
+            e.study_subject_id::text AS schedule_study_subject_id,
             e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             r.id AS room_id, r.room_name,
@@ -499,6 +481,7 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
 
   return {
     schedule_id: String(row.schedule_id),
+    college_subject_id: String(row.college_subject_id ?? ""),
     study_subject_id: String(row.schedule_study_subject_id),
     exam_date: row.exam_date,
     start_time: row.start_time.slice(0, 5),
@@ -554,6 +537,129 @@ export async function getExamSituationDetailForOwner(
   const row = r.rows[0];
   if (!row) return null;
   return mapDbRowToExamSituationDetail(row);
+}
+
+export type ExamSituationAggregates = {
+  capacity_total: number;
+  capacity_morning: number;
+  capacity_evening: number;
+  attendance_count: number;
+  absence_count: number;
+  attendance_morning: number;
+  absence_morning: number;
+  attendance_evening: number;
+  absence_evening: number;
+  /** أسماء غياب مدمجة من كل القاعات، مفرّزة أبجدياً */
+  absence_names_sorted: string;
+};
+
+export type ExamSituationBundle = {
+  sessions: ExamSituationDetail[];
+  /** معرّف الجدول المفتوح في الرابط */
+  active_schedule_id: string;
+  aggregates: ExamSituationAggregates;
+};
+
+export function sortUniqueAbsenceNamesAr(raw: string): string {
+  const tokens = raw
+    .split(/[,،;|\n\r]+/u)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const unique = [...new Set(tokens)];
+  unique.sort((a, b) => a.localeCompare(b, "ar-IQ"));
+  return unique.join("، ");
+}
+
+function computeExamSituationAggregates(sessions: ExamSituationDetail[]): ExamSituationAggregates {
+  let capacity_total = 0;
+  let capacity_morning = 0;
+  let capacity_evening = 0;
+  let attendance_count = 0;
+  let absence_count = 0;
+  let attendance_morning = 0;
+  let absence_morning = 0;
+  let attendance_evening = 0;
+  let absence_evening = 0;
+  const nameChunks: string[] = [];
+  for (const s of sessions) {
+    capacity_total += s.capacity_total;
+    capacity_morning += s.capacity_morning;
+    capacity_evening += s.capacity_evening;
+    attendance_count += s.attendance_count;
+    absence_count += s.absence_count;
+    attendance_morning += s.attendance_morning;
+    absence_morning += s.absence_morning;
+    attendance_evening += s.attendance_evening;
+    absence_evening += s.absence_evening;
+    const merged = mergeAbsenceNamesByShift(s.absence_names_morning, s.absence_names_evening);
+    const src = merged.trim() || (s.absence_names ?? "").trim();
+    if (src) nameChunks.push(src);
+  }
+  return {
+    capacity_total,
+    capacity_morning,
+    capacity_evening,
+    attendance_count,
+    absence_count,
+    attendance_morning,
+    absence_morning,
+    attendance_evening,
+    absence_evening,
+    absence_names_sorted: sortUniqueAbsenceNamesAr(nameChunks.join("\n")),
+  };
+}
+
+export async function getExamSituationBundleForOwner(
+  ownerUserId: string,
+  scheduleId: string
+): Promise<ExamSituationBundle | null> {
+  if (!isDatabaseConfigured()) return null;
+  if (!/^\d+$/.test(scheduleId.trim())) return null;
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const prim = await pool.query<ExamSituationDetailDbRow>(
+    `${EXAM_SITUATION_DETAIL_SQL_BASE}
+     WHERE e.owner_user_id = $1 AND e.id = $2::bigint
+     LIMIT 1`,
+    [ownerUserId, scheduleId.trim()]
+  );
+  const p = prim.rows[0];
+  if (!p) return null;
+
+  const st = String(p.schedule_type ?? "FINAL").toUpperCase() === "SEMESTER" ? "SEMESTER" : "FINAL";
+  const sib = await pool.query<{ id: string }>(
+    `SELECT e.id::text FROM college_exam_schedules e
+     WHERE e.owner_user_id = $1
+       AND e.college_subject_id::text = $2
+       AND e.study_subject_id::text = $3
+       AND e.stage_level = $4
+       AND e.exam_date::text = $5
+       AND e.start_time = $6::time
+       AND e.end_time = $7::time
+       AND e.schedule_type = $8
+     ORDER BY e.id ASC`,
+    [
+      ownerUserId,
+      String(p.college_subject_id ?? ""),
+      String(p.schedule_study_subject_id ?? ""),
+      Number(p.stage_level ?? 1),
+      String(p.exam_date ?? ""),
+      p.start_time,
+      p.end_time,
+      st,
+    ]
+  );
+  const ids = sib.rows.map((r) => r.id);
+
+  const full = await pool.query<ExamSituationDetailDbRow>(
+    `${EXAM_SITUATION_DETAIL_SQL_BASE}
+     WHERE e.owner_user_id = $1 AND e.id = ANY($2::bigint[])
+     ORDER BY r.room_name ASC NULLS LAST, e.id ASC`,
+    [ownerUserId, ids]
+  );
+  const sessions = full.rows.map(mapDbRowToExamSituationDetail);
+  const aggregates = computeExamSituationAggregates(sessions);
+  return { sessions, active_schedule_id: scheduleId.trim(), aggregates };
 }
 
 /** جلسات يوم امتحاني مرفوع موقفها (للتقرير النهائي اليومي). */

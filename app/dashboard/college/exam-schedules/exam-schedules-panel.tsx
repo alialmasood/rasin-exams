@@ -8,6 +8,7 @@ import type { CollegeExamRoomRow } from "@/lib/college-rooms";
 import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import type { CollegeHolidayRow } from "@/lib/college-holidays";
 import { assertExamDateNotInPast, todayCalendarDateLocal } from "@/lib/exam-schedule-date";
+import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import {
   createExamScheduleAction,
@@ -31,7 +32,8 @@ type FormState = {
   examDate: string;
   startTime: string;
   endTime: string;
-  roomId: string;
+  /** قاعة واحدة عند التعديل؛ عدة قاعات عند الإنشاء (نفس المادة والوقت) */
+  roomIds: string[];
   notes: string;
 };
 
@@ -104,22 +106,29 @@ function timeRangeLabel(start: string, end: string) {
 }
 
 function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel: string) {
-  return rows.map((r) => ({
-    "اسم الكلية / التشكيل": collegeLabel,
-    "القسم / الفرع": r.college_subject_name,
-    "نوع الجدول": SCHEDULE_TYPE_LABEL[r.schedule_type],
-    "العام الدراسي": r.academic_year || "—",
-    "الفصل الدراسي": r.term_label || "—",
-    "المادة الدراسية": r.study_subject_name,
-    "المرحلة": `المرحلة ${r.stage_level}`,
-    "اليوم": weekdayAr(r.exam_date),
-    "التاريخ": r.exam_date,
-    "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
-    "مدة الامتحان": formatDuration(r.duration_minutes),
-    "القاعة": r.room_name,
-    "الملاحظات": r.notes || "",
-    "الحالة": WORKFLOW_LABEL[r.workflow_status],
-  }));
+  const sessions = groupExamScheduleRowsIntoSessions(sortSchedules(rows));
+  return sessions.map((members) => {
+    const r = members[0]!;
+    const roomCell =
+      members.length === 1 ? r.room_name : members.map((m) => m.room_name.trim() || "—").join("؛ ");
+    return {
+      "اسم الكلية / التشكيل": collegeLabel,
+      "القسم / الفرع": r.college_subject_name,
+      "نوع الجدول": SCHEDULE_TYPE_LABEL[r.schedule_type],
+      "العام الدراسي": r.academic_year || "—",
+      "الفصل الدراسي": r.term_label || "—",
+      "المادة الدراسية": r.study_subject_name,
+      "المرحلة": `المرحلة ${r.stage_level}`,
+      "اليوم": weekdayAr(r.exam_date),
+      "التاريخ": r.exam_date,
+      "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
+      "مدة الامتحان": formatDuration(r.duration_minutes),
+      "القاعة": roomCell,
+      "عدد القاعات (توزيع)": members.length,
+      "الملاحظات": r.notes || "",
+      "الحالة": WORKFLOW_LABEL[r.workflow_status],
+    };
+  });
 }
 
 function sortSchedules(rows: CollegeExamScheduleRow[]) {
@@ -128,6 +137,13 @@ function sortSchedules(rows: CollegeExamScheduleRow[]) {
     const db = `${b.exam_date} ${b.start_time}`;
     return da.localeCompare(db);
   });
+}
+
+function sessionMenuKey(sess: CollegeExamScheduleRow[]) {
+  return [...sess]
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .map((r) => r.id)
+    .join("|");
 }
 
 /** اسم القاعة مع المواد الامتحانية المعرفة لها في «إدارة القاعات». */
@@ -139,6 +155,11 @@ function roomSelectOptionLabel(r: CollegeExamRoomRow): string {
     return `${name} — ${s1} + ${r.study_subject_name_2.trim()}`;
   }
   return `${name} — ${s1}`;
+}
+
+function roomMatchesStudySubject(r: CollegeExamRoomRow, studySubjectId: string): boolean {
+  if (!studySubjectId) return false;
+  return r.study_subject_id === studySubjectId || r.study_subject_id_2 === studySubjectId;
 }
 
 export function ExamSchedulesPanel({
@@ -184,7 +205,8 @@ export function ExamSchedulesPanel({
   const [holidayName, setHolidayName] = useState("");
   const [holidaysModalOpen, setHolidaysModalOpen] = useState(false);
   const holidaysDialogRef = useRef<HTMLDialogElement>(null);
-  const [scheduleMenuId, setScheduleMenuId] = useState<string | null>(null);
+  /** جلسة منطقية واحدة (صف أو أكثر في DB) لقائمة الإجراءات */
+  const [scheduleMenuSession, setScheduleMenuSession] = useState<CollegeExamScheduleRow[] | null>(null);
   const [scheduleMenuCoords, setScheduleMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const scheduleMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const scheduleMenuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -202,7 +224,7 @@ export function ExamSchedulesPanel({
     examDate: "",
     startTime: "08:00",
     endTime: "09:00",
-    roomId: "",
+    roomIds: [],
     notes: "",
   };
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -229,7 +251,7 @@ export function ExamSchedulesPanel({
   }, [holidaysModalOpen]);
 
   const closeScheduleMenu = useCallback(() => {
-    setScheduleMenuId(null);
+    setScheduleMenuSession(null);
     setScheduleMenuCoords(null);
   }, []);
 
@@ -246,7 +268,7 @@ export function ExamSchedulesPanel({
   }, []);
 
   useLayoutEffect(() => {
-    if (!scheduleMenuId) {
+    if (!scheduleMenuSession) {
       setScheduleMenuCoords(null);
       return;
     }
@@ -257,10 +279,10 @@ export function ExamSchedulesPanel({
       window.removeEventListener("resize", refreshScheduleMenuPosition);
       window.removeEventListener("scroll", refreshScheduleMenuPosition, true);
     };
-  }, [scheduleMenuId, refreshScheduleMenuPosition]);
+  }, [scheduleMenuSession, refreshScheduleMenuPosition]);
 
   useEffect(() => {
-    if (!scheduleMenuId) return;
+    if (!scheduleMenuSession) return;
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (scheduleMenuPanelRef.current?.contains(t)) return;
@@ -269,12 +291,7 @@ export function ExamSchedulesPanel({
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [scheduleMenuId, closeScheduleMenu]);
-
-  const scheduleMenuRow = useMemo(
-    () => (scheduleMenuId ? rows.find((r) => r.id === scheduleMenuId) : undefined),
-    [rows, scheduleMenuId],
-  );
+  }, [scheduleMenuSession, closeScheduleMenu]);
 
   const durationMin = useMemo(() => {
     const s = toMin(form.startTime);
@@ -288,6 +305,11 @@ export function ExamSchedulesPanel({
     return studySubjects.filter((x) => x.college_subject_id === form.collegeSubjectId);
   }, [studySubjects, form.collegeSubjectId]);
 
+  const roomsForSelectedSubject = useMemo(() => {
+    if (!form.studySubjectId) return [];
+    return rooms.filter((r) => roomMatchesStudySubject(r, form.studySubjectId));
+  }, [rooms, form.studySubjectId]);
+
   const mappedRows = useMemo(() => {
     return rows.map((r) => ({
       ...r,
@@ -295,27 +317,35 @@ export function ExamSchedulesPanel({
     }));
   }, [rows]);
 
-  const filteredRows = useMemo(() => {
+  const filteredSessions = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return mappedRows.filter((r) => {
-      const byQ =
-        q.length === 0 ||
-        r.study_subject_name.toLowerCase().includes(q) ||
-        r.college_subject_name.toLowerCase().includes(q) ||
-        r.room_name.toLowerCase().includes(q);
-      const byDept = filterDepartment === "ALL" ? true : r.college_subject_id === filterDepartment;
-      const byType = filterType === "ALL" ? true : r.schedule_type === filterType;
-      const byDate = filterDate ? r.exam_date === filterDate : true;
-      return byQ && byDept && byType && byDate;
-    });
+    const allSessions = groupExamScheduleRowsIntoSessions(mappedRows);
+    return allSessions.filter((sess) =>
+      sess.some((r) => {
+        const byQ =
+          q.length === 0 ||
+          r.study_subject_name.toLowerCase().includes(q) ||
+          r.college_subject_name.toLowerCase().includes(q) ||
+          r.room_name.toLowerCase().includes(q);
+        const byDept = filterDepartment === "ALL" ? true : r.college_subject_id === filterDepartment;
+        const byType = filterType === "ALL" ? true : r.schedule_type === filterType;
+        const byDate = filterDate ? r.exam_date === filterDate : true;
+        return byQ && byDept && byType && byDate;
+      })
+    );
   }, [mappedRows, search, filterDepartment, filterType, filterDate]);
 
+  /** كل صفوف DB الظاهرة ضمن الجلسات المصفاة (للتصدير بعد إعادة التجميع داخل الدالة). */
+  const exportRowUniverse = useMemo(() => filteredSessions.flat(), [filteredSessions]);
+
   const stats = useMemo(() => {
-    const entries = rows.length;
+    const logicalSessions = groupExamScheduleRowsIntoSessions(rows).length;
+    const roomLinks = rows.length;
     const uniqueSubjects = new Set(rows.map((r) => r.study_subject_id)).size;
     const uniqueRooms = new Set(rows.map((r) => r.room_id)).size;
     return {
-      entries,
+      logicalSessions,
+      roomLinks,
       uniqueSubjects,
       uniqueRooms,
       currentType: SCHEDULE_TYPE_LABEL[form.scheduleType],
@@ -323,12 +353,19 @@ export function ExamSchedulesPanel({
   }, [rows, form.scheduleType]);
 
   const pageSize = 8;
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pagedRows = useMemo(() => {
+
+  useEffect(() => {
+    setPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
+  const pagedSessionItems = useMemo(() => {
     const start = (safePage - 1) * pageSize;
-    return filteredRows.slice(start, start + pageSize);
-  }, [filteredRows, safePage]);
+    return filteredSessions.slice(start, start + pageSize).map((sess, i) => ({
+      sess,
+      displayIndex: start + i + 1,
+    }));
+  }, [filteredSessions, safePage]);
 
   function resetForm() {
     if (generalLocked && lockedGeneral) {
@@ -342,7 +379,7 @@ export function ExamSchedulesPanel({
         examDate: "",
         startTime: "08:00",
         endTime: "09:00",
-        roomId: "",
+        roomIds: [],
         notes: "",
       }));
       return;
@@ -381,7 +418,7 @@ export function ExamSchedulesPanel({
     if (!examDateCheck.ok) return examDateCheck.message;
     if (!form.startTime) return "يرجى تحديد وقت بداية الامتحان";
     if (!form.endTime) return "يرجى تحديد وقت نهاية الامتحان";
-    if (!form.roomId) return "يرجى اختيار القاعة الامتحانية";
+    if (form.roomIds.length === 0) return "يرجى اختيار قاعة امتحانية واحدة على الأقل";
     if (toMin(form.endTime) <= toMin(form.startTime)) return "وقت نهاية الامتحان يجب أن يكون بعد وقت البداية";
     return null;
   }
@@ -403,7 +440,11 @@ export function ExamSchedulesPanel({
     fd.set("exam_date", form.examDate);
     fd.set("start_time", form.startTime);
     fd.set("end_time", form.endTime);
-    fd.set("room_id", form.roomId);
+    if (form.id) {
+      fd.set("room_id", form.roomIds[0] ?? "");
+    } else {
+      fd.set("room_ids", form.roomIds.join(","));
+    }
     fd.set("notes", form.notes);
     startTransition(async () => {
       const res = form.id ? await updateExamScheduleAction(fd) : await createExamScheduleAction(fd);
@@ -411,9 +452,12 @@ export function ExamSchedulesPanel({
         setToast({ type: "error", msg: res.message });
         return;
       }
-      const row = res.data as CollegeExamScheduleRow | undefined;
-      if (row) {
-        setRows((prev) => sortSchedules(form.id ? prev.map((x) => (x.id === row.id ? row : x)) : [...prev, row]));
+      if (form.id) {
+        const row = res.data as CollegeExamScheduleRow | undefined;
+        if (row) setRows((prev) => sortSchedules(prev.map((x) => (x.id === row.id ? row : x))));
+      } else {
+        const added = res.data as CollegeExamScheduleRow[] | undefined;
+        if (added?.length) setRows((prev) => sortSchedules([...prev, ...added]));
       }
       if (!form.id) {
         const snapshot = {
@@ -448,7 +492,7 @@ export function ExamSchedulesPanel({
       examDate: row.exam_date,
       startTime: row.start_time,
       endTime: row.end_time,
-      roomId: row.room_id,
+      roomIds: [row.room_id],
       notes: row.notes ?? "",
     });
   }
@@ -507,7 +551,7 @@ export function ExamSchedulesPanel({
 
   async function onExportExcel() {
     const xlsx = await import("xlsx");
-    const data = buildExamScheduleExcelRows(filteredRows, collegeLabel);
+    const data = buildExamScheduleExcelRows(exportRowUniverse, collegeLabel);
     const ws = xlsx.utils.json_to_sheet(data);
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "ExamSchedules");
@@ -515,7 +559,7 @@ export function ExamSchedulesPanel({
   }
 
   async function exportGroupScheduleExcel(subjectId: string, subjectNameForFile: string) {
-    const list = filteredRows.filter((r) => r.college_subject_id === subjectId);
+    const list = exportRowUniverse.filter((r) => r.college_subject_id === subjectId);
     if (list.length === 0) return;
     const xlsx = await import("xlsx");
     const data = buildExamScheduleExcelRows(list, collegeLabel);
@@ -536,13 +580,16 @@ export function ExamSchedulesPanel({
   function onPrintPage() {
     const popup = window.open("", "_blank", "width=1200,height=900");
     if (!popup) return;
-    const rowsHtml = filteredRows
-      .map(
-        (r, i) => `<tr>
+    const rowsHtml = filteredSessions
+      .map((sess, i) => {
+        const r = sess[0]!;
+        const rooms =
+          sess.length === 1 ? r.room_name : sess.map((x) => x.room_name).join("، ");
+        return `<tr>
       <td>${i + 1}</td><td>${collegeLabel}</td><td>${r.college_subject_name}</td><td>${SCHEDULE_TYPE_LABEL[r.schedule_type]}</td>
-      <td>${r.study_subject_name}</td><td>المرحلة ${r.stage_level}</td><td>${weekdayAr(r.exam_date)}</td><td>${r.exam_date}</td>
-      <td>${timeRangeLabel(r.start_time, r.end_time)}</td><td>${formatDuration(r.duration_minutes)}</td><td>${r.room_name}</td></tr>`
-      )
+      <td>${r.study_subject_name}${sess.length > 1 ? ` <span style="font-size:10px;color:#4338ca">(جلسة واحدة — ${sess.length} قاعات)</span>` : ""}</td><td>المرحلة ${r.stage_level}</td><td>${weekdayAr(r.exam_date)}</td><td>${r.exam_date}</td>
+      <td>${timeRangeLabel(r.start_time, r.end_time)}</td><td>${formatDuration(r.duration_minutes)}</td><td>${rooms}</td></tr>`;
+      })
       .join("");
     popup.document.write(`<html dir="rtl"><head><title>طباعة الجدول</title><style>
       body{font-family:Tahoma,Arial;padding:24px} table{width:100%;border-collapse:collapse}
@@ -587,24 +634,29 @@ export function ExamSchedulesPanel({
     return cells;
   }, [calendarMeta, calendarCursor]);
 
-  const groupedPagedRows = useMemo(() => {
-    const groups: Array<{ subjectId: string; subjectName: string; rows: typeof pagedRows }> = [];
+  const groupedPagedSessionItems = useMemo(() => {
+    const groups: Array<{
+      subjectId: string;
+      subjectName: string;
+      items: { sess: CollegeExamScheduleRow[]; displayIndex: number }[];
+    }> = [];
     const map = new Map<string, number>();
-    pagedRows.forEach((r) => {
-      const idx = map.get(r.college_subject_id);
+    for (const item of pagedSessionItems) {
+      const r0 = item.sess[0]!;
+      const idx = map.get(r0.college_subject_id);
       if (idx == null) {
-        map.set(r.college_subject_id, groups.length);
+        map.set(r0.college_subject_id, groups.length);
         groups.push({
-          subjectId: r.college_subject_id,
-          subjectName: r.college_subject_name,
-          rows: [r],
+          subjectId: r0.college_subject_id,
+          subjectName: r0.college_subject_name,
+          items: [item],
         });
       } else {
-        groups[idx].rows.push(r);
+        groups[idx].items.push(item);
       }
-    });
+    }
     return groups;
-  }, [pagedRows]);
+  }, [pagedSessionItems]);
 
   return (
     <section className="space-y-6" dir="rtl">
@@ -615,6 +667,8 @@ export function ExamSchedulesPanel({
             <h1 className="text-3xl font-extrabold text-[#0F172A]">الجدول الامتحاني</h1>
             <p className="mt-1.5 text-sm text-[#64748B]">
               إدارة جداول الامتحانات؛ كل إدخال مكتمل يُحفظ كـ <strong className="font-semibold text-[#334155]">معتمد</strong> مباشرة.
+              عند توزيع مادة واحدة على عدة قاعات تُعرض <strong className="font-semibold text-[#334155]">جلسة واحدة</strong> في الجدول مع
+              تفصيل القاعات؛ التعديل والحذف يبقى لكل قاعة على حدة من قائمة الإجراءات.
             </p>
           </div>
           <div className="flex gap-2">
@@ -653,7 +707,11 @@ export function ExamSchedulesPanel({
       </header>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3"><p className="text-xs text-[#64748B]">عدد الإدخالات الامتحانية</p><p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.entries}</p></div>
+        <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3">
+          <p className="text-xs text-[#64748B]">جلسات امتحانية (مجمّعة)</p>
+          <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.logicalSessions}</p>
+          <p className="mt-1 text-[11px] leading-snug text-[#94A3B8]">ربط قاعة في النظام: {stats.roomLinks}</p>
+        </div>
         <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3"><p className="text-xs text-[#64748B]">عدد المواد المدرجة</p><p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.uniqueSubjects}</p></div>
         <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3"><p className="text-xs text-[#64748B]">عدد القاعات المستخدمة</p><p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.uniqueRooms}</p></div>
         <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3"><p className="text-xs text-[#64748B]">نوع الجدول الحالي</p><p className="mt-1 text-sm font-bold text-[#0F172A]">{stats.currentType}</p></div>
@@ -735,7 +793,15 @@ export function ExamSchedulesPanel({
                 <select
                   value={form.studySubjectId}
                   disabled={!form.collegeSubjectId}
-                  onChange={(e) => setForm((f) => ({ ...f, studySubjectId: e.target.value }))}
+                  onChange={(e) => {
+                    const sid = e.target.value;
+                    setForm((f) => {
+                      const allowed = new Set(
+                        rooms.filter((r) => sid && roomMatchesStudySubject(r, sid)).map((r) => r.id)
+                      );
+                      return { ...f, studySubjectId: sid, roomIds: f.roomIds.filter((id) => allowed.has(id)) };
+                    });
+                  }}
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
                 >
                   <option value="">{form.collegeSubjectId ? "اختر المادة الدراسية" : "اختر القسم/الفرع أولًا"}</option>
@@ -769,16 +835,74 @@ export function ExamSchedulesPanel({
               />
               {form.examDate ? <span className="mt-1 inline-flex rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-semibold text-[#1D4ED8]">{weekdayAr(form.examDate)}</span> : null}
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-[#334155]">القاعة الامتحانية</label>
-              <select value={form.roomId} onChange={(e) => setForm((f) => ({ ...f, roomId: e.target.value }))} className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500">
-                <option value="">اختر القاعة</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {roomSelectOptionLabel(r)}
-                  </option>
-                ))}
-              </select>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-[#334155]">
+                {form.id ? "القاعة الامتحانية" : "القاعات الامتحانية (يمكن اختيار أكثر من قاعة لنفس المادة والوقت)"}
+              </label>
+              {!form.studySubjectId ? (
+                <p className="rounded-xl border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-3 py-3 text-sm text-[#64748B]">
+                  اختر المادة الدراسية أولًا لعرض القاعات المرتبطة بها في «إدارة القاعات».
+                </p>
+              ) : roomsForSelectedSubject.length === 0 ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  لا توجد قاعة مُعرَّفة لهذه المادة. أضف قاعة أو أكثر من «إدارة القاعات» واربطها بنفس المادة الدراسية.
+                </p>
+              ) : form.id ? (
+                <select
+                  value={form.roomIds[0] ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, roomIds: e.target.value ? [e.target.value] : [] }))}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="">اختر القاعة</option>
+                  {roomsForSelectedSubject.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {roomSelectOptionLabel(r)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="max-h-52 space-y-2 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
+                  <div className="mb-1 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-[#1D4ED8] underline"
+                      onClick={() =>
+                        setForm((f) => ({ ...f, roomIds: roomsForSelectedSubject.map((r) => r.id) }))
+                      }
+                    >
+                      تحديد كل القاعات المعروضة
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-[#64748B] underline"
+                      onClick={() => setForm((f) => ({ ...f, roomIds: [] }))}
+                    >
+                      إلغاء التحديد
+                    </button>
+                  </div>
+                  {roomsForSelectedSubject.map((r) => (
+                    <label
+                      key={r.id}
+                      className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-white/80"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={form.roomIds.includes(r.id)}
+                        onChange={() =>
+                          setForm((f) => ({
+                            ...f,
+                            roomIds: f.roomIds.includes(r.id)
+                              ? f.roomIds.filter((x) => x !== r.id)
+                              : [...f.roomIds, r.id],
+                          }))
+                        }
+                      />
+                      <span className="text-sm text-[#334155]">{roomSelectOptionLabel(r)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-[#334155]">وقت الامتحان من</label>
@@ -1161,7 +1285,9 @@ export function ExamSchedulesPanel({
                 <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">اليوم</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">الوقت</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المدة</th>
-                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">القاعة</th>
+                <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">
+                  القاعة / التوزيع
+                </th>
                 <th className="px-1 py-2.5 text-center text-sm font-bold text-[#334155]">
                   <span className="sr-only">إجراءات</span>
                   <span aria-hidden className="block text-center">
@@ -1171,14 +1297,14 @@ export function ExamSchedulesPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] bg-white">
-              {pagedRows.length === 0 ? (
+              {pagedSessionItems.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center text-sm text-[#64748B]">
                     لا توجد بيانات مطابقة.
                   </td>
                 </tr>
               ) : (
-                groupedPagedRows.map((g) => (
+                groupedPagedSessionItems.map((g) => (
                   <Fragment key={`wrap-${g.subjectId}`}>
                     <tr key={`g-${g.subjectId}`} className="bg-[#EEF2FF]">
                       <td colSpan={12} className="px-3 py-2">
@@ -1192,7 +1318,7 @@ export function ExamSchedulesPanel({
                                 void (async () => {
                                   setPdfExportSubjectId(g.subjectId);
                                   try {
-                                    const rowsForPdf = filteredRows.filter((r) => r.college_subject_id === g.subjectId);
+                                    const rowsForPdf = exportRowUniverse.filter((r) => r.college_subject_id === g.subjectId);
                                     await downloadCollegeScheduleGroupPdf({
                                       collegeLabel,
                                       departmentName: g.subjectName,
@@ -1233,7 +1359,7 @@ export function ExamSchedulesPanel({
                                 void (async () => {
                                   setWhatsAppShareSubjectId(g.subjectId);
                                   try {
-                                    const rowsForShare = filteredRows.filter((r) => r.college_subject_id === g.subjectId);
+                                    const rowsForShare = exportRowUniverse.filter((r) => r.college_subject_id === g.subjectId);
                                     const result = await shareCollegeScheduleGroupForWhatsApp({
                                       collegeLabel,
                                       departmentName: g.subjectName,
@@ -1272,77 +1398,101 @@ export function ExamSchedulesPanel({
                         </div>
                       </td>
                     </tr>
-                    {g.rows.map((r, i) => (
-                      <tr key={r.id} className="hover:bg-[#F8FAFC]">
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                          {(safePage - 1) * pageSize + i + 1}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
-                          {collegeLabel}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
-                          {r.college_subject_name}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
-                          {SCHEDULE_TYPE_TABLE_SHORT[r.schedule_type]}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm font-semibold text-[#0F172A]">
-                          {r.study_subject_name}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                          {r.stage_level}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                          {r.exam_date}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
-                          {weekdayAr(r.exam_date)}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                          {timeRangeLabel(r.start_time, r.end_time)}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                          {formatDuration(r.duration_minutes)}
-                        </td>
-                        <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
-                          {r.room_name}
-                        </td>
-                        <td
-                          className="border-b border-[#E2E8F0] px-1 py-2 text-center align-middle whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
+                    {g.items.map(({ sess, displayIndex }) => {
+                      const r = sess[0]!;
+                      const multi = sess.length > 1;
+                      const menuOpen =
+                        Boolean(scheduleMenuSession) && sessionMenuKey(scheduleMenuSession!) === sessionMenuKey(sess);
+                      return (
+                        <tr
+                          key={sessionMenuKey(sess)}
+                          className={`hover:bg-[#F8FAFC] ${multi ? "bg-indigo-50/20" : ""}`}
                         >
-                          <button
-                            type="button"
-                            aria-label="إجراءات"
-                            aria-expanded={scheduleMenuId === r.id}
-                            aria-haspopup="menu"
-                            className="rounded-lg p-1.5 text-[#64748B] transition hover:bg-[#F1F5F9]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (scheduleMenuId === r.id) {
-                                closeScheduleMenu();
-                                return;
-                              }
-                              scheduleMenuBtnRef.current = e.currentTarget;
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const menuMinW = 192;
-                              const pad = 8;
-                              let left = rect.left;
-                              if (left + menuMinW > window.innerWidth - pad) left = window.innerWidth - menuMinW - pad;
-                              if (left < pad) left = pad;
-                              setScheduleMenuCoords({ top: rect.bottom + 6, left });
-                              setScheduleMenuId(r.id);
-                            }}
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                            {displayIndex}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                            {collegeLabel}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                            {r.college_subject_name}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                            {SCHEDULE_TYPE_TABLE_SHORT[r.schedule_type]}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm font-semibold text-[#0F172A]">
+                            <div className="space-y-1">
+                              <div>{r.study_subject_name}</div>
+                              {multi ? (
+                                <span className="inline-flex rounded-full bg-[#4F46E5]/15 px-2 py-0.5 text-[10px] font-bold text-[#3730A3]">
+                                  جلسة واحدة — {sess.length} قاعات
+                                </span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                            {r.stage_level}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                            {r.exam_date}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                            {weekdayAr(r.exam_date)}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                            {timeRangeLabel(r.start_time, r.end_time)}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
+                            {formatDuration(r.duration_minutes)}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
+                            {multi ? (
+                              <ul className="list-disc space-y-0.5 pe-4 text-[11px] leading-snug text-[#334155]">
+                                {sess.map((m) => (
+                                  <li key={m.id}>{m.room_name}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              r.room_name
+                            )}
+                          </td>
+                          <td
+                            className="border-b border-[#E2E8F0] px-1 py-2 text-center align-middle whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <svg className="size-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                              <circle cx="12" cy="5" r="2" />
-                              <circle cx="12" cy="12" r="2" />
-                              <circle cx="12" cy="19" r="2" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                            <button
+                              type="button"
+                              aria-label="إجراءات"
+                              aria-expanded={menuOpen}
+                              aria-haspopup="menu"
+                              className="rounded-lg p-1.5 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (menuOpen) {
+                                  closeScheduleMenu();
+                                  return;
+                                }
+                                scheduleMenuBtnRef.current = e.currentTarget;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const menuMinW = 220;
+                                const pad = 8;
+                                let left = rect.left;
+                                if (left + menuMinW > window.innerWidth - pad) left = window.innerWidth - menuMinW - pad;
+                                if (left < pad) left = pad;
+                                setScheduleMenuCoords({ top: rect.bottom + 6, left });
+                                setScheduleMenuSession(sess);
+                              }}
+                            >
+                              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                <circle cx="12" cy="5" r="2" />
+                                <circle cx="12" cy="12" r="2" />
+                                <circle cx="12" cy="19" r="2" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </Fragment>
                 ))
               )}
@@ -1350,7 +1500,10 @@ export function ExamSchedulesPanel({
           </table>
         </div>
         <div className="flex items-center justify-between border-t border-[#E2E8F0] bg-[#F8FAFC] px-5 py-3">
-          <p className="text-xs text-[#64748B]">عرض {(safePage - 1) * pageSize + (pagedRows.length ? 1 : 0)} - {(safePage - 1) * pageSize + pagedRows.length} من {filteredRows.length}</p>
+          <p className="text-xs text-[#64748B]">
+            عرض {(safePage - 1) * pageSize + (pagedSessionItems.length ? 1 : 0)} -{" "}
+            {(safePage - 1) * pageSize + pagedSessionItems.length} من {filteredSessions.length} جلسة
+          </p>
           <div className="flex gap-1">
             <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-1.5 text-xs disabled:opacity-50">السابق</button>
             <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-1.5 text-xs disabled:opacity-50">التالي</button>
@@ -1358,49 +1511,100 @@ export function ExamSchedulesPanel({
         </div>
       </section>
 
-      {scheduleMenuRow && scheduleMenuCoords && typeof document !== "undefined"
+      {scheduleMenuSession && scheduleMenuCoords && typeof document !== "undefined"
         ? createPortal(
             <div
               ref={scheduleMenuPanelRef}
-              className="fixed z-[280] min-w-[12rem] rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg"
+              className="fixed z-[280] max-h-[min(70vh,420px)] min-w-[14rem] overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg"
               style={{ top: scheduleMenuCoords.top, left: scheduleMenuCoords.left }}
               dir="rtl"
               role="menu"
             >
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                onClick={() => {
-                  setViewTicketRow(scheduleMenuRow);
-                  closeScheduleMenu();
-                }}
-              >
-                عرض
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                onClick={() => {
-                  setBuilderOpen(true);
-                  onEdit(scheduleMenuRow);
-                  closeScheduleMenu();
-                }}
-              >
-                تعديل
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50"
-                onClick={() => {
-                  setDeleteId(scheduleMenuRow.id);
-                  closeScheduleMenu();
-                }}
-              >
-                حذف
-              </button>
+              {scheduleMenuSession.length === 1 ? (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                    onClick={() => {
+                      setViewTicketRow(scheduleMenuSession[0]!);
+                      closeScheduleMenu();
+                    }}
+                  >
+                    عرض التذكرة
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                    onClick={() => {
+                      setBuilderOpen(true);
+                      onEdit(scheduleMenuSession[0]!);
+                      closeScheduleMenu();
+                    }}
+                  >
+                    تعديل
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50"
+                    onClick={() => {
+                      setDeleteId(scheduleMenuSession[0]!.id);
+                      closeScheduleMenu();
+                    }}
+                  >
+                    حذف
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="border-b border-[#E2E8F0] px-3 py-2 text-[11px] font-semibold text-[#4338CA]">
+                    جلسة واحدة موزّعة على {scheduleMenuSession.length} قاعات — اختر القاعة:
+                  </div>
+                  {scheduleMenuSession.map((m) => (
+                    <div key={m.id} className="border-b border-[#F1F5F9] px-2 py-2 last:border-b-0">
+                      <p className="px-1 text-xs font-bold text-[#0F172A]">{m.room_name}</p>
+                      <div className="mt-1 flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                          onClick={() => {
+                            setViewTicketRow(m);
+                            closeScheduleMenu();
+                          }}
+                        >
+                          عرض التذكرة
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                          onClick={() => {
+                            setBuilderOpen(true);
+                            onEdit(m);
+                            closeScheduleMenu();
+                          }}
+                        >
+                          تعديل
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-red-600 transition hover:bg-red-50"
+                          onClick={() => {
+                            setDeleteId(m.id);
+                            closeScheduleMenu();
+                          }}
+                        >
+                          حذف من الجدول
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>,
             document.body,
           )

@@ -39,6 +39,7 @@ export type CollegeRoomsReportStats = {
   singleExamRooms: number;
   doubleExamRooms: number;
   totalCapacityFromShifts: number;
+  subjectsSpreadAcrossMultipleRooms: number;
 };
 
 export type CollegeRoomsReportInput = {
@@ -146,6 +147,12 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
       <div class="summary-cell"><span class="muted">مقاعد (سعة)</span><div class="summary-val">${stats.totalCapacityFromShifts}</div></div>
       <div class="summary-cell"><span class="muted">حضور</span><div class="summary-val">${stats.totalAttendanceSeats}</div></div>
       <div class="summary-cell"><span class="muted">غياب</span><div class="summary-val">${stats.totalAbsenceSeats}</div></div>
+    </div>
+    <div class="summary-row">
+      <div class="summary-cell" style="width:100%;display:table-cell">
+        <span class="muted">مواد امتحانية لها أكثر من قاعة (توزيع طلبة)</span>
+        <div class="summary-val">${stats.subjectsSpreadAcrossMultipleRooms}</div>
+      </div>
     </div>
   </div>
 

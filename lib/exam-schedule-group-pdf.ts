@@ -1,6 +1,7 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import type { CollegeExamScheduleRow, ScheduleType } from "@/lib/college-exam-schedules";
+import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 
 const SCHEDULE_SHORT: Record<ScheduleType, string> = {
   FINAL: "نهائي",
@@ -34,6 +35,18 @@ function sortRows(rows: CollegeExamScheduleRow[]) {
     const da = `${a.exam_date} ${a.start_time}`;
     const db = `${b.exam_date} ${b.start_time}`;
     return da.localeCompare(db);
+  });
+}
+
+/** صف واحد لكل جلسة منطقية؛ عمود القاعة يجمع كل القاعات المرتبطة بنفس المادة والوقت. */
+function mergeScheduleRowsForOfficialTable(sortedRows: CollegeExamScheduleRow[]): CollegeExamScheduleRow[] {
+  const sessions = groupExamScheduleRowsIntoSessions(sortedRows);
+  return sessions.map((members) => {
+    const base = members[0]!;
+    return {
+      ...base,
+      room_name: members.map((m) => m.room_name.trim() || "—").join(" · "),
+    };
   });
 }
 
@@ -167,7 +180,7 @@ async function captureScheduleGroupCanvas(args: ScheduleGroupDocArgs): Promise<H
   const termRaw = (first.term_label ?? "").trim();
   const termDisplay = termRaw || "—";
   const issued = new Intl.DateTimeFormat("ar-IQ", { dateStyle: "long" }).format(new Date());
-  const sorted = sortRows(rows);
+  const sorted = mergeScheduleRowsForOfficialTable(sortRows(rows));
 
   const host = document.createElement("div");
   host.setAttribute("dir", "rtl");

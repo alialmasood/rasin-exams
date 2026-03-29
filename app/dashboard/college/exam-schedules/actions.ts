@@ -1,7 +1,7 @@
 "use server";
 
 import {
-  createCollegeExamSchedule,
+  createCollegeExamSchedulesMultiRoom,
   deleteCollegeExamSchedule,
   reviewCollegeExamScheduleContext,
   updateCollegeExamSchedule,
@@ -18,11 +18,22 @@ export type ExamScheduleActionResult<T = unknown> =
 export async function createExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
-  const result = await createCollegeExamSchedule({
+  const rawIds = String(formData.get("room_ids") ?? "").trim();
+  const roomIds = rawIds
+    ? rawIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter((x) => /^\d+$/.test(x))
+    : [];
+  if (roomIds.length === 0) {
+    const one = String(formData.get("room_id") ?? "").trim();
+    if (/^\d+$/.test(one)) roomIds.push(one);
+  }
+  const result = await createCollegeExamSchedulesMultiRoom({
     ownerUserId: session.uid,
     collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
     studySubjectId: String(formData.get("study_subject_id") ?? ""),
-    roomId: String(formData.get("room_id") ?? ""),
+    roomIds,
     stageLevel: String(formData.get("stage_level") ?? ""),
     scheduleType: String(formData.get("schedule_type") ?? ""),
     termLabel: String(formData.get("term_label") ?? ""),
@@ -33,7 +44,15 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
     notes: String(formData.get("notes") ?? ""),
   });
   if (!result.ok) return result;
-  return { ok: true, message: "تمت إضافة المادة إلى الجدول الامتحاني بنجاح", data: result.row };
+  const n = result.rows.length;
+  return {
+    ok: true,
+    message:
+      n > 1
+        ? `تمت إضافة المادة إلى الجدول في ${n} قاعة امتحانية بنفس التوقيت.`
+        : "تمت إضافة المادة إلى الجدول الامتحاني بنجاح",
+    data: result.rows,
+  };
 }
 
 export async function updateExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult> {

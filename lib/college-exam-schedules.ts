@@ -37,19 +37,174 @@ function asNumericUserId(value: string) {
   return /^[0-9]+$/.test(v) ? v : null;
 }
 
-/** التحقق من وجود القاعة وملكيتها للمستخدم. أي مادة امتحانية مسموح اختيارها مع أي قاعة مملوكة. */
+export {
+  examScheduleLogicalGroupKeyFromRow,
+  type ExamScheduleLogicalGroupFields,
+} from "@/lib/exam-schedule-logical-group";
+
+/** القاعة يجب أن تكون مُعرّفة في «إدارة القاعات» للمادة الامتحانية (الأولى أو الثانية في نفس القاعة). */
 export async function assertExamRoomAllowsStudySubject(
   pool: ReturnType<typeof getDbPool>,
   ownerUserId: string,
   roomId: string,
-  _studySubjectId: string
+  studySubjectId: string
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const r = await pool.query(
-    `SELECT 1 FROM college_exam_rooms WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [roomId.trim(), ownerUserId]
+    `SELECT 1 FROM college_exam_rooms
+     WHERE id = $1::bigint AND owner_user_id = $2
+       AND (
+         study_subject_id::text = $3
+         OR (study_subject_id_2 IS NOT NULL AND study_subject_id_2::text = $3)
+       )
+     LIMIT 1`,
+    [roomId.trim(), ownerUserId, studySubjectId.trim()]
   );
-  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "القاعة المختارة غير موجودة." };
+  if ((r.rowCount ?? 0) === 0) {
+    return {
+      ok: false,
+      message:
+        "القاعة المختارة غير مرتبطة بهذه المادة في «إدارة القاعات». اختر قاعة مُعرَّفة للمادة الدراسية (أو أضف قاعة جديدة لنفس المادة).",
+    };
+  }
   return { ok: true };
+}
+
+type ValidateScheduleSlotParams = {
+  ownerUserId: string;
+  collegeSubjectId: string;
+  studySubjectId: string;
+  roomId: string;
+  stageLevel: string;
+  scheduleType: string;
+  termLabel: string;
+  academicYear: string;
+  examDate: string;
+  startTime: string;
+  endTime: string;
+  /** عند التعديل: استثناء الصف الحالي من فحوص التكرار/التداخل لنفس القاعة */
+  excludeScheduleId?: string;
+};
+
+async function validateExamScheduleSlot(
+  pool: ReturnType<typeof getDbPool>,
+  input: ValidateScheduleSlotParams
+): Promise<
+  { ok: false; message: string } | { ok: true; stageNum: number; startMin: number; endMin: number; scheduleTypeDb: string }
+> {
+  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "يرجى اختيار القسم أو الفرع." };
+  if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "يرجى اختيار المادة الدراسية." };
+  if (!/^\d+$/.test(input.roomId.trim())) return { ok: false, message: "يرجى اختيار القاعة الامتحانية." };
+  if (!/^\d+$/.test(input.stageLevel.trim())) return { ok: false, message: "يرجى اختيار المرحلة." };
+  if (!input.termLabel.trim()) return { ok: false, message: "يرجى اختيار الفصل الدراسي." };
+  if (!input.academicYear.trim()) return { ok: false, message: "يرجى تحديد العام الدراسي." };
+  const pastCheck = assertExamDateNotInPast(input.examDate);
+  if (!pastCheck.ok) return pastCheck;
+  if (!input.startTime.trim()) return { ok: false, message: "يرجى تحديد وقت بداية الامتحان." };
+  if (!input.endTime.trim()) return { ok: false, message: "يرجى تحديد وقت نهاية الامتحان." };
+  const startMin = toMinutes(input.startTime.trim());
+  const endMin = toMinutes(input.endTime.trim());
+  if (startMin < 0 || endMin < 0) return { ok: false, message: "تنسيق الوقت غير صالح." };
+  if (endMin <= startMin) return { ok: false, message: "وقت نهاية الامتحان يجب أن يكون بعد وقت البداية." };
+
+  const subjectScope = await pool.query(
+    `SELECT 1
+     FROM college_study_subjects
+     WHERE id = $1 AND owner_user_id = $2 AND college_subject_id = $3
+     LIMIT 1`,
+    [input.studySubjectId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
+  );
+  if ((subjectScope.rowCount ?? 0) === 0) {
+    return { ok: false, message: "المادة المختارة لا تتبع القسم/الفرع المحدد." };
+  }
+  const roomScope = await pool.query(
+    `SELECT 1 FROM college_exam_rooms WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+    [input.roomId.trim(), input.ownerUserId]
+  );
+  if ((roomScope.rowCount ?? 0) === 0) return { ok: false, message: "القاعة المختارة غير موجودة." };
+  const roomSubjectOk = await assertExamRoomAllowsStudySubject(
+    pool,
+    input.ownerUserId,
+    input.roomId.trim(),
+    input.studySubjectId.trim()
+  );
+  if (!roomSubjectOk.ok) return roomSubjectOk;
+
+  const holiday = await pool.query(
+    `SELECT holiday_name
+     FROM college_holidays
+     WHERE owner_user_id = $1 AND holiday_date = $2
+     LIMIT 1`,
+    [input.ownerUserId, input.examDate.trim()]
+  );
+  if ((holiday.rowCount ?? 0) > 0) {
+    const holidayName = String((holiday.rows[0] as { holiday_name?: string })?.holiday_name ?? "عطلة");
+    return { ok: false, message: `لا يمكن الجدولة في هذا اليوم (${holidayName}).` };
+  }
+
+  const stageNum = Number(input.stageLevel.trim());
+  const excludeId = input.excludeScheduleId?.trim() && /^\d+$/.test(input.excludeScheduleId.trim())
+    ? input.excludeScheduleId.trim()
+    : null;
+
+  const dup = await pool.query(
+    `SELECT 1
+     FROM college_exam_schedules
+     WHERE owner_user_id = $1
+       AND college_subject_id = $2::bigint
+       AND study_subject_id = $3::bigint
+       AND stage_level = $4
+       AND exam_date = $5::date
+       AND start_time = $6::time
+       AND end_time = $7::time
+       AND room_id = $8::bigint
+       AND ($9::bigint IS NULL OR id <> $9::bigint)
+     LIMIT 1`,
+    [
+      input.ownerUserId,
+      input.collegeSubjectId.trim(),
+      input.studySubjectId.trim(),
+      stageNum,
+      input.examDate.trim(),
+      input.startTime.trim(),
+      input.endTime.trim(),
+      input.roomId.trim(),
+      excludeId,
+    ]
+  );
+  if ((dup.rowCount ?? 0) > 0) {
+    return { ok: false, message: "هذه المادة مضافة مسبقًا لنفس القاعة ولنفس المرحلة وبنفس التوقيت." };
+  }
+
+  const cohortConflict = await pool.query(
+    `SELECT 1
+     FROM college_exam_schedules
+     WHERE owner_user_id = $1
+       AND college_subject_id = $2::bigint
+       AND study_subject_id = $3::bigint
+       AND stage_level = $4
+       AND exam_date = $5::date
+       AND (start_time < $6::time AND end_time > $7::time)
+       AND room_id = $8::bigint
+       AND ($9::bigint IS NULL OR id <> $9::bigint)
+     LIMIT 1`,
+    [
+      input.ownerUserId,
+      input.collegeSubjectId.trim(),
+      input.studySubjectId.trim(),
+      stageNum,
+      input.examDate.trim(),
+      input.endTime.trim(),
+      input.startTime.trim(),
+      input.roomId.trim(),
+      excludeId,
+    ]
+  );
+  if ((cohortConflict.rowCount ?? 0) > 0) {
+    return { ok: false, message: "تعارض: نفس المادة والمرحلة مسجّلة في وقت متداخل في هذه القاعة." };
+  }
+
+  const scheduleTypeDb = input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL";
+  return { ok: true, stageNum, startMin, endMin, scheduleTypeDb };
 }
 
 export type CollegeRoomScheduleHint = {
@@ -183,11 +338,10 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
   }));
 }
 
-export async function createCollegeExamSchedule(input: {
+export type CreateCollegeExamScheduleCoreInput = {
   ownerUserId: string;
   collegeSubjectId: string;
   studySubjectId: string;
-  roomId: string;
   stageLevel: string;
   scheduleType: string;
   termLabel: string;
@@ -196,143 +350,113 @@ export async function createCollegeExamSchedule(input: {
   startTime: string;
   endTime: string;
   notes: string;
-}): Promise<{ ok: true; row: CollegeExamScheduleRow } | { ok: false; message: string }> {
+};
+
+/** إنشاء جلسة واحدة في قاعة واحدة (السلوك السابق). */
+export async function createCollegeExamSchedule(
+  input: CreateCollegeExamScheduleCoreInput & { roomId: string }
+): Promise<{ ok: true; row: CollegeExamScheduleRow } | { ok: false; message: string }> {
+  const multi = await createCollegeExamSchedulesMultiRoom({ ...input, roomIds: [input.roomId] });
+  if (!multi.ok) return multi;
+  return { ok: true, row: multi.rows[0]! };
+}
+
+/**
+ * إنشاء نفس الجلسة الامتحانية (نفس الوقت والمادة) في عدة قاعات — كل قاعة صف جدول مستقل (رفع موقف واعتماد لكل قاعة).
+ */
+export async function createCollegeExamSchedulesMultiRoom(
+  input: CreateCollegeExamScheduleCoreInput & { roomIds: string[] }
+): Promise<{ ok: true; rows: CollegeExamScheduleRow[] } | { ok: false; message: string }> {
   if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
   await ensureCoreSchema();
-  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "يرجى اختيار القسم أو الفرع." };
-  if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "يرجى اختيار المادة الدراسية." };
-  if (!/^\d+$/.test(input.roomId.trim())) return { ok: false, message: "يرجى اختيار القاعة الامتحانية." };
-  if (!/^\d+$/.test(input.stageLevel.trim())) return { ok: false, message: "يرجى اختيار المرحلة." };
-  if (!input.termLabel.trim()) return { ok: false, message: "يرجى اختيار الفصل الدراسي." };
-  if (!input.academicYear.trim()) return { ok: false, message: "يرجى تحديد العام الدراسي." };
-  const pastCheck = assertExamDateNotInPast(input.examDate);
-  if (!pastCheck.ok) return pastCheck;
-  if (!input.startTime.trim()) return { ok: false, message: "يرجى تحديد وقت بداية الامتحان." };
-  if (!input.endTime.trim()) return { ok: false, message: "يرجى تحديد وقت نهاية الامتحان." };
-  const startMin = toMinutes(input.startTime.trim());
-  const endMin = toMinutes(input.endTime.trim());
-  if (startMin < 0 || endMin < 0) return { ok: false, message: "تنسيق الوقت غير صالح." };
-  if (endMin <= startMin) return { ok: false, message: "وقت نهاية الامتحان يجب أن يكون بعد وقت البداية." };
+  const seen = new Set<string>();
+  const roomIds: string[] = [];
+  for (const raw of input.roomIds) {
+    const id = String(raw ?? "").trim();
+    if (!/^\d+$/.test(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    roomIds.push(id);
+  }
+  if (roomIds.length === 0) return { ok: false, message: "يرجى اختيار قاعة امتحانية واحدة على الأقل." };
+
   const pool = getDbPool();
+  const validated: Array<{ roomId: string; stageNum: number; duration: number; scheduleTypeDb: string }> = [];
 
-  const subjectScope = await pool.query(
-    `SELECT 1
-     FROM college_study_subjects
-     WHERE id = $1 AND owner_user_id = $2 AND college_subject_id = $3
-     LIMIT 1`,
-    [input.studySubjectId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
-  );
-  if ((subjectScope.rowCount ?? 0) === 0) {
-    return { ok: false, message: "المادة المختارة لا تتبع القسم/الفرع المحدد." };
-  }
-  const roomScope = await pool.query(
-    `SELECT 1 FROM college_exam_rooms WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [input.roomId.trim(), input.ownerUserId]
-  );
-  if ((roomScope.rowCount ?? 0) === 0) return { ok: false, message: "القاعة المختارة غير موجودة." };
-  const roomSubjectOk = await assertExamRoomAllowsStudySubject(
-    pool,
-    input.ownerUserId,
-    input.roomId.trim(),
-    input.studySubjectId.trim()
-  );
-  if (!roomSubjectOk.ok) return roomSubjectOk;
-  const holiday = await pool.query(
-    `SELECT holiday_name
-     FROM college_holidays
-     WHERE owner_user_id = $1 AND holiday_date = $2
-     LIMIT 1`,
-    [input.ownerUserId, input.examDate.trim()]
-  );
-  if ((holiday.rowCount ?? 0) > 0) {
-    const holidayName = String((holiday.rows[0] as { holiday_name?: string })?.holiday_name ?? "عطلة");
-    return { ok: false, message: `لا يمكن الجدولة في هذا اليوم (${holidayName}).` };
+  for (const roomId of roomIds) {
+    const v = await validateExamScheduleSlot(pool, {
+      ownerUserId: input.ownerUserId,
+      collegeSubjectId: input.collegeSubjectId,
+      studySubjectId: input.studySubjectId,
+      roomId,
+      stageLevel: input.stageLevel,
+      scheduleType: input.scheduleType,
+      termLabel: input.termLabel,
+      academicYear: input.academicYear,
+      examDate: input.examDate,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
+    if (!v.ok) return v;
+    validated.push({
+      roomId,
+      stageNum: v.stageNum,
+      duration: v.endMin - v.startMin,
+      scheduleTypeDb: v.scheduleTypeDb,
+    });
   }
 
-  const stageNum = Number(input.stageLevel.trim());
-  const dup = await pool.query(
-    `SELECT 1
-     FROM college_exam_schedules
-     WHERE owner_user_id = $1
-       AND college_subject_id = $2
-       AND study_subject_id = $3
-       AND stage_level = $4
-       AND exam_date = $5
-       AND start_time = $6::time
-       AND end_time = $7::time
-     LIMIT 1`,
-    [
-      input.ownerUserId,
-      input.collegeSubjectId.trim(),
-      input.studySubjectId.trim(),
-      stageNum,
-      input.examDate.trim(),
-      input.startTime.trim(),
-      input.endTime.trim(),
-    ]
-  );
-  if ((dup.rowCount ?? 0) > 0) {
-    return { ok: false, message: "هذه المادة مضافة مسبقًا لنفس المرحلة وبنفس التوقيت." };
-  }
-  const cohortConflict = await pool.query(
-    `SELECT 1
-     FROM college_exam_schedules
-     WHERE owner_user_id = $1
-       AND college_subject_id = $2
-       AND study_subject_id = $3
-       AND stage_level = $4
-       AND exam_date = $5
-       AND (start_time < $6::time AND end_time > $7::time)
-     LIMIT 1`,
-    [
-      input.ownerUserId,
-      input.collegeSubjectId.trim(),
-      input.studySubjectId.trim(),
-      stageNum,
-      input.examDate.trim(),
-      input.endTime.trim(),
-      input.startTime.trim(),
-    ]
-  );
-  if ((cohortConflict.rowCount ?? 0) > 0) {
-    return { ok: false, message: "تعارض: نفس المادة والمرحلة مسجّلة في وقت متداخل." };
+  const insertedIds: string[] = [];
+  try {
+    await pool.query("BEGIN");
+    for (const slot of validated) {
+      const ins = await pool.query<{ id: string | number }>(
+        `INSERT INTO college_exam_schedules
+          (owner_user_id, college_subject_id, study_subject_id, room_id, schedule_type, workflow_status, term_label,
+           academic_year, stage_level, exam_date, start_time, end_time, duration_minutes, notes, created_at, updated_at)
+         VALUES ($1,$2::bigint,$3::bigint,$4::bigint,$5,'APPROVED',$6,$7,$8,$9::date,$10::time,$11::time,$12,$13,NOW(),NOW())
+         RETURNING id`,
+        [
+          input.ownerUserId,
+          input.collegeSubjectId.trim(),
+          input.studySubjectId.trim(),
+          slot.roomId,
+          slot.scheduleTypeDb,
+          input.termLabel.trim() || null,
+          input.academicYear.trim() || null,
+          slot.stageNum,
+          input.examDate.trim(),
+          input.startTime.trim(),
+          input.endTime.trim(),
+          slot.duration,
+          input.notes.trim() || null,
+        ]
+      );
+      insertedIds.push(String(ins.rows[0]?.id ?? ""));
+    }
+    await pool.query("COMMIT");
+  } catch (err: unknown) {
+    await pool.query("ROLLBACK");
+    const msg = String((err as { message?: string }).message ?? "");
+    return { ok: false, message: msg || "تعذر حفظ الجدول." };
   }
 
-  const ins = await pool.query<{ id: string | number }>(
-    `INSERT INTO college_exam_schedules
-      (owner_user_id, college_subject_id, study_subject_id, room_id, schedule_type, workflow_status, term_label,
-       academic_year, stage_level, exam_date, start_time, end_time, duration_minutes, notes, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10::time,$11::time,$12,$13,NOW(),NOW())
-     RETURNING id`,
-    [
-      input.ownerUserId,
-      input.collegeSubjectId.trim(),
-      input.studySubjectId.trim(),
-      input.roomId.trim(),
-      input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL",
-      input.termLabel.trim() || null,
-      input.academicYear.trim() || null,
-      stageNum,
-      input.examDate.trim(),
-      input.startTime.trim(),
-      input.endTime.trim(),
-      endMin - startMin,
-      input.notes.trim() || null,
-    ]
-  );
-  const id = String(ins.rows[0]?.id ?? "");
   const rows = await listCollegeExamSchedulesByOwner(input.ownerUserId);
-  const row = rows.find((r) => r.id === id);
-  if (!row) return { ok: false, message: "تمت الإضافة لكن تعذر تحميل السجل الجديد." };
-  await writeScheduleAudit(input.ownerUserId, "EXAM_SCHEDULE_CREATED", id, {
-    collegeSubjectId: input.collegeSubjectId.trim(),
-    studySubjectId: input.studySubjectId.trim(),
-    examDate: input.examDate.trim(),
-    startTime: input.startTime.trim(),
-    endTime: input.endTime.trim(),
-    roomId: input.roomId.trim(),
-  });
-  return { ok: true, row };
+  const out = insertedIds.map((id) => rows.find((r) => r.id === id)).filter(Boolean) as CollegeExamScheduleRow[];
+  if (out.length !== insertedIds.length) {
+    return { ok: false, message: "تمت الإضافة لكن تعذر تحميل السجلات الجديدة." };
+  }
+  for (const id of insertedIds) {
+    await writeScheduleAudit(input.ownerUserId, "EXAM_SCHEDULE_CREATED", id, {
+      collegeSubjectId: input.collegeSubjectId.trim(),
+      studySubjectId: input.studySubjectId.trim(),
+      examDate: input.examDate.trim(),
+      startTime: input.startTime.trim(),
+      endTime: input.endTime.trim(),
+      roomIds: validated.map((x) => x.roomId),
+    });
+  }
+  return { ok: true, rows: out };
 }
 
 export async function updateCollegeExamSchedule(input: {
@@ -351,11 +475,15 @@ export async function updateCollegeExamSchedule(input: {
   notes: string;
 }): Promise<{ ok: true; row: CollegeExamScheduleRow } | { ok: false; message: string }> {
   if (!/^\d+$/.test(input.id.trim())) return { ok: false, message: "معرّف الإدخال غير صالح." };
-  const createLike = await createCollegeExamSchedule({
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  await ensureCoreSchema();
+  const pool = getDbPool();
+
+  const v = await validateExamScheduleSlot(pool, {
     ownerUserId: input.ownerUserId,
     collegeSubjectId: input.collegeSubjectId,
     studySubjectId: input.studySubjectId,
-    roomId: input.roomId,
+    roomId: input.roomId.trim(),
     stageLevel: input.stageLevel,
     scheduleType: input.scheduleType,
     termLabel: input.termLabel,
@@ -363,107 +491,30 @@ export async function updateCollegeExamSchedule(input: {
     examDate: input.examDate,
     startTime: input.startTime,
     endTime: input.endTime,
-    notes: input.notes,
+    excludeScheduleId: input.id.trim(),
   });
-  const skipCreateLikeMessages = new Set([
-    "هذه المادة مضافة مسبقًا بنفس التوقيت.",
-    "هذه المادة مضافة مسبقًا لنفس المرحلة وبنفس التوقيت.",
-  ]);
-  if (!createLike.ok && !skipCreateLikeMessages.has(createLike.message)) return createLike;
-
-  const startMin = toMinutes(input.startTime.trim());
-  const endMin = toMinutes(input.endTime.trim());
-  const pool = getDbPool();
-  const holiday = await pool.query(
-    `SELECT holiday_name
-     FROM college_holidays
-     WHERE owner_user_id = $1 AND holiday_date = $2
-     LIMIT 1`,
-    [input.ownerUserId, input.examDate.trim()]
-  );
-  if ((holiday.rowCount ?? 0) > 0) {
-    const holidayName = String((holiday.rows[0] as { holiday_name?: string })?.holiday_name ?? "عطلة");
-    return { ok: false, message: `لا يمكن الجدولة في هذا اليوم (${holidayName}).` };
-  }
-  const updStage = Number(input.stageLevel.trim());
-  const dup = await pool.query(
-    `SELECT 1
-     FROM college_exam_schedules
-     WHERE owner_user_id = $1
-       AND id <> $2
-       AND college_subject_id = $3
-       AND study_subject_id = $4
-       AND stage_level = $5
-       AND exam_date = $6
-       AND start_time = $7::time
-       AND end_time = $8::time
-     LIMIT 1`,
-    [
-      input.ownerUserId,
-      input.id.trim(),
-      input.collegeSubjectId.trim(),
-      input.studySubjectId.trim(),
-      updStage,
-      input.examDate.trim(),
-      input.startTime.trim(),
-      input.endTime.trim(),
-    ]
-  );
-  if ((dup.rowCount ?? 0) > 0) return { ok: false, message: "هذه المادة مضافة مسبقًا لنفس المرحلة وبنفس التوقيت." };
-  const cohortConflict = await pool.query(
-    `SELECT 1
-     FROM college_exam_schedules
-     WHERE owner_user_id = $1
-       AND id <> $2
-       AND college_subject_id = $3
-       AND study_subject_id = $4
-       AND stage_level = $5
-       AND exam_date = $6
-       AND (start_time < $7::time AND end_time > $8::time)
-     LIMIT 1`,
-    [
-      input.ownerUserId,
-      input.id.trim(),
-      input.collegeSubjectId.trim(),
-      input.studySubjectId.trim(),
-      updStage,
-      input.examDate.trim(),
-      input.endTime.trim(),
-      input.startTime.trim(),
-    ]
-  );
-  if ((cohortConflict.rowCount ?? 0) > 0) {
-    return { ok: false, message: "تعارض: نفس المادة والمرحلة مسجّلة في وقت متداخل." };
-  }
-
-  const roomSubjectOkUpd = await assertExamRoomAllowsStudySubject(
-    pool,
-    input.ownerUserId,
-    input.roomId.trim(),
-    input.studySubjectId.trim()
-  );
-  if (!roomSubjectOkUpd.ok) return roomSubjectOkUpd;
+  if (!v.ok) return v;
 
   const upd = await pool.query(
     `UPDATE college_exam_schedules
-     SET college_subject_id = $1, study_subject_id = $2, room_id = $3,
-         schedule_type = $4, term_label = $5, academic_year = $6, stage_level = $7, exam_date = $8,
+     SET college_subject_id = $1::bigint, study_subject_id = $2::bigint, room_id = $3::bigint,
+         schedule_type = $4, term_label = $5, academic_year = $6, stage_level = $7, exam_date = $8::date,
          start_time = $9::time, end_time = $10::time, duration_minutes = $11, notes = $12,
          workflow_status = 'APPROVED', updated_at = NOW()
-     WHERE id = $13 AND owner_user_id = $14
+     WHERE id = $13::bigint AND owner_user_id = $14
        AND UPPER(TRIM(workflow_status::text)) IN ('DRAFT','REJECTED','SUBMITTED','APPROVED')`,
     [
       input.collegeSubjectId.trim(),
       input.studySubjectId.trim(),
       input.roomId.trim(),
-      input.scheduleType === "SEMESTER" ? "SEMESTER" : "FINAL",
+      v.scheduleTypeDb,
       input.termLabel.trim() || null,
       input.academicYear.trim() || null,
-      updStage,
+      v.stageNum,
       input.examDate.trim(),
       input.startTime.trim(),
       input.endTime.trim(),
-      endMin - startMin,
+      v.endMin - v.startMin,
       input.notes.trim() || null,
       input.id.trim(),
       input.ownerUserId,

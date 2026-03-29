@@ -1,6 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
-import { getExamSituationDetailForOwner } from "@/lib/college-exam-situations";
+import { getExamSituationBundleForOwner } from "@/lib/college-exam-situations";
 import { getSession } from "@/lib/session";
 import { SituationDetailClient } from "./situation-detail-client";
 
@@ -16,11 +16,11 @@ export default async function UploadStatusDetailPage({
   if (!session) redirect("/");
   if (session.role !== "COLLEGE") redirect("/dashboard");
 
-  const [detail, profile] = await Promise.all([
-    getExamSituationDetailForOwner(session.uid, scheduleId),
+  const [bundle, profile] = await Promise.all([
+    getExamSituationBundleForOwner(session.uid, scheduleId),
     getCollegeProfileByUserId(session.uid),
   ]);
-  if (!detail) notFound();
+  if (!bundle) notFound();
 
   const collegeLabel =
     profile?.account_kind === "FOLLOWUP"
@@ -30,8 +30,10 @@ export default async function UploadStatusDetailPage({
 
   return (
     <SituationDetailClient
-      key={`${detail.schedule_id}-${detail.attendance_count}-${detail.absence_count}-${detail.head_submitted_at ?? "0"}-${detail.dean_status}`}
-      detail={detail}
+      key={bundle.sessions
+        .map((s) => `${s.schedule_id}-${s.attendance_count}-${s.absence_count}-${s.head_submitted_at ?? "0"}-${s.dean_status}`)
+        .join("|")}
+      bundle={bundle}
       collegeLabel={collegeLabel}
       deanName={deanName}
     />
