@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
@@ -845,6 +846,8 @@ export function RoomsManagementPanel({
     setAddDialogKey((k) => k + 1);
     setAddOpen(true);
   }, []);
+  useCollegeQuickActionsRegister({ openAddRoom: openAddDialog }, [openAddDialog]);
+  useCollegeQuickUrlTrigger("room", openAddDialog);
   /** تفاصيل القاعة مثبتة أسفل الشاشة حتى يغلقها المستخدم */
   const [pinnedDetailRowId, setPinnedDetailRowId] = useState<string | null>(null);
   const [reportRow, setReportRow] = useState<CollegeExamRoomRow | null>(null);

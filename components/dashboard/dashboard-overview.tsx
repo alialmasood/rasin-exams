@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import type { UniversityWideDashboardStats } from "@/lib/university-wide-dashboard-stats";
+
+/** أرقام لاتينية (0–9) لعرض الإحصائيات */
+function formatStatNumber(n: number): string {
+  return new Intl.NumberFormat("en-US").format(n);
+}
 
 /** قيم نشاط 0–100 (الأعلى = أعلى على الرسم) */
 const activityValues = [42, 65, 58, 72, 48, 81, 35];
@@ -187,7 +193,127 @@ function WeeklyActivityChart() {
   );
 }
 
-export function DashboardOverview() {
+type DashboardOverviewProps = {
+  universityStats: UniversityWideDashboardStats;
+};
+
+export function DashboardOverview({ universityStats }: DashboardOverviewProps) {
+  const universityStatCards = useMemo(
+    () =>
+      [
+        {
+          title: "حسابات التشكيل",
+          value: formatStatNumber(universityStats.formationAccounts),
+          sub: "تشكيلات وكليات مفعّلة في النظام",
+          accent: "#2563EB",
+          badgeClass: "bg-blue-50 text-blue-900 ring-blue-500/25",
+          titleClass: "text-blue-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(37,99,235,0.14)]",
+        },
+        {
+          title: "حسابات المتابعة",
+          value: formatStatNumber(universityStats.followupAccounts),
+          sub: "حسابات متابعة مسجّلة",
+          accent: "#6366F1",
+          badgeClass: "bg-indigo-50 text-indigo-900 ring-indigo-500/25",
+          titleClass: "text-indigo-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(99,102,241,0.14)]",
+        },
+        {
+          title: "الأقسام والفروع",
+          value: formatStatNumber(universityStats.collegeSubjectsTotal),
+          sub: "في كل التشكيلات النشطة",
+          detail: `أقسام: ${formatStatNumber(universityStats.collegeSubjectsDepartments)} · فروع: ${formatStatNumber(universityStats.collegeSubjectsBranches)} · الإجمالي: ${formatStatNumber(universityStats.collegeSubjectsTotal)}`,
+          accent: "#0D9488",
+          badgeClass: "bg-teal-50 text-teal-900 ring-teal-500/25",
+          titleClass: "text-teal-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(13,148,136,0.14)]",
+        },
+        {
+          title: "قاعات الامتحانات",
+          value: formatStatNumber(universityStats.examRoomsTotal),
+          sub: "في جميع التشكيلات",
+          accent: "#0891B2",
+          badgeClass: "bg-cyan-50 text-cyan-900 ring-cyan-500/25",
+          titleClass: "text-cyan-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(8,145,178,0.14)]",
+        },
+        {
+          title: "المقاعد الامتحانية",
+          value: formatStatNumber(universityStats.examSeatsCapacityTotal),
+          sub: "مجموع السعة (صباحي + مسائي) لكل القاعات",
+          accent: "#CA8A04",
+          badgeClass: "bg-amber-50 text-amber-900 ring-amber-500/25",
+          titleClass: "text-amber-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(202,138,4,0.16)]",
+        },
+        {
+          title: "الغياب الإجمالي (الطلبة)",
+          value: formatStatNumber(universityStats.totalStudentAbsenceAcrossFormations),
+          sub: "مجموع أعداد الغياب المدخلة في قاعات كل التشكيلات (الامتحان الأول + الثاني في القاعة المزدوجة).",
+          accent: "#DC2626",
+          badgeClass: "bg-red-50 text-red-900 ring-red-500/25",
+          titleClass: "text-red-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(220,38,38,0.16)]",
+        },
+        {
+          title: "المواد الدراسية",
+          value: formatStatNumber(universityStats.studySubjectsTotal),
+          sub: "في جميع التشكيلات",
+          accent: "#7C3AED",
+          badgeClass: "bg-violet-50 text-violet-900 ring-violet-500/25",
+          titleClass: "text-violet-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(124,58,237,0.14)]",
+        },
+        {
+          title: "الجدول الامتحاني",
+          value: formatStatNumber(universityStats.examSchedulesTotal),
+          sub: `نهائي ${formatStatNumber(universityStats.examSchedulesFinal)} · فصلي ${formatStatNumber(universityStats.examSchedulesSemester)} — كل حسابات الكلية (تشكيل + متابعة)`,
+          accent: "#DB2777",
+          badgeClass: "bg-pink-50 text-pink-900 ring-pink-500/25",
+          titleClass: "text-pink-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(219,39,119,0.14)]",
+        },
+      ],
+    [universityStats]
+  );
+
+  const topHighlightCards = useMemo(
+    () =>
+      [
+        {
+          title: "الامتحانات المنجزة",
+          value: formatStatNumber(universityStats.examsCompletedSituationSubmittedTotal),
+          sub: "عدد جلسات الجدول الامتحاني التي تم تأكيد رفع الموقف الامتحاني لها عبر حسابات الكلية النشطة.",
+          accent: "#10B981",
+          badgeClass: "bg-emerald-50 text-emerald-800 ring-emerald-500/20",
+          titleClass: "text-emerald-900/80",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(16,185,129,0.14)]",
+        },
+        {
+          title: "امتحانات اليوم",
+          value: formatStatNumber(universityStats.examSessionsTodayTotal),
+          sub: "إجمالي جلسات الجدول الامتحاني المجدولة لتاريخ اليوم (توقيت بغداد).",
+          extraLine: `غدًا: ${formatStatNumber(universityStats.examSessionsTomorrowExcludingHolidaysTotal)} جلسة — باستثناء ما يقع في يوم عطلة مسجّل لتشكيله`,
+          accent: "#F59E0B",
+          badgeClass: "bg-amber-50 text-amber-900 ring-amber-500/25",
+          titleClass: "text-amber-900/75",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(245,158,11,0.18)]",
+        },
+        {
+          title: "تنبيهات",
+          value: "3",
+          sub: "تتطلب متابعة",
+          warn: true,
+          accent: "#EF4444",
+          badgeClass: "bg-red-50 text-red-800 ring-red-500/20",
+          titleClass: "text-red-900/75",
+          hoverShadow: "hover:shadow-[0_12px_28px_rgba(239,68,68,0.16)]",
+        },
+      ],
+    [universityStats]
+  );
+
   return (
     <div className="space-y-8" dir="rtl">
       {/* ترحيب + إجراءات */}
@@ -242,43 +368,16 @@ export function DashboardOverview() {
                 مباشر
               </span>
             </div>
-            <p className="mt-2 text-4xl font-bold tracking-tight text-white drop-shadow-sm md:text-5xl">128</p>
-            <p className="mt-2 text-sm text-white/80">جميع الفصول الدراسية</p>
+            <p className="mt-2 text-4xl font-bold tracking-tight text-white drop-shadow-sm md:text-5xl tabular-nums">
+              {formatStatNumber(universityStats.examSchedulesTotalAcrossFormations)}
+            </p>
+            <p className="mt-2 text-sm text-white/80">
+              جلسات الجدول الامتحاني (مادة + قاعة + وقت) عبر كل حسابات التشكيل النشطة
+            </p>
           </div>
         </div>
 
-        {(
-          [
-            {
-              title: "الطلاب المسجلون",
-              value: "4,392",
-              sub: "نشطون هذا العام",
-              accent: "#10B981",
-              badgeClass: "bg-emerald-50 text-emerald-800 ring-emerald-500/20",
-              titleClass: "text-emerald-900/80",
-              hoverShadow: "hover:shadow-[0_12px_28px_rgba(16,185,129,0.14)]",
-            },
-            {
-              title: "امتحانات اليوم",
-              value: "14",
-              sub: "في 6 كليات",
-              accent: "#F59E0B",
-              badgeClass: "bg-amber-50 text-amber-900 ring-amber-500/25",
-              titleClass: "text-amber-900/75",
-              hoverShadow: "hover:shadow-[0_12px_28px_rgba(245,158,11,0.18)]",
-            },
-            {
-              title: "تنبيهات",
-              value: "3",
-              sub: "تتطلب متابعة",
-              warn: true,
-              accent: "#EF4444",
-              badgeClass: "bg-red-50 text-red-800 ring-red-500/20",
-              titleClass: "text-red-900/75",
-              hoverShadow: "hover:shadow-[0_12px_28px_rgba(239,68,68,0.16)]",
-            },
-          ] as const
-        ).map((card) => (
+        {topHighlightCards.map((card) => (
           <div
             key={card.title}
             className={`group rounded-3xl border border-[#E2E8F0] border-t-4 bg-white p-6 shadow-sm shadow-[#0F172A]/[0.04] transition duration-300 hover:-translate-y-1 hover:shadow-md ${card.hoverShadow}`}
@@ -293,13 +392,53 @@ export function DashboardOverview() {
               </span>
             </div>
             <p
-              className={`mt-2 text-4xl font-bold tracking-tight ${"warn" in card && card.warn ? "text-[#EF4444]" : "text-[#0F172A]"}`}
+              className={`mt-2 text-4xl font-bold tracking-tight tabular-nums ${"warn" in card && card.warn ? "text-[#EF4444]" : "text-[#0F172A]"}`}
             >
               {card.value}
             </p>
             <p className="mt-2 text-sm text-[#64748B]">{card.sub}</p>
+            {"extraLine" in card && card.extraLine ? (
+              <p className="mt-2 text-[11px] font-semibold leading-snug text-[#94A3B8] tabular-nums md:text-xs">
+                {card.extraLine}
+              </p>
+            ) : null}
           </div>
         ))}
+      </div>
+
+      {/* إحصائيات التشكيلات والجامعة — من قاعدة البيانات */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-lg font-bold text-[#0F172A] md:text-xl">إحصائيات التشكيلات والجامعة</h2>
+          <p className="mt-1 text-sm text-[#64748B] md:text-base">
+            أرقام إجمالية موحّدة عبر كل حسابات الكلية النشطة في النظام (تشكيل ومتابعة).
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {universityStatCards.map((card) => (
+            <div
+              key={card.title}
+              className={`group rounded-3xl border border-[#E2E8F0] border-t-4 bg-white p-6 shadow-sm shadow-[#0F172A]/[0.04] transition duration-300 hover:-translate-y-1 hover:shadow-md ${card.hoverShadow}`}
+              style={{ borderTopColor: card.accent }}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className={`min-w-0 text-sm font-semibold ${card.titleClass}`}>{card.title}</p>
+                <span
+                  className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ring-1 ${card.badgeClass}`}
+                >
+                  مباشر
+                </span>
+              </div>
+              <p className="mt-2 text-4xl font-bold tracking-tight text-[#0F172A] md:text-5xl">{card.value}</p>
+              <p className="mt-2 text-sm leading-relaxed text-[#64748B]">{card.sub}</p>
+              {"detail" in card && card.detail ? (
+                <p className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#475569] tabular-nums md:text-xs">
+                  {card.detail}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* رسوم ومؤشرات */}

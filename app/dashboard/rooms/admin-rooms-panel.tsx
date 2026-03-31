@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { AdminCollegeExamRoomRow } from "@/lib/college-rooms";
+import {
+  adminRoomsExcelFilename,
+  adminRoomsRowsToExcelRecords,
+  buildAdminRoomsReportHtml,
+  printAdminRoomsReportHtml,
+} from "@/lib/admin-rooms-report-html";
 import { fetchAdminCollegeExamRoomsAction } from "./actions";
 
 const REFRESH_MS = 20_000;
@@ -221,6 +227,79 @@ export function AdminRoomsPanel({ initialRows }: Props) {
     });
   }, []);
 
+  const generatedReportLabel = useCallback(() => {
+    try {
+      return new Date().toLocaleString("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "full",
+        timeStyle: "short",
+      });
+    } catch {
+      return new Date().toISOString();
+    }
+  }, []);
+
+  const exportAllPdf = useCallback(() => {
+    const html = buildAdminRoomsReportHtml({
+      rows,
+      generatedLabel: generatedReportLabel(),
+      assetsBaseUrl: typeof window !== "undefined" ? window.location.origin : "",
+    });
+    if (!printAdminRoomsReportHtml(html)) {
+      window.alert(
+        "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
+      );
+    }
+  }, [rows, generatedReportLabel]);
+
+  const exportAllExcel = useCallback(async () => {
+    try {
+      const xlsx = await import("xlsx");
+      const data = adminRoomsRowsToExcelRecords(rows);
+      const ws = xlsx.utils.json_to_sheet(data);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "كل التشكيلات");
+      xlsx.writeFile(wb, adminRoomsExcelFilename(rows));
+    } catch {
+      window.alert("تعذر تصدير Excel. أعد المحاولة.");
+    }
+  }, [rows]);
+
+  const exportFormationPdf = useCallback(
+    (g: FormationGroup) => {
+      const html = buildAdminRoomsReportHtml({
+        rows: g.rooms,
+        generatedLabel: generatedReportLabel(),
+        assetsBaseUrl: typeof window !== "undefined" ? window.location.origin : "",
+        singleFormation: {
+          formationLabel: g.formationLabel,
+          ownerUsername: g.ownerUsername,
+        },
+      });
+      if (!printAdminRoomsReportHtml(html)) {
+        window.alert(
+          "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
+        );
+      }
+    },
+    [generatedReportLabel]
+  );
+
+  const exportFormationExcel = useCallback(async (g: FormationGroup) => {
+    try {
+      const xlsx = await import("xlsx");
+      const data = adminRoomsRowsToExcelRecords(g.rooms);
+      const ws = xlsx.utils.json_to_sheet(data);
+      const wb = xlsx.utils.book_new();
+      let sheetName = g.formationLabel.replace(/[\[\]*\/\\?:]/g, "").trim().slice(0, 31);
+      if (!sheetName) sheetName = "Sheet1";
+      xlsx.utils.book_append_sheet(wb, ws, sheetName);
+      xlsx.writeFile(wb, adminRoomsExcelFilename(g.rooms, g.formationLabel));
+    } catch {
+      window.alert("تعذر تصدير Excel. أعد المحاولة.");
+    }
+  }, []);
+
   return (
     <div className="mx-auto w-full max-w-[1600px] px-4 py-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -235,6 +314,20 @@ export function AdminRoomsPanel({ initialRows }: Props) {
             آخر جلب: {formatTime(lastClientRefresh)}
             {pending ? " — جاري التحديث…" : ""}
           </span>
+          <button
+            type="button"
+            onClick={exportAllPdf}
+            className="rounded-xl border border-[#1E3A8A]/30 bg-white px-4 py-2 text-sm font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF]"
+          >
+            تقرير PDF رسمي (الكل)
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportAllExcel()}
+            className="rounded-xl border border-emerald-700/25 bg-white px-4 py-2 text-sm font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
+          >
+            تصدير Excel (الكل)
+          </button>
           <button
             type="button"
             onClick={() => refresh()}
@@ -276,33 +369,59 @@ export function AdminRoomsPanel({ initialRows }: Props) {
             const cap = groupCapacity(g.rooms);
             return (
               <li key={g.ownerId} className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => toggleCard(g.ownerId)}
-                  aria-expanded={expanded}
-                  className="flex w-full items-start gap-3 border-0 bg-[#F8FAFC] px-4 py-4 text-right transition hover:bg-[#F1F5F9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
-                >
-                  <span
-                    className={`mt-0.5 inline-flex shrink-0 text-[#64748B] transition-transform ${expanded ? "rotate-180" : ""}`}
-                    aria-hidden
+                <div className="flex w-full items-stretch bg-[#F8FAFC]">
+                  <button
+                    type="button"
+                    onClick={() => toggleCard(g.ownerId)}
+                    aria-expanded={expanded}
+                    className="flex min-w-0 flex-1 items-start gap-3 border-0 bg-transparent px-4 py-4 text-right transition hover:bg-[#F1F5F9]/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#3B82F6]"
                   >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-base font-bold text-[#0F172A]">{g.formationLabel}</span>
-                    <span className="mt-0.5 block text-xs text-[#64748B]">@{g.ownerUsername}</span>
-                    <span className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#334155] ring-1 ring-[#E2E8F0]">
-                        {g.rooms.length} قاعة
-                      </span>
-                      <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#334155] ring-1 ring-[#E2E8F0]">
-                        سعة إجمالية: {cap}
+                    <span
+                      className={`mt-0.5 inline-flex shrink-0 text-[#64748B] transition-transform ${expanded ? "rotate-180" : ""}`}
+                      aria-hidden
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base font-bold text-[#0F172A]">{g.formationLabel}</span>
+                      <span className="mt-0.5 block text-xs text-[#64748B]">@{g.ownerUsername}</span>
+                      <span className="mt-2 flex flex-wrap gap-2">
+                        <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#334155] ring-1 ring-[#E2E8F0]">
+                          {g.rooms.length} قاعة
+                        </span>
+                        <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#334155] ring-1 ring-[#E2E8F0]">
+                          سعة إجمالية: {cap}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  <div
+                    role="group"
+                    aria-label={`تصدير تقرير رسمي — ${g.formationLabel}`}
+                    className="flex shrink-0 flex-col justify-center gap-1.5 border-s border-[#E2E8F0] bg-white px-2 py-2 sm:flex-row sm:items-center sm:px-3"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      title="تقرير PDF رسمي لهذا التشكيل"
+                      onClick={() => exportFormationPdf(g)}
+                      className="whitespace-nowrap rounded-lg border border-[#1E3A8A]/35 bg-[#EFF6FF] px-2.5 py-1.5 text-[11px] font-bold text-[#1E3A8A] transition hover:bg-[#DBEAFE]"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      title="تصدير Excel — تفاصيل قاعات هذا التشكيل"
+                      onClick={() => void exportFormationExcel(g)}
+                      className="whitespace-nowrap rounded-lg border border-emerald-700/30 bg-emerald-50/90 px-2.5 py-1.5 text-[11px] font-bold text-emerald-900 transition hover:bg-emerald-100"
+                    >
+                      Excel
+                    </button>
+                  </div>
+                </div>
                 {expanded ? (
                   <div className="border-t border-[#E2E8F0] bg-white px-2 pb-4 pt-3">
                     <FormationRoomsTable rows={g.rooms} />

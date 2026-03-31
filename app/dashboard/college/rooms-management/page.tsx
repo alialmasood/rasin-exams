@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeExamScheduleHintsByRoom } from "@/lib/college-exam-schedules";
 import { listCollegeExamRoomsByOwner } from "@/lib/college-rooms";
@@ -26,11 +27,13 @@ export default async function CollegeRoomsManagementPage() {
   ]);
 
   return (
-    <RoomsManagementPanel
-      rows={rows}
-      studySubjects={studySubjects}
-      scheduleHintsByRoom={scheduleHintsByRoom}
-      collegeLabel={collegeLabel}
-    />
+    <Suspense fallback={null}>
+      <RoomsManagementPanel
+        rows={rows}
+        studySubjects={studySubjects}
+        scheduleHintsByRoom={scheduleHintsByRoom}
+        collegeLabel={collegeLabel}
+      />
+    </Suspense>
   );
 }

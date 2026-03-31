@@ -14,6 +14,10 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { CollegeAccountRow } from "@/lib/college-accounts";
+import {
+  buildCollegeAccountsReportHtml,
+  printCollegeAccountsReportHtml,
+} from "@/lib/college-accounts-report-html";
 import { COLLEGE_FORMATIONS } from "@/lib/college-formations";
 import {
   changeCollegeAccountPasswordAction,
@@ -732,19 +736,101 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
     setToast({ id: Date.now(), variant: "error", message });
   }, []);
 
+  const exportPdfReport = useCallback(() => {
+    let generatedLabel: string;
+    try {
+      generatedLabel = new Date().toLocaleString("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "full",
+        timeStyle: "short",
+      });
+    } catch {
+      generatedLabel = new Date().toISOString();
+    }
+    const html = buildCollegeAccountsReportHtml({
+      rows,
+      generatedLabel,
+      assetsBaseUrl: typeof window !== "undefined" ? window.location.origin : "",
+    });
+    if (!printCollegeAccountsReportHtml(html)) {
+      window.alert(
+        "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة لهذا الموقع، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
+      );
+    }
+  }, [rows]);
+
+  const exportAccountsExcel = useCallback(async () => {
+    try {
+      const xlsx = await import("xlsx");
+      const df = new Intl.DateTimeFormat("ar-IQ", {
+        timeZone: "Asia/Baghdad",
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      const data = rows.map((row) => ({
+        "نوع الحساب": accountKindLabel(row),
+        "اسم التشكيل":
+          row.account_kind === "FORMATION" ? (row.formation_name ?? "—") : "— (حساب متابعة)",
+        "عميد الكلية / صاحب الحساب":
+          row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.dean_name ?? "—"),
+        "اسم المستخدم": row.username,
+        الحالة: statusLabel(row.status),
+        "تاريخ الإنشاء": df.format(new Date(row.created_at)),
+        "معرّف السجل": row.id,
+        "معرّف المستخدم": row.user_id,
+      }));
+      const ws = xlsx.utils.json_to_sheet(data);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "حسابات التشكيلات");
+      xlsx.writeFile(wb, "college-accounts.xlsx");
+    } catch {
+      window.alert("تعذر تصدير ملف Excel. أعد المحاولة.");
+    }
+  }, [rows]);
+
   return (
     <div
       className="mx-auto w-full max-w-[1200px] space-y-10 px-8 pb-8 pt-0"
       dir="rtl"
     >
-      <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-[#1E293B]">إدارة الحسابات</h1>
           <p className="mt-1.5 text-sm text-gray-500">
             إنشاء حسابات التشكيلات وربطها بتسجيل الدخول لبوابة الكلية.
           </p>
         </div>
-        <CreateAccountButton onClick={openCreateDialog} />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={exportPdfReport}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#1E3A8A]/30 bg-white px-4 py-2.5 text-sm font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF]"
+          >
+            <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z"
+              />
+            </svg>
+            طباعة تقرير رسمي (PDF)
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportAccountsExcel()}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-700/25 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
+          >
+            <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+              />
+            </svg>
+            تصدير الحسابات (Excel)
+          </button>
+          <CreateAccountButton onClick={openCreateDialog} />
+        </div>
       </div>
 
       <CollegeAccountsStatsSection rows={rows} />

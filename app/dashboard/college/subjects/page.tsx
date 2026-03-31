@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeSubjectUsageByOwner, listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { getSession } from "@/lib/session";
@@ -23,5 +24,9 @@ export default async function CollegeSubjectsPage() {
       ? (profile.holder_name ?? "—")
       : (profile?.formation_name ?? "—");
 
-  return <SubjectsPanel rows={rows} usageRows={usageRows} collegeLabel={collegeLabel} />;
+  return (
+    <Suspense fallback={null}>
+      <SubjectsPanel rows={rows} usageRows={usageRows} collegeLabel={collegeLabel} />
+    </Suspense>
+  );
 }

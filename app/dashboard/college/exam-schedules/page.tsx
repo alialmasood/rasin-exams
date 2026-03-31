@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
@@ -30,13 +31,15 @@ export default async function CollegeExamSchedulesPage() {
   ]);
 
   return (
-    <ExamSchedulesPanel
-      collegeLabel={collegeLabel}
-      subjects={subjects}
-      studySubjects={studySubjects}
-      rooms={rooms}
-      initialRows={rows}
-      initialHolidays={holidays}
-    />
+    <Suspense fallback={null}>
+      <ExamSchedulesPanel
+        collegeLabel={collegeLabel}
+        subjects={subjects}
+        studySubjects={studySubjects}
+        rooms={rooms}
+        initialRows={rows}
+        initialHolidays={holidays}
+      />
+    </Suspense>
   );
 }

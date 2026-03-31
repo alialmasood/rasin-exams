@@ -2,6 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import type { CollegeSubjectRow, CollegeSubjectUsageRow } from "@/lib/college-subjects";
 import {
@@ -274,6 +275,13 @@ export function SubjectsPanel({
   const closeAddDialog = useCallback(() => setAddOpen(false), []);
   const closeEditDialog = useCallback(() => setEditingRow(null), []);
 
+  const openAddBranchFromFab = useCallback(() => {
+    setAddDialogNonce((n) => n + 1);
+    setAddOpen(true);
+  }, []);
+  useCollegeQuickActionsRegister({ openAddBranch: openAddBranchFromFab }, [openAddBranchFromFab]);
+  useCollegeQuickUrlTrigger("branch", openAddBranchFromFab);
+
   useEffect(() => {
     setPage(1);
   }, [query, filter]);
@@ -381,10 +389,7 @@ export function SubjectsPanel({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setAddDialogNonce((n) => n + 1);
-                setAddOpen(true);
-              }}
+              onClick={openAddBranchFromFab}
               className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
             >
               إضافة قسم أو فرع

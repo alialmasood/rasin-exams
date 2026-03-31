@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
@@ -230,6 +231,21 @@ export function ExamSchedulesPanel({
     notes: "",
   };
   const [form, setForm] = useState<FormState>(emptyForm);
+
+  const openExamScheduleFabRef = useRef<() => void>(() => {});
+  openExamScheduleFabRef.current = () => {
+    setBuilderOpen(true);
+    if (generalLocked && lockedGeneral) {
+      setForm({ ...emptyForm, ...lockedGeneral });
+    } else {
+      setForm(emptyForm);
+    }
+  };
+  const openExamScheduleFromFab = useCallback(() => {
+    openExamScheduleFabRef.current();
+  }, []);
+  useCollegeQuickActionsRegister({ openAddExamSchedule: openExamScheduleFromFab }, [openExamScheduleFromFab]);
+  useCollegeQuickUrlTrigger("exam-schedule", openExamScheduleFromFab);
   const hours12 = useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1)), []);
   const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")), []);
   const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
@@ -676,17 +692,7 @@ export function ExamSchedulesPanel({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => {
-                setBuilderOpen(true);
-                if (generalLocked && lockedGeneral) {
-                  setForm({
-                    ...emptyForm,
-                    ...lockedGeneral,
-                  });
-                } else {
-                  resetForm();
-                }
-              }}
+              onClick={openExamScheduleFromFab}
               className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white"
             >
               إضافة جدول امتحاني

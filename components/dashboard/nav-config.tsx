@@ -146,6 +146,7 @@ export const dashboardNavItems: NavItem[] = [
   { href: "/dashboard/students", label: "الطلاب", icon: <IconUsers /> },
   { href: "/dashboard/rooms", label: "القاعات", icon: <IconBuilding /> },
   { href: "/dashboard/college-accounts", label: "إدارة الحسابات", icon: <IconCollegeAccounts /> },
+  { href: "/dashboard/formations-departments", label: "التشكيلات والأقسام", icon: <IconBranches /> },
   { href: "/dashboard/reports", label: "التقارير", icon: <IconDocument /> },
   { href: "/dashboard/settings", label: "الإعدادات", icon: <IconCog /> },
 ];

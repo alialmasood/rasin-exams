@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
@@ -24,5 +25,9 @@ export default async function CollegeStudySubjectsPage() {
     listCollegeStudySubjectsByOwner(session.uid),
   ]);
 
-  return <StudySubjectsPanel collegeLabel={collegeLabel} branches={branches} rows={rows} />;
+  return (
+    <Suspense fallback={null}>
+      <StudySubjectsPanel collegeLabel={collegeLabel} branches={branches} rows={rows} />
+    </Suspense>
+  );
 }
