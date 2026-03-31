@@ -266,6 +266,8 @@ export function StudySubjectsPanel({
   const [query, setQuery] = useState("");
   const [filterStudyType, setFilterStudyType] = useState<"ALL" | StudyType>("ALL");
   const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
+  /** عرض مواد قسم/فرع محدد */
+  const [filterCollegeSubjectId, setFilterCollegeSubjectId] = useState<"ALL" | string>("ALL");
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
@@ -279,13 +281,27 @@ export function StudySubjectsPanel({
             row.linked_branch_name.toLowerCase().includes(normalizedQuery);
       const byStudyType = filterStudyType === "ALL" ? true : row.study_type === filterStudyType;
       const byBranchType = filterBranch === "ALL" ? true : row.linked_branch_type === filterBranch;
-      return byQuery && byStudyType && byBranchType;
+      const byCollegeSubject =
+        filterCollegeSubjectId === "ALL" ? true : row.college_subject_id === filterCollegeSubjectId;
+      return byQuery && byStudyType && byBranchType && byCollegeSubject;
     });
-  }, [rows, normalizedQuery, filterStudyType, filterBranch]);
+  }, [rows, normalizedQuery, filterStudyType, filterBranch, filterCollegeSubjectId]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, filterStudyType, filterBranch]);
+  }, [query, filterStudyType, filterBranch, filterCollegeSubjectId]);
+
+  useEffect(() => {
+    if (filterCollegeSubjectId === "ALL") return;
+    if (!branches.some((b) => b.id === filterCollegeSubjectId)) {
+      setFilterCollegeSubjectId("ALL");
+    }
+  }, [branches, filterCollegeSubjectId]);
+
+  const branchesSortedForFilter = useMemo(
+    () => [...branches].sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ar")),
+    [branches]
+  );
 
   const closeAddDialog = useCallback(() => setAddOpen(false), []);
   const closeEditDialog = useCallback(() => setEditingRow(null), []);
@@ -334,6 +350,26 @@ export function StudySubjectsPanel({
     const start = (safePage - 1) * pageSize;
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, safePage]);
+
+  /** عدد المواد الدراسية لكل قسم/فرع (حسب كل السجلات وليس المصفاة) */
+  const studyCountByCollegeSubjectId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) {
+      m.set(r.college_subject_id, (m.get(r.college_subject_id) ?? 0) + 1);
+    }
+    return m;
+  }, [rows]);
+
+  const branchSummaryRows = useMemo(() => {
+    return [...branches]
+      .sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ar"))
+      .map((b) => ({
+        id: b.id,
+        branchName: b.branch_name,
+        branchType: b.branch_type,
+        count: studyCountByCollegeSubjectId.get(b.id) ?? 0,
+      }));
+  }, [branches, studyCountByCollegeSubjectId]);
 
   return (
     <section className="space-y-6" dir="rtl">
@@ -397,6 +433,19 @@ export function StudySubjectsPanel({
               <option value="ALL">الكل</option>
               <option value="DEPARTMENT">الأقسام</option>
               <option value="BRANCH">الفروع</option>
+            </select>
+            <select
+              value={filterCollegeSubjectId}
+              onChange={(e) => setFilterCollegeSubjectId(e.target.value === "ALL" ? "ALL" : e.target.value)}
+              aria-label="العرض حسب القسم أو الفرع"
+              className="h-10 min-w-[12rem] max-w-[min(280px,42vw)] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+            >
+              <option value="ALL">العرض حسب القسم — الكل</option>
+              {branchesSortedForFilter.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -539,6 +588,43 @@ export function StudySubjectsPanel({
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+        <div className="border-b border-[#1f3578] bg-[#274092] px-5 py-4">
+          <h2 className="text-base font-bold text-white">عدد المواد المضافة حسب القسم أو الفرع</h2>
+        </div>
+        <table className="w-full border-collapse text-right">
+          <thead className="bg-[#F1F5F9]">
+            <tr className="border-b border-[#E2E8F0]">
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">اسم القسم أو الفرع</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">عدد المواد المضافة</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#E2E8F0] bg-white">
+            {branchSummaryRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={3}>
+                  لا توجد أقسام أو فروع معرّفة. أضف أقساماً من صفحة «الأقسام والفروع» أولاً.
+                </td>
+              </tr>
+            ) : (
+              branchSummaryRows.map((b, index) => (
+                <tr key={b.id} className="hover:bg-[#F8FAFC]">
+                  <td className="px-4 py-3 text-sm text-[#334155]">{index + 1}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">
+                    {b.branchName}{" "}
+                    <span className="font-normal text-[#64748B]">
+                      ({b.branchType === "BRANCH" ? "فرع" : "قسم"})
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm tabular-nums text-[#334155]">{b.count}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {addOpen ? (

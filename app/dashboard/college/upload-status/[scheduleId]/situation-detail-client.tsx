@@ -35,6 +35,9 @@ const WORKFLOW_LABEL: Record<ExamSituationDetail["workflow_status"], string> = {
 /** لون النظام الأساسي — عناوين الأقسام والأيقونات والحدود التمييزية */
 const PRIMARY = "#1E3A8A";
 
+/** اسم الجامعة في الشريط الرسمي (يتوافق مع تقارير النظام) */
+const UNIVERSITY_DISPLAY_NAME_AR = "جامعة البصرة";
+
 /** شريط جانبي بطاقات «ملخص الجلسة الامتحانية» */
 const SUMMARY_STAT_SIDE_ACCENT = "#F14917";
 
@@ -116,65 +119,6 @@ function attendanceRateTier(rate: number | null): AttendanceRateTier | null {
   if (rate >= 75) return "good";
   if (rate >= 50) return "medium";
   return "weak";
-}
-
-function IconBook(props: { className?: string }) {
-  return (
-    <svg className={props.className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconBuilding(props: { className?: string }) {
-  return (
-    <svg className={props.className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 21h18M6 21V7l6-4 6 4v14M9 21v-4h6v4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconClock(props: { className?: string }) {
-  return (
-    <svg className={props.className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconDoor(props: { className?: string }) {
-  return (
-    <svg className={props.className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M13 4h3a2 2 0 0 1 2 2v14M13 4v16M13 4H5v16h8"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M17 12v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
 }
 
 function IconClipboard(props: { className?: string }) {
@@ -295,12 +239,27 @@ function ReadOnlyStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** حقل عرض رسمي بلون النظام — لبطاقات بيانات المادة / الكلية */
-function OfficialField({ label, value }: { label: string; value: string }) {
+/** ملخص الجلسة: نظام دراسي + نوع امتحان — سطر واحد يفصل بين القيم خط أفقي قصير */
+function ReadOnlyStudySystemAndExamTypeStat({
+  label,
+  studySystemValue,
+  examTypeValue,
+}: {
+  label: string;
+  studySystemValue: string;
+  examTypeValue: string;
+}) {
   return (
-    <div className="flex min-h-[4.75rem] min-w-0 flex-col justify-center rounded-xl border border-[#1E3A8A]/14 bg-gradient-to-b from-[#FAFCFF] to-white px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ring-1 ring-[#1E3A8A]/5 sm:px-3.5">
-      <p className="text-[11px] font-bold leading-tight text-[#1E3A8A]/88">{label}</p>
-      <p className="mt-2 break-words text-sm font-bold leading-snug text-slate-900">{value}</p>
+    <div
+      className="rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#F8FAFC] px-3 py-3 shadow-sm ring-1 ring-slate-100/60"
+      style={{ borderInlineStart: `3px solid ${SUMMARY_STAT_SIDE_ACCENT}` }}
+    >
+      <p className="text-[10px] font-bold uppercase tracking-wider text-[#1E3A8A]/70">{label}</p>
+      <p className="mt-1 flex flex-wrap items-center gap-x-2.5 text-sm font-bold leading-snug text-slate-900">
+        <span className="min-w-0">{studySystemValue}</span>
+        <span className="h-px w-8 shrink-0 bg-slate-200/95" aria-hidden />
+        <span className="min-w-0">{examTypeValue}</span>
+      </p>
     </div>
   );
 }
@@ -362,6 +321,7 @@ export function SituationDetailClient({
 
   const scheduleAllowed = canUploadSituationInExamWindow(detail.exam_date, detail.start_time, detail.end_time);
   const examTypeLabel = detail.schedule_type === "FINAL" ? "نهائي" : "فصلي";
+  const studySystemLabel = STUDY_TYPE_AR[detail.study_type] ?? detail.study_type;
   const canSubmitHeadByWorkflow =
     detail.workflow_status === "SUBMITTED" || detail.workflow_status === "APPROVED";
 
@@ -616,6 +576,12 @@ export function SituationDetailClient({
   const headerBackLinkClass =
     "inline-flex min-h-10 w-auto shrink-0 items-center justify-center whitespace-normal rounded-sm border-2 border-[#1E3A8A] bg-[#1E3A8A] px-3.5 py-2 text-center text-sm font-bold leading-tight text-white transition-colors hover:border-[#163170] hover:bg-[#163170] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E3A8A] sm:min-h-10 sm:whitespace-nowrap sm:px-4 sm:py-0 sm:leading-none";
 
+  /** شريط العام الدراسي أسفل أزرار الرأس — نفس إطار/زوايا أزرار المخطط، بعرض عمود الأزرار */
+  const headerAcademicYearStripClass =
+    "flex min-h-10 w-full items-center justify-center rounded-sm border-2 border-[#1E3A8A] bg-white px-3.5 py-2 text-center text-sm font-bold leading-tight text-[#1E3A8A] sm:min-h-10 sm:px-4 sm:py-2 sm:leading-snug";
+
+  const academicYearDisplay = detail.academic_year?.trim() ? detail.academic_year.trim() : "—";
+
   return (
     <section className="min-w-0 p-4 pb-10 sm:p-6 sm:pb-12" dir="rtl">
       <div className="mx-auto max-w-[min(100%,1400px)] space-y-5">
@@ -629,11 +595,18 @@ export function SituationDetailClient({
           />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0 space-y-2">
-              <h1
-                className="text-xl font-extrabold tracking-tight sm:text-[1.7rem]"
-                style={{ color: PRIMARY }}
-              >
-                رفع الموقف الامتحاني
+              <h1 className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xl font-extrabold tracking-tight sm:gap-x-3 sm:text-[1.7rem]">
+                <span style={{ color: PRIMARY }}>رفع الموقف الامتحاني</span>
+                <span className="font-extrabold text-slate-400 select-none sm:text-2xl" aria-hidden>
+                  |
+                </span>
+                <span
+                  className="min-w-0 font-extrabold"
+                  style={{ color: SUMMARY_STAT_SIDE_ACCENT }}
+                  title="القاعة الامتحانية"
+                >
+                  {detail.room_name.trim() || "قاعة"}
+                </span>
               </h1>
               <p className="max-w-2xl text-sm leading-relaxed text-slate-600">
                 إدخال بيانات الحضور والغياب ورفع الموقف الرسمي المرتبط بهذا الامتحان، وفق النافذة الزمنية المعتمدة.
@@ -642,26 +615,31 @@ export function SituationDetailClient({
                 </span>
               </p>
             </div>
-            <div className="flex flex-shrink-0 flex-wrap content-center items-center gap-2 sm:gap-2.5 lg:justify-end">
-              <Link href="/dashboard/college/upload-status" className={`${headerBackLinkClass} no-underline`}>
-                ← رجوع
-              </Link>
-              <button
-                type="button"
-                onClick={handlePrintReport}
-                className={`${headerOutlineActionClass} cursor-pointer`}
-                title="تقرير A4 للطباعة أو الحفظ كملف PDF"
-              >
-                طباعة / حفظ PDF
-              </button>
-              <span className={headerOutlineActionClass} title="حالة الجدول في النظام">
-                {WORKFLOW_LABEL[detail.workflow_status]}
-              </span>
-              {!scheduleAllowed ? (
-                <span className={headerOutlineActionClass} title="نافذة رفع الموقف حسب التوقيت المعتمد">
-                  نافذة الرفع مغلقة
+            <div className="flex w-full min-w-0 flex-shrink-0 flex-col gap-2 lg:w-auto lg:max-w-full">
+              <div className="flex flex-wrap content-center items-center justify-end gap-2 sm:gap-2.5">
+                <Link href="/dashboard/college/upload-status" className={`${headerBackLinkClass} no-underline`}>
+                  ← رجوع
+                </Link>
+                <button
+                  type="button"
+                  onClick={handlePrintReport}
+                  className={`${headerOutlineActionClass} cursor-pointer`}
+                  title="تقرير A4 للطباعة أو الحفظ كملف PDF"
+                >
+                  طباعة / حفظ PDF
+                </button>
+                <span className={headerOutlineActionClass} title="حالة الجدول في النظام">
+                  {WORKFLOW_LABEL[detail.workflow_status]}
                 </span>
-              ) : null}
+                {!scheduleAllowed ? (
+                  <span className={headerOutlineActionClass} title="نافذة رفع الموقف حسب التوقيت المعتمد">
+                    نافذة الرفع مغلقة
+                  </span>
+                ) : null}
+              </div>
+              <div className={headerAcademicYearStripClass} role="status" aria-label={`العام الدراسي ${academicYearDisplay}`}>
+                <span className="tabular-nums">العام الدراسي: {academicYearDisplay}</span>
+              </div>
             </div>
           </div>
         </header>
@@ -715,6 +693,42 @@ export function SituationDetailClient({
           </div>
         ) : null}
 
+        {/* بيانات الكلية والقسم — قبل ملخص الجلسة */}
+        <div
+          className={`relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white px-5 py-5 sm:px-7 sm:py-6 ${cardLift}`}
+        >
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#1E3A8A] to-[#60A5FA] opacity-80"
+            aria-hidden
+          />
+          <p className="relative text-lg font-extrabold leading-snug" style={{ color: PRIMARY }}>
+            بيانات الكلية والقسم
+          </p>
+          <div
+            className="relative mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm font-bold leading-relaxed text-slate-900"
+            role="group"
+            aria-label="بيانات الكلية والقسم والأسماء"
+          >
+            <span className="min-w-0">{UNIVERSITY_DISPLAY_NAME_AR}</span>
+            <span className="font-extrabold text-slate-800 select-none" aria-hidden>
+              |
+            </span>
+            <span className="min-w-0">{collegeLabel}</span>
+            <span className="font-extrabold text-slate-800 select-none" aria-hidden>
+              |
+            </span>
+            <span className="min-w-0">{detail.branch_name}</span>
+            <span className="font-extrabold text-slate-800 select-none" aria-hidden>
+              |
+            </span>
+            <span className="min-w-0">عميد الكلية : السيد ({deanName.trim() || "—"})</span>
+            <span className="font-extrabold text-slate-800 select-none" aria-hidden>
+              |
+            </span>
+            <span className="min-w-0">رئيس القسم : السيد ({detail.branch_head_name.trim() || "—"})</span>
+          </div>
+        </div>
+
         {/* بطاقة ملخص — وزن بصري أعلى من بطاقات التفاصيل */}
         <div
           className={`relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white px-5 py-6 sm:px-7 sm:py-7 ${cardLift}`}
@@ -723,115 +737,62 @@ export function SituationDetailClient({
             className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#1E3A8A] to-[#60A5FA] opacity-80"
             aria-hidden
           />
-          <p className="relative mb-5 text-lg font-extrabold" style={{ color: PRIMARY }}>
-            {multiRoom ? "ملخص القاعة المحددة" : "ملخص الجلسة الامتحانية"}
+          <p
+            className="relative mb-5 text-lg font-extrabold leading-snug"
+            style={{ color: PRIMARY }}
+          >
+            {multiRoom ? "ملخص القاعة المحددة" : "ملخص الجلسة الامتحانية"} - {detail.subject_name} - المرحلة{" "}
+            {detail.stage_level} - {detail.branch_name}
           </p>
-          <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-            <ReadOnlyStat label="اسم المادة" value={detail.subject_name} />
+          <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             <ReadOnlyStat label="التاريخ" value={detail.exam_date} />
             <ReadOnlyStat label="الوقت" value={`${detail.start_time} – ${detail.end_time}`} />
+            <ReadOnlyStat label="مدة الامتحان" value={formatDuration(detail.duration_minutes)} />
             <ReadOnlyStat label="القاعة" value={detail.room_name} />
-            <ReadOnlyStat label="القسم" value={detail.branch_name} />
-            <ReadOnlyStat label="المرحلة" value={`المرحلة ${detail.stage_level}`} />
-            <ReadOnlyStat label="نوع الامتحان" value={examTypeLabel} />
+            <ReadOnlyStudySystemAndExamTypeStat
+              label="نوع الامتحان والنظام الدراسي"
+              studySystemValue={studySystemLabel}
+              examTypeValue={examTypeLabel}
+            />
           </div>
         </div>
 
         {/* Grid 12 أعمدة — بطاقات التفاصيل أوضح أقل من الملخص والاعتماد */}
         <div className="grid grid-cols-12 gap-5 lg:gap-6">
-          {/* 1–2: بيانات المادة + الكلية — متجاورتان، نفس الارتفاع الأدنى */}
-          <div className="col-span-12 grid grid-cols-12 gap-5 lg:col-span-12 lg:grid-cols-12 lg:gap-6 lg:items-stretch">
-            <div className="col-span-12 flex lg:col-span-6">
-              <SectionCard
-                icon={<IconBook className="h-5 w-5" />}
-                title="بيانات المادة"
-                titleBarStyle="sidebar"
-                className="flex h-full min-h-[19.5rem] w-full flex-col sm:min-h-[18rem]"
-              >
-                <div className="flex flex-1 flex-col gap-3">
-                  <div className="grid grid-cols-4 gap-2 sm:gap-3">
-                    <OfficialField label="اسم المادة" value={detail.subject_name} />
-                    <OfficialField label="المرحلة الدراسية" value={`المرحلة ${detail.stage_level}`} />
-                    <OfficialField
-                      label="النظام الدراسي"
-                      value={STUDY_TYPE_AR[detail.study_type] ?? detail.study_type}
-                    />
-                    <OfficialField label="نوع الامتحان" value={examTypeLabel} />
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <OfficialField label="العام الدراسي" value={detail.academic_year?.trim() ? detail.academic_year : "—"} />
-                    <OfficialField label="تاريخ إجراء الامتحان" value={detail.exam_date} />
-                  </div>
-                </div>
-              </SectionCard>
-            </div>
-
-            <div className="col-span-12 flex lg:col-span-6">
-              <SectionCard
-                icon={<IconBuilding className="h-5 w-5" />}
-                title="بيانات الكلية والقسم"
-                titleBarStyle="sidebar"
-                className="flex h-full min-h-[19.5rem] w-full flex-col sm:min-h-[18rem]"
-              >
-                <div className="flex flex-1 flex-col gap-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <OfficialField label="الكلية / التشكيل" value={collegeLabel} />
-                    <OfficialField label="القسم" value={detail.branch_name} />
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <OfficialField label="عميد الكلية" value={deanName.trim() ? deanName : "—"} />
-                    <OfficialField label="رئيس القسم" value={detail.branch_head_name} />
-                  </div>
-                </div>
-              </SectionCard>
-            </div>
-          </div>
-
-          {/* وقت الامتحان + القاعة — بطاقة واحدة، شريط عنوان برتقالي */}
+          {/* المشرفون والمراقبون: مقاعد القاعة + القاعة والمشرف والمراقبون */}
           <div className="col-span-12">
-            <SectionCard
-              icon={
-                <span className="flex items-center justify-center gap-1">
-                  <IconClock className="h-[1.15rem] w-[1.15rem] sm:h-5 sm:w-5" />
-                  <IconDoor className="h-[1.15rem] w-[1.15rem] sm:h-5 sm:w-5" />
-                </span>
-              }
-              title="وقت الامتحان والقاعة الامتحانية"
-              titleBarStyle="sidebar"
-            >
+            <SectionCard icon={<IconSeal className="h-5 w-5" />} title="المشرفون والمراقبون" titleBarStyle="sidebar">
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-8">
                 <div className="min-w-0 lg:col-span-4">
-                  <p className="mb-3 border-b border-slate-200/90 pb-2 text-sm font-extrabold text-[#1E3A8A]">وقت الامتحان</p>
-                  <dl className="grid grid-cols-1 gap-4 text-sm">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="min-w-0">
-                        <dt className="text-xs font-bold text-[#1E3A8A]/75">تاريخ الامتحان</dt>
-                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-bold text-slate-900 shadow-sm tabular-nums">
-                          {detail.exam_date}
-                        </dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs font-bold text-[#1E3A8A]/75">مدة الامتحان</dt>
-                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm">
-                          {formatDuration(detail.duration_minutes)}
-                        </dd>
-                      </div>
+                  <div
+                    className="w-full rounded-xl border-2 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-3 shadow-sm"
+                    style={{ borderColor: HALL_SEATS_FIELD_ACCENT }}
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <p className="text-xs font-bold text-[#1E3A8A]/75">
+                        عدد المقاعد الكلي (من إدارة القاعات)
+                      </p>
+                      <p className="text-[11px] font-semibold leading-snug text-slate-600">
+                        توزيع الدوام:{" "}
+                        <span className="font-bold text-slate-800">{capacityByShift.modeLabelAr}</span>
+                      </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="min-w-0">
-                        <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت البداية</dt>
-                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm tabular-nums">
-                          {detail.start_time}
-                        </dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs font-bold text-[#1E3A8A]/75">وقت الانتهاء</dt>
-                        <dd className="mt-1.5 rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 font-semibold text-slate-900 shadow-sm tabular-nums">
-                          {detail.end_time}
-                        </dd>
-                      </div>
+                    <div className="mt-3 flex flex-row flex-nowrap gap-2 overflow-x-auto pb-0.5 sm:overflow-visible">
+                      {capacityByShift.detailRows.map((row, idx) => (
+                        <div
+                          key={`${idx}-${row.labelAr}`}
+                          className="flex min-w-[7.25rem] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200/80 bg-white/90 px-2 py-2.5 text-center shadow-sm sm:min-w-0 sm:flex-1 sm:px-3"
+                        >
+                          <span className="text-[10px] font-medium leading-tight text-slate-600 sm:text-[11px]">
+                            {row.labelAr}
+                          </span>
+                          <span className="text-sm font-bold tabular-nums text-slate-900 sm:text-base">
+                            {row.value}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  </dl>
+                  </div>
                 </div>
                 <div className="min-w-0 border-t border-slate-200/80 pt-6 lg:col-span-8 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-8">
                   <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-slate-200/90 pb-2">
@@ -842,49 +803,18 @@ export function SituationDetailClient({
                     />
                     <span className="min-w-0 break-words text-sm font-bold text-slate-900">{detail.room_name}</span>
                   </div>
-                  <div className="flex flex-col gap-4">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
-                        <p className="mt-1.5 break-words rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
-                          {detail.supervisor_name}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
-                        <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
-                          {detail.invigilators || "—"}
-                        </p>
-                      </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
+                      <p className="mt-1.5 break-words rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
+                        {detail.supervisor_name}
+                      </p>
                     </div>
-                    <div
-                      className="w-full rounded-xl border-2 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-3 shadow-sm"
-                      style={{ borderColor: HALL_SEATS_FIELD_ACCENT }}
-                    >
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                        <p className="text-xs font-bold text-[#1E3A8A]/75">
-                          عدد المقاعد الكلي (من إدارة القاعات)
-                        </p>
-                        <p className="text-[11px] font-semibold leading-snug text-slate-600">
-                          توزيع الدوام:{" "}
-                          <span className="font-bold text-slate-800">{capacityByShift.modeLabelAr}</span>
-                        </p>
-                      </div>
-                      <div className="mt-3 flex flex-row flex-nowrap gap-2 overflow-x-auto pb-0.5 sm:overflow-visible">
-                        {capacityByShift.detailRows.map((row, idx) => (
-                          <div
-                            key={`${idx}-${row.labelAr}`}
-                            className="flex min-w-[7.25rem] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200/80 bg-white/90 px-2 py-2.5 text-center shadow-sm sm:min-w-0 sm:flex-1 sm:px-3"
-                          >
-                            <span className="text-[10px] font-medium leading-tight text-slate-600 sm:text-[11px]">
-                              {row.labelAr}
-                            </span>
-                            <span className="text-sm font-bold tabular-nums text-slate-900 sm:text-base">
-                              {row.value}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
+                      <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
+                        {detail.invigilators || "—"}
+                      </p>
                     </div>
                   </div>
                 </div>

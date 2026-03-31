@@ -242,3 +242,193 @@ export async function createCollegeAccount(input: {
     client.release();
   }
 }
+
+/**
+ * عمود audit_logs.target_user_id قد يكون BIGINT بينما users.id قد يكون UUID — نُدرج القيمة فقط إن كانت أرقاماً فقط.
+ * وإلا نُمرّر null ونُضمّن المعرّف في metadata.
+ */
+function auditTargetUserIdColumnValue(userId: string): string | null {
+  return /^[0-9]+$/.test(userId.trim()) ? userId.trim() : null;
+}
+
+/** يتحقق من أن معرّف السجل يطابق حساب كلية نشطًا (غير محذوف) ويعيد user_id */
+async function resolveCollegeUserIdForProfile(profileId: string): Promise<string | null> {
+  const id = profileId.trim();
+  if (!/^[0-9]+$/.test(id)) return null;
+  if (!isDatabaseConfigured()) return null;
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{ user_id: string }>(
+    `SELECT p.user_id::text AS user_id
+     FROM college_account_profiles p
+     INNER JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+     WHERE p.id = $1::bigint AND u.role = 'COLLEGE'
+     LIMIT 1`,
+    [id]
+  );
+  return r.rows[0]?.user_id ?? null;
+}
+
+export async function updateCollegeAccountUserPassword(input: {
+  profileId: string;
+  password: string;
+  confirmPassword: string;
+  actorUserId: string | null;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (input.password.length < 8) {
+    return { ok: false, message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل." };
+  }
+  if (input.password !== input.confirmPassword) {
+    return { ok: false, message: "كلمة المرور وتأكيدها غير متطابقتين." };
+  }
+  const userId = await resolveCollegeUserIdForProfile(input.profileId);
+  if (!userId) {
+    return { ok: false, message: "لم يُعثر على الحساب أو أنه غير صالح." };
+  }
+  if (!isDatabaseConfigured()) {
+    return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  }
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const hash = hashPassword(input.password);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const up = await client.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND role = 'COLLEGE' AND deleted_at IS NULL`,
+      [hash, userId]
+    );
+    if ((up.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "تعذر تحديث كلمة المرور." };
+    }
+    const legacyCol = await client.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'password' LIMIT 1`
+    );
+    if ((legacyCol.rowCount ?? 0) > 0) {
+      await client.query(`UPDATE users SET password = $1 WHERE id = $2`, [hash, userId]);
+    }
+    const actorForAudit =
+      input.actorUserId && /^[0-9]+$/.test(input.actorUserId.trim()) ? input.actorUserId.trim() : null;
+    const targetForAudit = auditTargetUserIdColumnValue(userId);
+    await client.query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_user_id, metadata)
+       VALUES ($1, 'COLLEGE_ACCOUNT_PASSWORD_CHANGED', $2, $3)`,
+      [
+        actorForAudit,
+        targetForAudit,
+        JSON.stringify({
+          profileId: input.profileId.trim(),
+          targetUserIdText: userId,
+        }),
+      ]
+    );
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e: unknown) {
+    await client.query("ROLLBACK");
+    console.error("[updateCollegeAccountUserPassword]", e);
+    return { ok: false, message: "تعذر تحديث كلمة المرور." };
+  } finally {
+    client.release();
+  }
+}
+
+export async function setCollegeAccountUserDisabled(input: {
+  profileId: string;
+  disabled: boolean;
+  actorUserId: string | null;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const userId = await resolveCollegeUserIdForProfile(input.profileId);
+  if (!userId) {
+    return { ok: false, message: "لم يُعثر على الحساب أو أنه غير صالح." };
+  }
+  if (!isDatabaseConfigured()) {
+    return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  }
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const status = input.disabled ? "DISABLED" : "ACTIVE";
+  try {
+    const up = await pool.query(
+      `UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2 AND role = 'COLLEGE' AND deleted_at IS NULL`,
+      [status, userId]
+    );
+    if ((up.rowCount ?? 0) === 0) {
+      return { ok: false, message: "تعذر تحديث حالة الحساب." };
+    }
+    const actorForAudit =
+      input.actorUserId && /^[0-9]+$/.test(input.actorUserId.trim()) ? input.actorUserId.trim() : null;
+    const targetForAudit = auditTargetUserIdColumnValue(userId);
+    await pool.query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_user_id, metadata)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        actorForAudit,
+        input.disabled ? "COLLEGE_ACCOUNT_DISABLED" : "COLLEGE_ACCOUNT_ENABLED",
+        targetForAudit,
+        JSON.stringify({
+          profileId: input.profileId.trim(),
+          targetUserIdText: userId,
+        }),
+      ]
+    );
+    return { ok: true };
+  } catch (e: unknown) {
+    console.error("[setCollegeAccountUserDisabled]", e);
+    return { ok: false, message: "تعذر تحديث حالة الحساب." };
+  }
+}
+
+/** حذف المستخدم من قاعدة البيانات (CASCADE يزيل الملف والبيانات المرتبطة بحسب المخطط). */
+export async function deleteCollegeAccountPermanently(
+  profileId: string,
+  actorUserId: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const userId = await resolveCollegeUserIdForProfile(profileId);
+  if (!userId) {
+    return { ok: false, message: "لم يُعثر على الحساب أو أنه غير صالح." };
+  }
+  if (!isDatabaseConfigured()) {
+    return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  }
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const actorForAudit =
+      actorUserId && /^[0-9]+$/.test(actorUserId.trim()) ? actorUserId.trim() : null;
+    const targetForAudit = auditTargetUserIdColumnValue(userId);
+    await client.query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_user_id, metadata)
+       VALUES ($1, 'COLLEGE_ACCOUNT_PURGED', $2, $3)`,
+      [
+        actorForAudit,
+        targetForAudit,
+        JSON.stringify({
+          profileId: profileId.trim(),
+          hard: true,
+          targetUserIdText: userId,
+        }),
+      ]
+    );
+    const del = await client.query(
+      `DELETE FROM users WHERE id = $1 AND role = 'COLLEGE' AND deleted_at IS NULL`,
+      [userId]
+    );
+    if ((del.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "تعذر حذف الحساب." };
+    }
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e: unknown) {
+    await client.query("ROLLBACK");
+    console.error("[deleteCollegeAccountPermanently]", e);
+    return { ok: false, message: "تعذر حذف الحساب (قد تكون هناك بيانات مرتبطة تمنع الحذف)." };
+  } finally {
+    client.release();
+  }
+}

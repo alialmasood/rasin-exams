@@ -58,6 +58,7 @@ function HomeContent() {
   const errorCode = searchParams.get("error");
   const [userOpenedLogin, setUserOpenedLogin] = useState(false);
   const [introComplete, setIntroComplete] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const loginOpen = Boolean(errorCode) || userOpenedLogin;
   const viewState: ViewState = loginOpen ? "login" : introComplete ? "reveal" : "intro";
@@ -153,11 +154,20 @@ function HomeContent() {
             <input
               id="password"
               name="password"
-              type="password"
-              className="field-input"
+              type={showPassword ? "text" : "password"}
+              className="field-input with-toggle"
               autoComplete="current-password"
               required
             />
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-pressed={showPassword}
+              aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+            >
+              {showPassword ? "إخفاء" : "إظهار"}
+            </button>
           </div>
 
           <button type="submit" className="login-submit">

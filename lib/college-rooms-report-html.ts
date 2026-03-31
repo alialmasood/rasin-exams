@@ -125,7 +125,6 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
     .summary-val { font-size: 13pt; font-weight: 800; color: #274092; }
     .muted { color: #64748b; font-size: 8.5pt; }
     .footer { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid #e2e8f0; font-size: 8.5pt; color: #64748b; text-align: center; }
-    .pdf-hint { margin-top: 3mm; font-size: 8.5pt; color: #475569; text-align: center; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
   </style>
@@ -188,7 +187,6 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
   <div class="footer">
     هذا التقرير صادر عن نظام رصين ولا يغني عن التوقيعات والختم الرسمي عند الاقتضاء.
   </div>
-  <p class="pdf-hint">لحفظ ملف PDF بحجم ورقة A4: من القائمة اختر «طباعة» ثم الطابعة «Save as PDF» أو «Microsoft Print to PDF»، وتأكد من اختيار اتجاه الصفحة <strong>عرضي (Landscape)</strong> إن لم يطبّقه المتصفح تلقائياً.</p>
 </body>
 </html>`;
 }

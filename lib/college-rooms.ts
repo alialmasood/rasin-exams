@@ -247,6 +247,147 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
   }));
 }
 
+/** صف قاعة مع تسمية التشكيل/الكلية لعرض المدير لجميع الحسابات */
+export type AdminCollegeExamRoomRow = CollegeExamRoomRow & {
+  formation_label: string;
+  owner_username: string;
+};
+
+/**
+ * كل قاعات الامتحانات المعرّفة من حسابات الكلية (تشكيلات ومتابعة) — نفس منطق القائمة في «إدارة القاعات» لكل مالك.
+ */
+export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExamRoomRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{
+    id: string | number;
+    owner_user_id: string | number;
+    study_subject_id: string | number;
+    study_subject_name: string;
+    study_subject_id_2: string | number | null;
+    study_subject_name_2: string | null;
+    serial_no: number;
+    room_name: string;
+    supervisor_name: string;
+    invigilators: string | null;
+    supervisor_name_2: string | null;
+    invigilators_2: string | null;
+    capacity_morning: number;
+    capacity_evening: number;
+    capacity_total: number;
+    capacity_morning_2: number;
+    capacity_evening_2: number;
+    capacity_total_2: number;
+    attendance_count: number;
+    absence_count: number;
+    absence_names: string | null;
+    attendance_morning: number;
+    absence_morning: number;
+    attendance_evening: number;
+    absence_evening: number;
+    absence_names_morning: string | null;
+    absence_names_evening: string | null;
+    attendance_count_2: number;
+    absence_count_2: number;
+    absence_names_2: string | null;
+    attendance_morning_2: number;
+    absence_morning_2: number;
+    attendance_evening_2: number;
+    absence_evening_2: number;
+    absence_names_morning_2: string | null;
+    absence_names_evening_2: string | null;
+    stage_level: number;
+    stage_level_2: number | null;
+    created_at: Date;
+    updated_at: Date;
+    formation_label: string;
+    owner_username: string;
+  }>(
+    `SELECT r.id, r.owner_user_id, r.study_subject_id,
+            s.subject_name AS study_subject_name,
+            r.study_subject_id_2,
+            s2.subject_name AS study_subject_name_2,
+            r.serial_no, r.room_name, r.supervisor_name,
+            r.invigilators,
+            r.supervisor_name_2, r.invigilators_2,
+            r.stage_level, r.stage_level_2,
+            r.capacity_morning, r.capacity_evening, r.capacity_total,
+            r.capacity_morning_2, r.capacity_evening_2, r.capacity_total_2,
+            r.attendance_count, r.absence_count, r.absence_names,
+            r.attendance_morning, r.absence_morning, r.attendance_evening, r.absence_evening,
+            r.absence_names_morning, r.absence_names_evening,
+            r.attendance_count_2, r.absence_count_2, r.absence_names_2,
+            r.attendance_morning_2, r.absence_morning_2, r.attendance_evening_2, r.absence_evening_2,
+            r.absence_names_morning_2, r.absence_names_evening_2,
+            r.created_at, r.updated_at,
+            COALESCE(
+              NULLIF(TRIM(
+                CASE
+                  WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                    THEN COALESCE(p.holder_name, '')
+                  ELSE COALESCE(p.formation_name, '')
+                END
+              ), ''),
+              u.username::text
+            ) AS formation_label,
+            u.username::text AS owner_username
+     FROM college_exam_rooms r
+     INNER JOIN college_study_subjects s
+       ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
+     LEFT JOIN college_study_subjects s2
+       ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
+     INNER JOIN users u
+       ON u.id = r.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
+     ORDER BY formation_label ASC, u.username ASC, r.serial_no ASC, r.created_at DESC`
+  );
+  return r.rows.map((row) => ({
+    id: String(row.id),
+    owner_user_id: String(row.owner_user_id),
+    study_subject_id: String(row.study_subject_id),
+    study_subject_name: row.study_subject_name,
+    study_subject_id_2: row.study_subject_id_2 != null ? String(row.study_subject_id_2) : null,
+    study_subject_name_2: row.study_subject_name_2 ?? null,
+    serial_no: row.serial_no,
+    room_name: row.room_name,
+    supervisor_name: row.supervisor_name,
+    invigilators: row.invigilators ?? "",
+    supervisor_name_2: row.supervisor_name_2 ?? null,
+    invigilators_2: row.invigilators_2 ?? null,
+    capacity_morning: Number(row.capacity_morning ?? 0),
+    capacity_evening: Number(row.capacity_evening ?? 0),
+    capacity_total: Number(row.capacity_total ?? 0),
+    capacity_morning_2: Number(row.capacity_morning_2 ?? 0),
+    capacity_evening_2: Number(row.capacity_evening_2 ?? 0),
+    capacity_total_2: Number(row.capacity_total_2 ?? 0),
+    attendance_count: Number(row.attendance_count ?? 0),
+    absence_count: Number(row.absence_count ?? 0),
+    absence_names: row.absence_names ?? "",
+    attendance_morning: Number(row.attendance_morning ?? 0),
+    absence_morning: Number(row.absence_morning ?? 0),
+    attendance_evening: Number(row.attendance_evening ?? 0),
+    absence_evening: Number(row.absence_evening ?? 0),
+    absence_names_morning: row.absence_names_morning ?? "",
+    absence_names_evening: row.absence_names_evening ?? "",
+    attendance_count_2: Number(row.attendance_count_2 ?? 0),
+    absence_count_2: Number(row.absence_count_2 ?? 0),
+    absence_names_2: row.absence_names_2 ?? "",
+    attendance_morning_2: Number(row.attendance_morning_2 ?? 0),
+    absence_morning_2: Number(row.absence_morning_2 ?? 0),
+    attendance_evening_2: Number(row.attendance_evening_2 ?? 0),
+    absence_evening_2: Number(row.absence_evening_2 ?? 0),
+    absence_names_morning_2: row.absence_names_morning_2 ?? "",
+    absence_names_evening_2: row.absence_names_evening_2 ?? "",
+    stage_level: Number(row.stage_level ?? 1),
+    stage_level_2: row.stage_level_2 != null ? Number(row.stage_level_2) : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    formation_label: row.formation_label?.trim() || row.owner_username || "—",
+    owner_username: row.owner_username ?? "",
+  }));
+}
+
 export type CreateCollegeExamRoomInput = {
   ownerUserId: string;
   studySubjectId: string;

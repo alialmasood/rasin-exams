@@ -1,13 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createCollegeAccount } from "@/lib/college-accounts";
+import {
+  createCollegeAccount,
+  setCollegeAccountUserDisabled,
+  deleteCollegeAccountPermanently,
+  updateCollegeAccountUserPassword,
+} from "@/lib/college-accounts";
 import type { UserRole } from "@/lib/authz";
 import { isAdminRole } from "@/lib/authz";
 import { getSession } from "@/lib/session";
 import { isRasinDbMigrationRequiredError } from "@/lib/schema-errors";
 
 export type CreateCollegeAccountState = { ok: true } | { ok: false; message: string } | null;
+
+export type CollegeAccountMutationState = { ok: true } | { ok: false; message: string } | null;
 
 export async function createCollegeAccountAction(
   _prev: CreateCollegeAccountState,
@@ -48,6 +55,86 @@ export async function createCollegeAccountAction(
     return { ok: false, message: result.message };
   }
 
+  revalidatePath("/dashboard/college-accounts");
+  return { ok: true };
+}
+
+export async function changeCollegeAccountPasswordAction(
+  _prev: CollegeAccountMutationState,
+  formData: FormData
+): Promise<CollegeAccountMutationState> {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role as UserRole)) {
+    return { ok: false, message: "غير مصرح لك بتعديل حسابات الكلية." };
+  }
+  const profileId = String(formData.get("profile_id") ?? "").trim();
+  const password = String(formData.get("new_password") ?? "");
+  const confirmPassword = String(formData.get("confirm_password") ?? "");
+  try {
+    const result = await updateCollegeAccountUserPassword({
+      profileId,
+      password,
+      confirmPassword,
+      actorUserId: session.uid,
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+  } catch (err: unknown) {
+    if (isRasinDbMigrationRequiredError(err)) {
+      return { ok: false, message: err.message };
+    }
+    console.error("[changeCollegeAccountPasswordAction]", err);
+    return { ok: false, message: "تعذر تحديث كلمة المرور." };
+  }
+  revalidatePath("/dashboard/college-accounts");
+  return { ok: true };
+}
+
+export async function toggleCollegeAccountDisabledAction(profileId: string, disabled: boolean): Promise<CollegeAccountMutationState> {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role as UserRole)) {
+    return { ok: false, message: "غير مصرح لك." };
+  }
+  const id = profileId.trim();
+  if (!/^[0-9]+$/.test(id)) {
+    return { ok: false, message: "معرّف غير صالح." };
+  }
+  try {
+    const result = await setCollegeAccountUserDisabled({
+      profileId: id,
+      disabled,
+      actorUserId: session.uid,
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+  } catch (err: unknown) {
+    if (isRasinDbMigrationRequiredError(err)) {
+      return { ok: false, message: err.message };
+    }
+    console.error("[toggleCollegeAccountDisabledAction]", err);
+    return { ok: false, message: "تعذر تحديث حالة الحساب." };
+  }
+  revalidatePath("/dashboard/college-accounts");
+  return { ok: true };
+}
+
+export async function deleteCollegeAccountAction(profileId: string): Promise<CollegeAccountMutationState> {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role as UserRole)) {
+    return { ok: false, message: "غير مصرح لك." };
+  }
+  const id = profileId.trim();
+  if (!/^[0-9]+$/.test(id)) {
+    return { ok: false, message: "معرّف غير صالح." };
+  }
+  try {
+    const result = await deleteCollegeAccountPermanently(id, session.uid);
+    if (!result.ok) return { ok: false, message: result.message };
+  } catch (err: unknown) {
+    if (isRasinDbMigrationRequiredError(err)) {
+      return { ok: false, message: err.message };
+    }
+    console.error("[deleteCollegeAccountAction]", err);
+    return { ok: false, message: "تعذر حذف الحساب." };
+  }
   revalidatePath("/dashboard/college-accounts");
   return { ok: true };
 }

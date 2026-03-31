@@ -26,12 +26,22 @@ export type CollegeSubjectsReportInput = {
   rows: CollegeSubjectRow[];
   usageRows: CollegeSubjectUsageRow[];
   generatedLabel: string;
+  /** اسم التشكيل / الكلية كما في الحساب */
+  collegeLabel: string;
+  /**
+   * أصل الموقع (مثل https://example.com) لبناء مسار مطلق للشعار؛
+   * مطلوب لأن نافذة الطباعة قد تكون about:blank فلا تعمل المسارات النسبية.
+   */
+  assetsBaseUrl: string;
 };
 
 /** مستند HTML كامل (A4) للطباعة أو الحفظ كـ PDF من نافذة المتصفح */
 export function buildCollegeSubjectsReportHtml(input: CollegeSubjectsReportInput): string {
   const e = escapeHtml;
-  const { rows, usageRows, generatedLabel } = input;
+  const { rows, usageRows, generatedLabel, collegeLabel, assetsBaseUrl } = input;
+  const collegeLine = (collegeLabel ?? "").trim() || "—";
+  const base = (assetsBaseUrl ?? "").replace(/\/$/, "");
+  const logoSrc = base ? `${base}/uob-logo.png` : "/uob-logo.png";
 
   const usageMap = new Map<string, CollegeSubjectUsageRow>();
   for (const u of usageRows) {
@@ -92,9 +102,23 @@ export function buildCollegeSubjectsReportHtml(input: CollegeSubjectsReportInput
     * { box-sizing: border-box; }
     body { font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif; margin: 0; padding: 12mm; color: #0f172a; font-size: 10.5pt; line-height: 1.55; }
     @page { size: A4; margin: 14mm; }
+    /* LTR: يسار الشعار = اسم الكلية | الوسط = الشعار | يمين الشعار = جامعة البصرة */
+    .report-brand {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 6mm;
+      padding-bottom: 5mm;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .report-brand-side { font-size: 11pt; font-weight: 800; color: #1e3a8a; line-height: 1.35; }
+    .report-brand-college-side { text-align: left; }
+    .report-brand-uni-side { text-align: right; }
+    .report-brand-logo-wrap { display: flex; justify-content: center; align-items: center; }
+    .report-brand-logo { height: 56px; width: auto; max-width: 100px; object-fit: contain; display: block; }
     h1 { font-size: 17pt; text-align: center; margin: 0 0 4mm; border-bottom: 2px solid #1e3a8a; padding-bottom: 4mm; color: #1e3a8a; }
     .sub { text-align: center; font-size: 10pt; color: #475569; margin-bottom: 2mm; }
-    .desc { text-align: center; font-size: 9.5pt; color: #64748b; margin: 0 0 8mm; max-width: 170mm; margin-left: auto; margin-right: auto; line-height: 1.6; }
     h2 { font-size: 12pt; color: #1e3a8a; margin: 6mm 0 3mm; border-right: 4px solid #2563eb; padding-right: 8px; page-break-after: avoid; }
     table.data { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 9.5pt; }
     th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right; vertical-align: top; }
@@ -105,15 +129,20 @@ export function buildCollegeSubjectsReportHtml(input: CollegeSubjectsReportInput
     .summary-val { font-size: 14pt; font-weight: 800; color: #1e3a8a; }
     .muted { color: #64748b; font-size: 9pt; }
     .footer { margin-top: 8mm; padding-top: 4mm; border-top: 1px solid #e2e8f0; font-size: 9pt; color: #64748b; text-align: center; }
-    .pdf-hint { margin-top: 4mm; font-size: 9pt; color: #475569; text-align: center; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
   </style>
 </head>
 <body>
+  <div class="report-brand" dir="ltr">
+    <div class="report-brand-side report-brand-college-side">${e(collegeLine)}</div>
+    <div class="report-brand-logo-wrap">
+      <img class="report-brand-logo" src="${e(logoSrc)}" width="100" height="100" alt="" />
+    </div>
+    <div class="report-brand-side report-brand-uni-side">جامعة البصرة</div>
+  </div>
   <h1>تقرير رسمي — الأقسام والفروع والربط بالمواد والامتحانات</h1>
-  <p class="sub">جامعة البصرة — نظام رصين لإدارة الامتحانات</p>
-  <p class="desc">وثيقة مولَّدة آلياً تجمع بيانات الأقسام والفروع ورؤساء الأقسام، وأعداد المواد الدراسية وجداول الامتحانات المرتبطة بكل قسم أو فرع، وفق السجلات المخزّنة وقت الإصدار.</p>
+  <p class="sub">نظام رصين لإدارة الامتحانات</p>
   <p class="sub muted" style="margin-bottom:6mm">تاريخ ووقت إصدار التقرير: ${e(generatedLabel)}</p>
 
   <h2>1. ملخص إحصائي</h2>
@@ -151,7 +180,6 @@ export function buildCollegeSubjectsReportHtml(input: CollegeSubjectsReportInput
   <div class="footer">
     هذا التقرير صادر عن نظام رصين ولا يغني عن التوقيعات والختم الرسمي عند الاقتضاء.
   </div>
-  <p class="pdf-hint">لحفظ ملف PDF بحجم ورقة A4: استخدم «طباعة» من المتصفح ثم اختر الطابعة «Save as PDF» أو «Microsoft Print to PDF».</p>
 </body>
 </html>`;
 }

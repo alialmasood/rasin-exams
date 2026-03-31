@@ -728,3 +728,119 @@ body {
 .college-toast-host {
   animation: college-toast-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
+
+/* -------------------------------------------------------------------------- */
+/* طباعة تقرير الإحصائيات (كلية) — A4 رسمي، يشمل المحتوى كاملاً دون الشريط الجانبي */
+/* -------------------------------------------------------------------------- */
+
+@media print {
+  body.printing-college-statistics {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.printing-college-statistics .min-h-screen {
+    background: #fff !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 11mm 12mm 14mm 12mm;
+  }
+
+  body.printing-college-statistics #dashboard-sidebar,
+  body.printing-college-statistics #dashboard-sidebar + div > header,
+  body.printing-college-statistics #dashboard-sidebar + div > footer {
+    display: none !important;
+  }
+
+  body.printing-college-statistics #dashboard-sidebar + div.flex {
+    margin: 0 !important;
+    margin-inline: 0 !important;
+    margin-inline-start: 0 !important;
+    margin-inline-end: 0 !important;
+    min-height: 0 !important;
+  }
+
+  body.printing-college-statistics #dashboard-sidebar + div > main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root {
+    max-width: 100%;
+    font-size: 9.5pt;
+    line-height: 1.5;
+    color: #0f172a;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-print-chart-area {
+    height: 200px !important;
+    min-height: 200px !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-print-chart-area--tall {
+    height: 240px !important;
+    min-height: 240px !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-print-chart-area--wide {
+    height: 220px !important;
+    min-height: 220px !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root section {
+    break-inside: auto;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.printing-college-statistics #statistics-print-root table {
+    break-inside: auto;
+  }
+
+  body.printing-college-statistics #statistics-print-root thead {
+    display: table-header-group;
+    position: static !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.printing-college-statistics #statistics-print-root h2 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-print-chart-inner {
+    height: 220px !important;
+    min-height: 220px !important;
+  }
+
+  /* جدول تقرير القاعات: بدون تمرير أفقي، عرض كامل A4، لفّ النص */
+  body.printing-college-statistics #statistics-print-root .statistics-rooms-report-wrap {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-rooms-report-table {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  body.printing-college-statistics #statistics-print-root .statistics-rooms-report-table th,
+  body.printing-college-statistics #statistics-print-root .statistics-rooms-report-table td {
+    overflow-wrap: anywhere;
+    word-wrap: break-word;
+  }
+}

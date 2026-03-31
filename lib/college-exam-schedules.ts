@@ -338,6 +338,103 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
   }));
 }
 
+/** صف جدول امتحاني مع تسمية التشكيل لعرض المدير لجميع الحسابات */
+export type AdminCollegeExamScheduleRow = CollegeExamScheduleRow & {
+  formation_label: string;
+  owner_username: string;
+};
+
+/**
+ * كل جداول الامتحانات لحسابات الكلية — نفس حقول وترتيب `listCollegeExamSchedulesByOwner` لكل مالك.
+ */
+export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminCollegeExamScheduleRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{
+    id: string | number;
+    owner_user_id: string | number;
+    college_subject_id: string | number;
+    college_subject_name: string;
+    study_subject_id: string | number;
+    study_subject_name: string;
+    room_id: string | number;
+    room_name: string;
+    stage_level: number;
+    schedule_type: string;
+    workflow_status: string;
+    term_label: string | null;
+    academic_year: string | null;
+    exam_date: string;
+    start_time: string;
+    end_time: string;
+    duration_minutes: number;
+    notes: string | null;
+    created_at: Date;
+    formation_label: string;
+    owner_username: string;
+  }>(
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+            e.study_subject_id, s.subject_name AS study_subject_name,
+            e.room_id, r.room_name, e.stage_level,
+            e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
+            e.term_label, e.academic_year, e.exam_date::text, e.start_time::text, e.end_time::text,
+            e.duration_minutes, e.notes, e.created_at,
+            COALESCE(
+              NULLIF(TRIM(
+                CASE
+                  WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                    THEN COALESCE(p.holder_name, '')
+                  ELSE COALESCE(p.formation_name, '')
+                END
+              ), ''),
+              u.username::text
+            ) AS formation_label,
+            u.username::text AS owner_username
+     FROM college_exam_schedules e
+     INNER JOIN college_subjects c
+       ON c.id = e.college_subject_id AND c.owner_user_id = e.owner_user_id
+     INNER JOIN college_study_subjects s
+       ON s.id = e.study_subject_id AND s.owner_user_id = e.owner_user_id
+     INNER JOIN college_exam_rooms r
+       ON r.id = e.room_id AND r.owner_user_id = e.owner_user_id
+     INNER JOIN users u
+       ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
+     ORDER BY formation_label ASC, u.username ASC, e.exam_date ASC, e.start_time ASC, e.created_at ASC`
+  );
+  return r.rows.map((x) => ({
+    id: String(x.id),
+    owner_user_id: String(x.owner_user_id),
+    college_subject_id: String(x.college_subject_id),
+    college_subject_name: x.college_subject_name,
+    study_subject_id: String(x.study_subject_id),
+    study_subject_name: x.study_subject_name,
+    room_id: String(x.room_id),
+    room_name: x.room_name,
+    stage_level: Number(x.stage_level ?? 1),
+    schedule_type: x.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
+    workflow_status:
+      x.workflow_status === "APPROVED"
+        ? "APPROVED"
+        : x.workflow_status === "REJECTED"
+          ? "REJECTED"
+          : x.workflow_status === "SUBMITTED"
+            ? "SUBMITTED"
+            : "DRAFT",
+    term_label: x.term_label,
+    academic_year: x.academic_year,
+    exam_date: x.exam_date,
+    start_time: x.start_time.slice(0, 5),
+    end_time: x.end_time.slice(0, 5),
+    duration_minutes: x.duration_minutes,
+    notes: x.notes,
+    created_at: x.created_at,
+    formation_label: x.formation_label?.trim() || x.owner_username || "—",
+    owner_username: x.owner_username ?? "",
+  }));
+}
+
 export type CreateCollegeExamScheduleCoreInput = {
   ownerUserId: string;
   collegeSubjectId: string;

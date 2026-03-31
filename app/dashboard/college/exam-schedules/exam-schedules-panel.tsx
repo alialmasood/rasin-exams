@@ -200,6 +200,8 @@ export function ExamSchedulesPanel({
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  /** التقويم الجامعي مطوي افتراضياً */
+  const [academicCalendarExpanded, setAcademicCalendarExpanded] = useState(false);
   const [holidays, setHolidays] = useState<CollegeHolidayRow[]>(initialHolidays);
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayName, setHolidayName] = useState("");
@@ -1061,85 +1063,125 @@ export function ExamSchedulesPanel({
       ) : null}
 
       <section className="rounded-3xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-[#0F172A]">التقويم الجامعي</h3>
-            <p className="mt-1 text-xs text-[#64748B]">عرض عام لأيام الأسبوع والعطل وأيام الامتحانات المضافة.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setCalendarCursor((c) =>
-                  c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }
-                )
-              }
-              className="rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-xs"
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${academicCalendarExpanded ? "mb-3" : ""}`}>
+          <button
+            type="button"
+            onClick={() => setAcademicCalendarExpanded((v) => !v)}
+            className="flex min-w-0 flex-1 items-start gap-3 rounded-xl p-1 text-right transition hover:bg-[#F8FAFC] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+            aria-expanded={academicCalendarExpanded}
+            aria-controls="academic-calendar-panel"
+            id="academic-calendar-toggle"
+          >
+            <span
+              className={`mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] text-[#274092] transition-transform duration-200 ${
+                academicCalendarExpanded ? "rotate-0" : "-rotate-90"
+              }`}
+              aria-hidden
             >
-              السابق
-            </button>
-            <p className="text-sm font-bold text-[#0F172A]">{calendarMeta.monthLabel}</p>
-            <button
-              type="button"
-              onClick={() =>
-                setCalendarCursor((c) =>
-                  c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }
-                )
-              }
-              className="rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-xs"
-            >
-              التالي
-            </button>
-          </div>
+              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M7 10l5 5 5-5H7z" />
+              </svg>
+            </span>
+            <span className="min-w-0">
+              <span className="block text-lg font-bold text-[#0F172A]">التقويم الجامعي</span>
+              <span className="mt-1 block text-xs text-[#64748B]">
+                عرض عام لأيام الأسبوع والعطل وأيام الامتحانات المضافة.
+              </span>
+            </span>
+          </button>
+          {academicCalendarExpanded ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarCursor((c) =>
+                    c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }
+                  )
+                }
+                className="rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-xs"
+              >
+                السابق
+              </button>
+              <p className="text-sm font-bold text-[#0F172A]">{calendarMeta.monthLabel}</p>
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarCursor((c) =>
+                    c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }
+                  )
+                }
+                className="rounded-lg border border-[#CBD5E1] bg-white px-2 py-1 text-xs"
+              >
+                التالي
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-[#64748B]">
-          {["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"].map((d) => (
-            <div key={`global-${d}`} className="py-1">{d}</div>
-          ))}
+        <div id="academic-calendar-panel" role="region" aria-labelledby="academic-calendar-toggle" hidden={!academicCalendarExpanded}>
+          {academicCalendarExpanded ? (
+            <>
+              <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-[#64748B]">
+                {["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"].map((d) => (
+                  <div key={`global-${d}`} className="py-1">
+                    {d}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-1 grid grid-cols-7 gap-1">
+                {calendarCells.map((cell, idx) => {
+                  if (!cell.iso) return <div key={`global-e-${idx}`} className="h-20 rounded-lg bg-transparent" />;
+                  const dt = new Date(cell.iso);
+                  const weeklyHoliday = dt.getDay() === 5;
+                  const holidayName = calendarMeta.holidayMap.get(cell.iso);
+                  const isHoliday = weeklyHoliday || Boolean(holidayName);
+                  const examCount = calendarMeta.map.get(cell.iso) ?? 0;
+                  const submittedCount = calendarMeta.submittedMap.get(cell.iso) ?? 0;
+                  return (
+                    <button
+                      key={`global-${cell.iso}`}
+                      type="button"
+                      onClick={() => setSelectedCalendarDate(cell.iso)}
+                      className={`h-20 rounded-lg border px-2 py-1.5 text-right ${isHoliday ? "border-amber-200 bg-amber-50" : submittedCount > 0 ? "border-emerald-200 bg-emerald-50" : "border-[#E2E8F0] bg-[#F8FAFC]"}`}
+                    >
+                      <p className="text-xs font-bold text-[#334155]">{cell.day}</p>
+                      {isHoliday ? <p className="mt-1 text-[11px] font-semibold text-amber-700">{holidayName ?? "عطلة"}</p> : null}
+                      {examCount > 0 ? <p className="mt-1 text-[11px] font-semibold text-[#1D4ED8]">{examCount} امتحان</p> : null}
+                      {submittedCount > 0 ? <p className="mt-1 text-[11px] font-semibold text-emerald-700">{submittedCount} مرفوع</p> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedCalendarDate ? (
+                <div className="mt-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-[#0F172A]">امتحانات يوم {selectedCalendarDate}</h4>
+                    <button type="button" onClick={() => setSelectedCalendarDate(null)} className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs">
+                      إغلاق
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {rows.filter((r) => r.exam_date === selectedCalendarDate).length === 0 ? (
+                      <p className="text-xs text-[#64748B]">لا توجد امتحانات في هذا اليوم.</p>
+                    ) : (
+                      rows
+                        .filter((r) => r.exam_date === selectedCalendarDate)
+                        .map((r) => (
+                          <div key={`day-${r.id}`} className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-xs">
+                            <p className="font-bold text-[#0F172A]">{r.study_subject_name}</p>
+                            <p className="text-[#64748B]">
+                              {r.college_subject_name} | {r.room_name} | {timeRangeLabel(r.start_time, r.end_time)}
+                            </p>
+                            <p className="text-[#64748B]">الحالة: {WORKFLOW_LABEL[r.workflow_status]}</p>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
-        <div className="mt-1 grid grid-cols-7 gap-1">
-          {calendarCells.map((cell, idx) => {
-            if (!cell.iso) return <div key={`global-e-${idx}`} className="h-20 rounded-lg bg-transparent" />;
-            const dt = new Date(cell.iso);
-            const weeklyHoliday = dt.getDay() === 5;
-            const holidayName = calendarMeta.holidayMap.get(cell.iso);
-            const isHoliday = weeklyHoliday || Boolean(holidayName);
-            const examCount = calendarMeta.map.get(cell.iso) ?? 0;
-            const submittedCount = calendarMeta.submittedMap.get(cell.iso) ?? 0;
-            return (
-              <button key={`global-${cell.iso}`} type="button" onClick={() => setSelectedCalendarDate(cell.iso)} className={`h-20 rounded-lg border px-2 py-1.5 text-right ${isHoliday ? "border-amber-200 bg-amber-50" : submittedCount > 0 ? "border-emerald-200 bg-emerald-50" : "border-[#E2E8F0] bg-[#F8FAFC]"}`}>
-                <p className="text-xs font-bold text-[#334155]">{cell.day}</p>
-                {isHoliday ? <p className="mt-1 text-[11px] font-semibold text-amber-700">{holidayName ?? "عطلة"}</p> : null}
-                {examCount > 0 ? <p className="mt-1 text-[11px] font-semibold text-[#1D4ED8]">{examCount} امتحان</p> : null}
-                {submittedCount > 0 ? <p className="mt-1 text-[11px] font-semibold text-emerald-700">{submittedCount} مرفوع</p> : null}
-              </button>
-            );
-          })}
-        </div>
-        {selectedCalendarDate ? (
-          <div className="mt-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-sm font-bold text-[#0F172A]">امتحانات يوم {selectedCalendarDate}</h4>
-              <button type="button" onClick={() => setSelectedCalendarDate(null)} className="rounded-lg border border-[#CBD5E1] px-2 py-1 text-xs">إغلاق</button>
-            </div>
-            <div className="space-y-2">
-              {rows.filter((r) => r.exam_date === selectedCalendarDate).length === 0 ? (
-                <p className="text-xs text-[#64748B]">لا توجد امتحانات في هذا اليوم.</p>
-              ) : (
-                rows
-                  .filter((r) => r.exam_date === selectedCalendarDate)
-                  .map((r) => (
-                    <div key={`day-${r.id}`} className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-xs">
-                      <p className="font-bold text-[#0F172A]">{r.study_subject_name}</p>
-                      <p className="text-[#64748B]">{r.college_subject_name} | {r.room_name} | {timeRangeLabel(r.start_time, r.end_time)}</p>
-                      <p className="text-[#64748B]">الحالة: {WORKFLOW_LABEL[r.workflow_status]}</p>
-                    </div>
-                  ))
-              )}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <dialog

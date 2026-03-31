@@ -1,12 +1,27 @@
+import { redirect } from "next/navigation";
+import { getCollegeProfileByUserId } from "@/lib/college-accounts";
+import { getCollegeStatisticsPageData } from "@/lib/college-statistics-page";
+import { getSession } from "@/lib/session";
+import { CollegeStatisticsPanel } from "./college-statistics-panel";
+
 export const dynamic = "force-dynamic";
 
-export default function CollegeStatisticsPage() {
-  return (
-    <section className="space-y-3 rounded-3xl border border-[#E2E8F0] bg-white p-8 shadow-sm" dir="rtl">
-      <h1 className="text-2xl font-bold text-[#0F172A]">الاحصائيات</h1>
-      <p className="text-sm text-[#64748B]">
-        صفحة الاحصائيات مضافة. سيتم لاحقًا عرض مؤشرات الامتحانات والحضور ونسب الإنجاز.
-      </p>
-    </section>
-  );
+export default async function CollegeStatisticsPage() {
+  const session = await getSession();
+  if (!session) redirect("/");
+  if (session.role !== "COLLEGE") {
+    redirect("/dashboard");
+  }
+
+  const [profile, data] = await Promise.all([
+    getCollegeProfileByUserId(session.uid),
+    getCollegeStatisticsPageData(session.uid),
+  ]);
+
+  const collegeLabel =
+    profile?.account_kind === "FOLLOWUP"
+      ? (profile.holder_name ?? "—")
+      : (profile?.formation_name ?? "—");
+
+  return <CollegeStatisticsPanel collegeLabel={collegeLabel} data={data} />;
 }

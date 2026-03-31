@@ -217,9 +217,11 @@ function DeleteBranchForm({ id }: { id: string }) {
 export function SubjectsPanel({
   rows,
   usageRows = [],
+  collegeLabel,
 }: {
   rows: CollegeSubjectRow[];
   usageRows?: CollegeSubjectUsageRow[];
+  collegeLabel: string;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   /** يزيد عند كل فتح لمودال الإضافة لإعادة ضبط useActionState وتفادي إعادة تشغيل نجاح قديم */
@@ -308,13 +310,19 @@ export function SubjectsPanel({
     } catch {
       generatedLabel = new Date().toISOString();
     }
-    const html = buildCollegeSubjectsReportHtml({ rows, usageRows, generatedLabel });
+    const html = buildCollegeSubjectsReportHtml({
+      rows,
+      usageRows,
+      generatedLabel,
+      collegeLabel,
+      assetsBaseUrl: typeof window !== "undefined" ? window.location.origin : "",
+    });
     if (!printCollegeSubjectsReportHtml(html)) {
       window.alert(
         "تعذر فتح نافذة التقرير. اسمح بالنوافذ المنبثقة لهذا الموقع، ثم اختر «حفظ كـ PDF» من نافذة الطباعة."
       );
     }
-  }, [rows, usageRows]);
+  }, [rows, usageRows, collegeLabel]);
 
   const exportCsv = () => {
     const header = ["النوع", "اسم القسم او الفرع", "اسم رئيس القسم", "تاريخ الاضافة"];

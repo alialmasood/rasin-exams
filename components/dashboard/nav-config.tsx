@@ -192,7 +192,7 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
     id: "insights",
     title: "المؤشرات والتقارير",
     items: [
-      { href: "/dashboard/college/statistics", label: "الإحصائيات", icon: <IconChartBar /> },
+      { href: "/dashboard/college/statistics", label: "الإحصائيات والتقارير", icon: <IconChartBar /> },
       { href: "/dashboard/college/reports", label: "التقارير", icon: <IconDocument /> },
     ],
   },

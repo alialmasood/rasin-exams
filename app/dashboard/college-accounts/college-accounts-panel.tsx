@@ -5,14 +5,22 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
+  useTransition,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { CollegeAccountRow } from "@/lib/college-accounts";
 import { COLLEGE_FORMATIONS } from "@/lib/college-formations";
-import { createCollegeAccountAction } from "./actions";
+import {
+  changeCollegeAccountPasswordAction,
+  createCollegeAccountAction,
+  deleteCollegeAccountAction,
+  toggleCollegeAccountDisabledAction,
+} from "./actions";
 
 const modalFieldClass =
   "mt-2 h-11 w-full rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)]";
@@ -132,6 +140,14 @@ function CreateAccountPlusIcon() {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15M4.5 12h15" />
     </svg>
   );
+}
+
+function accountKindLabel(row: CollegeAccountRow) {
+  return row.account_kind === "FOLLOWUP" ? "حساب متابعة" : "حساب تشكيل";
+}
+
+function formationOrHolderCell(row: CollegeAccountRow) {
+  return row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.formation_name ?? "—");
 }
 
 function CreateAccountButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
@@ -378,11 +394,261 @@ function CreateCollegeAccountDialogForm({
   );
 }
 
+function ChangePasswordDialogForm({
+  formId,
+  profileId,
+  usernameLabel,
+  dialogRef,
+  onSuccess,
+  onError,
+}: {
+  formId: string;
+  profileId: string;
+  usernameLabel: string;
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  onSuccess: () => void;
+  onError: (message: string) => void;
+}) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(changeCollegeAccountPasswordAction, null);
+
+  useEffect(() => {
+    if (state?.ok) {
+      dialogRef.current?.close();
+      onSuccess();
+      router.refresh();
+    }
+  }, [state, dialogRef, onSuccess, router]);
+
+  useEffect(() => {
+    if (state && !state.ok) {
+      onError(state.message);
+    }
+  }, [state, onError]);
+
+  return (
+    <form action={formAction} className="flex max-h-[min(90vh,520px)] min-h-0 flex-col">
+      <input type="hidden" name="profile_id" value={profileId} />
+      <div className="px-8 pb-0 pt-8">
+        <h2 className="text-xl font-bold text-[#0F172A]">تغيير كلمة المرور</h2>
+        <div className="mt-3 border-b border-gray-100" aria-hidden />
+        <p className="mt-3 text-sm text-gray-600">
+          المستخدم: <span className="font-mono font-bold text-[#1E3A8A]">{usernameLabel}</span>
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">
+          تُحدَّث كلمة المرور في قاعدة البيانات فوراً بعد الحفظ (تشفير bcrypt).
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-8 py-6">
+        <div>
+          <label htmlFor={`${formId}-np`} className="block text-sm font-bold text-[#334155]">
+            كلمة المرور الجديدة
+          </label>
+          <input
+            id={`${formId}-np`}
+            name="new_password"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            className={modalFieldClass}
+          />
+        </div>
+        <div>
+          <label htmlFor={`${formId}-nc`} className="block text-sm font-bold text-[#334155]">
+            تأكيد كلمة المرور
+          </label>
+          <input
+            id={`${formId}-nc`}
+            name="confirm_password"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            className={modalFieldClass}
+          />
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-8 py-6">
+        <button
+          type="button"
+          className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-bold text-[#64748B] transition hover:bg-[#F8FAFC]"
+          onClick={() => dialogRef.current?.close()}
+        >
+          إلغاء
+        </button>
+        <SubmitButton pending={pending} />
+      </div>
+    </form>
+  );
+}
+
+const ACTIONS_MENU_WIDTH = 228;
+
+const menuItemClass =
+  "flex w-full items-center justify-start px-4 py-2.5 text-right text-sm font-bold text-[#334155] transition hover:bg-[#F8FAFC]";
+const menuItemDangerClass =
+  "flex w-full items-center justify-start px-4 py-2.5 text-right text-sm font-bold text-red-700 transition hover:bg-red-50";
+
+type ActionsMenuState = {
+  rowId: string;
+  rect: DOMRect;
+  trigger: HTMLElement;
+};
+
+function IconDotsVertical(props: { className?: string }) {
+  return (
+    <svg className={props.className} width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <circle cx="12" cy="5" r="1.85" />
+      <circle cx="12" cy="12" r="1.85" />
+      <circle cx="12" cy="19" r="1.85" />
+    </svg>
+  );
+}
+
+function computeCollegeAccountStats(rows: CollegeAccountRow[]) {
+  let formation = 0;
+  let followup = 0;
+  let active = 0;
+  let disabled = 0;
+  let locked = 0;
+  let pending = 0;
+  let otherStatus = 0;
+  for (const r of rows) {
+    if (r.account_kind === "FOLLOWUP") followup += 1;
+    else formation += 1;
+    switch (r.status) {
+      case "ACTIVE":
+        active += 1;
+        break;
+      case "DISABLED":
+        disabled += 1;
+        break;
+      case "LOCKED":
+        locked += 1;
+        break;
+      case "PENDING":
+        pending += 1;
+        break;
+      default:
+        otherStatus += 1;
+    }
+  }
+  const total = rows.length;
+  const activeRate = total > 0 ? Math.round((active / total) * 100) : 0;
+  return {
+    total,
+    formation,
+    followup,
+    active,
+    disabled,
+    locked,
+    pending,
+    unknownStatus: otherStatus,
+    activeRate,
+  };
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  accentClass = "text-[#1E3A8A]",
+}: {
+  label: string;
+  value: number | string;
+  hint?: string;
+  accentClass?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#E5ECF6] bg-white px-4 py-3 shadow-sm ring-1 ring-slate-100/80 transition-shadow hover:shadow-md">
+      <p className="text-xs font-semibold text-[#64748B]">{label}</p>
+      <p className={`mt-1 text-2xl font-extrabold tabular-nums ${accentClass}`}>{value}</p>
+      {hint ? <p className="mt-1 text-[11px] leading-snug text-[#94A3B8]">{hint}</p> : null}
+    </div>
+  );
+}
+
+function CollegeAccountsStatsSection({ rows }: { rows: CollegeAccountRow[] }) {
+  const s = useMemo(() => computeCollegeAccountStats(rows), [rows]);
+
+  return (
+    <section
+      className="rounded-2xl border border-[#E2E8F0] bg-gradient-to-b from-white to-[#F8FAFC] p-5 shadow-sm"
+      aria-label="إحصائيات حسابات التشكيلات"
+    >
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-base font-extrabold text-[#0F172A]">ملخص الحسابات</h2>
+          <p className="mt-0.5 text-xs text-[#64748B]">أرقام مبنية على السجلات المعروضة في الجدول (تتحدث مع التعطيل والحذف).</p>
+        </div>
+        {s.total > 0 ? (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-1.5">
+            <span className="text-xs font-bold text-emerald-900">نسبة النشط</span>
+            <span className="text-sm font-extrabold tabular-nums text-emerald-800">{s.activeRate}%</span>
+          </div>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-4">
+        <StatCard label="إجمالي الحسابات" value={s.total} hint="كل سجلات الكلية في القائمة" />
+        <StatCard label="حسابات تشكيل" value={s.formation} accentClass="text-[#1D4ED8]" />
+        <StatCard label="حسابات متابعة" value={s.followup} accentClass="text-[#6366F1]" />
+        <StatCard label="نشط" value={s.active} accentClass="text-emerald-700" hint="يمكن تسجيل الدخول" />
+        <StatCard label="معطل" value={s.disabled} accentClass="text-slate-600" />
+        <StatCard label="مقفل" value={s.locked} accentClass="text-amber-800" />
+        <StatCard label="قيد المراجعة" value={s.pending} accentClass="text-sky-800" />
+        <StatCard
+          label="حالة غير معيّنة"
+          value={s.unknownStatus}
+          hint={s.total === 0 ? undefined : "قيم حالة غير متوقعة في النظام"}
+          accentClass="text-[#475569]"
+        />
+      </div>
+    </section>
+  );
+}
+
 export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAccountRow[] }) {
+  const router = useRouter();
   const formId = useId();
+  const passwordFormId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const viewDialogRef = useRef<HTMLDialogElement>(null);
+  const passwordDialogRef = useRef<HTMLDialogElement>(null);
   const [formInstance, setFormInstance] = useState(0);
+  const [passwordFormKey, setPasswordFormKey] = useState(0);
+  const [viewRow, setViewRow] = useState<CollegeAccountRow | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<CollegeAccountRow | null>(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [mutationPending, startMutationTransition] = useTransition();
+  const [rows, setRows] = useState<CollegeAccountRow[]>(initialRows);
+  const [actionsMenu, setActionsMenu] = useState<ActionsMenuState | null>(null);
+  const [portalMounted, setPortalMounted] = useState(false);
+  const actionsMenuPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setRows(initialRows);
+  }, [initialRows]);
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!actionsMenu) return;
+    const close = (e: MouseEvent | TouchEvent) => {
+      const t = e.target as Node;
+      if (actionsMenu.trigger.contains(t)) return;
+      if (actionsMenuPanelRef.current?.contains(t)) return;
+      setActionsMenu(null);
+    };
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("touchstart", close, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("touchstart", close, true);
+    };
+  }, [actionsMenu]);
 
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -390,6 +656,69 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
     setFormInstance((n) => n + 1);
     queueMicrotask(() => dialogRef.current?.showModal());
   }, []);
+
+  const openViewDialog = useCallback((row: CollegeAccountRow) => {
+    setViewRow(row);
+    queueMicrotask(() => viewDialogRef.current?.showModal());
+  }, []);
+
+  const openPasswordDialog = useCallback((row: CollegeAccountRow) => {
+    setPasswordTarget(row);
+    setPasswordFormKey((n) => n + 1);
+    queueMicrotask(() => passwordDialogRef.current?.showModal());
+  }, []);
+
+  const runToggleDisabled = useCallback(
+    (row: CollegeAccountRow, disabled: boolean) => {
+      const msg = disabled
+        ? `تعطيل حساب «${row.username}»؟ لن يتمكن من تسجيل الدخول حتى يُنشَّط مجدداً.`
+        : `تنشيط حساب «${row.username}»؟`;
+      if (!window.confirm(msg)) return;
+      const previousStatus = row.status;
+      const nextStatus = disabled ? "DISABLED" : "ACTIVE";
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: nextStatus } : r)));
+      startMutationTransition(async () => {
+        const res = await toggleCollegeAccountDisabledAction(row.id, disabled);
+        if (!res || !res.ok) {
+          setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: previousStatus } : r)));
+          const message = res && !res.ok ? res.message : "تعذر تنفيذ العملية.";
+          setToast({ id: Date.now(), variant: "error", message });
+          return;
+        }
+        setToast({
+          id: Date.now(),
+          variant: "success",
+          message: disabled ? "تم تعطيل الحساب" : "تم تنشيط الحساب",
+        });
+        router.refresh();
+      });
+    },
+    [router]
+  );
+
+  const runDeleteAccount = useCallback(
+    (row: CollegeAccountRow) => {
+      if (
+        !window.confirm(
+          `حذف حساب «${row.username}» نهائياً من قاعدة البيانات؟ سيتم حذف سجل المستخدم والبيانات المرتبطة به (حسب إعدادات القاعدة). لا يمكن التراجع.`
+        )
+      ) {
+        return;
+      }
+      startMutationTransition(async () => {
+        const res = await deleteCollegeAccountAction(row.id);
+        if (!res || !res.ok) {
+          const message = res && !res.ok ? res.message : "تعذر تنفيذ العملية.";
+          setToast({ id: Date.now(), variant: "error", message });
+          return;
+        }
+        setRows((prev) => prev.filter((r) => r.id !== row.id));
+        setToast({ id: Date.now(), variant: "success", message: "تم حذف الحساب من قاعدة البيانات" });
+        router.refresh();
+      });
+    },
+    [router]
+  );
 
   const onAccountCreated = useCallback(() => {
     setToast({
@@ -418,16 +747,18 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
         <CreateAccountButton onClick={openCreateDialog} />
       </div>
 
+      <CollegeAccountsStatsSection rows={rows} />
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-[#F8FAFC] px-5 py-3.5">
           <h2 className="text-sm font-semibold text-gray-800">سجل حسابات التشكيلات</h2>
           <p className="mt-0.5 text-xs text-gray-500">بيانات رسمية — لا تُعرض كلمات المرور.</p>
         </div>
-        {initialRows.length === 0 ? (
+        {rows.length === 0 ? (
           <AccountsTableEmptyState onCreateClick={openCreateDialog} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-right text-sm">
+            <table className="w-full min-w-[960px] border-collapse text-right text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-[#F8FAFC]">
                   <th className="px-5 py-3.5 text-sm font-medium text-gray-600">التشكيل</th>
@@ -435,10 +766,11 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
                   <th className="px-5 py-3.5 text-sm font-medium text-gray-600">اسم المستخدم</th>
                   <th className="px-5 py-3.5 text-sm font-medium text-gray-600">الحالة</th>
                   <th className="px-5 py-3.5 text-sm font-medium text-gray-600">تاريخ الإنشاء</th>
+                  <th className="px-5 py-3.5 text-sm font-medium text-gray-600">إجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {initialRows.map((row, index) => (
+                {rows.map((row, index) => (
                   <tr
                     key={row.id}
                     className="college-table-row-anim bg-white transition-colors duration-200 hover:bg-blue-50"
@@ -470,6 +802,32 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
                         timeStyle: "short",
                       }).format(new Date(row.created_at))}
                     </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          className="inline-flex size-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+                          aria-label="قائمة الإجراءات"
+                          aria-expanded={actionsMenu?.rowId === row.id}
+                          aria-haspopup="menu"
+                          disabled={mutationPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const trigger =
+                              e.currentTarget instanceof HTMLElement
+                                ? e.currentTarget
+                                : (e.target instanceof Element ? e.target.closest("button") : null);
+                            if (!(trigger instanceof HTMLElement)) return;
+                            const rect = trigger.getBoundingClientRect();
+                            setActionsMenu((m) =>
+                              m?.rowId === row.id ? null : { rowId: row.id, rect, trigger }
+                            );
+                          }}
+                        >
+                          <IconDotsVertical className="size-5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -494,6 +852,162 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
           />
         </div>
       </dialog>
+
+      <dialog
+        ref={viewDialogRef}
+        className="college-account-dialog fixed right-1/2 top-1/2 z-[100] max-h-[min(90vh,640px)] w-[min(100%,520px)] max-w-[520px] translate-x-1/2 -translate-y-1/2 border-none bg-transparent p-0 shadow-none open:flex open:flex-col"
+        dir="rtl"
+        onClose={() => setViewRow(null)}
+      >
+        <div className="college-account-dialog__surface w-full overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-xl">
+          {viewRow ? (
+            <div className="flex flex-col px-8 py-8">
+              <h2 className="text-xl font-bold text-[#0F172A]">تفاصيل الحساب</h2>
+              <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 text-sm">
+                <p>
+                  <span className="font-bold text-[#64748B]">نوع الحساب: </span>
+                  {accountKindLabel(viewRow)}
+                </p>
+                <p>
+                  <span className="font-bold text-[#64748B]">التشكيل / الاسم: </span>
+                  {formationOrHolderCell(viewRow)}
+                </p>
+                <p>
+                  <span className="font-bold text-[#64748B]">عميد الكلية / صاحب الحساب: </span>
+                  {viewRow.account_kind === "FOLLOWUP" ? (viewRow.holder_name ?? "—") : (viewRow.dean_name ?? "—")}
+                </p>
+                <p>
+                  <span className="font-bold text-[#64748B]">اسم المستخدم: </span>
+                  <span className="font-mono font-semibold text-[#1E3A8A]">{viewRow.username}</span>
+                </p>
+                <p>
+                  <span className="font-bold text-[#64748B]">الحالة: </span>
+                  {statusLabel(viewRow.status)}
+                </p>
+                <p>
+                  <span className="font-bold text-[#64748B]">تاريخ الإنشاء: </span>
+                  {new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(
+                    new Date(viewRow.created_at)
+                  )}
+                </p>
+                <p className="text-xs text-gray-500">
+                  <span className="font-bold">معرّف السجل: </span>
+                  {viewRow.id}
+                </p>
+              </div>
+              <div className="mt-6 flex justify-end border-t border-gray-100 pt-4">
+                <button
+                  type="button"
+                  className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-bold text-[#64748B] transition hover:bg-[#F8FAFC]"
+                  onClick={() => viewDialogRef.current?.close()}
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </dialog>
+
+      <dialog
+        ref={passwordDialogRef}
+        className="college-account-dialog fixed right-1/2 top-1/2 z-[100] max-h-[min(90vh,560px)] w-[min(100%,480px)] max-w-[480px] translate-x-1/2 -translate-y-1/2 border-none bg-transparent p-0 shadow-none open:flex open:flex-col"
+        dir="rtl"
+        onClose={() => setPasswordTarget(null)}
+      >
+        <div className="college-account-dialog__surface w-full overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-xl">
+          {passwordTarget ? (
+            <ChangePasswordDialogForm
+              key={passwordFormKey}
+              formId={passwordFormId}
+              profileId={passwordTarget.id}
+              usernameLabel={passwordTarget.username}
+              dialogRef={passwordDialogRef}
+              onSuccess={() => {
+                setToast({ id: Date.now(), variant: "success", message: "تم تغيير كلمة المرور" });
+              }}
+              onError={onAccountActionError}
+            />
+          ) : null}
+        </div>
+      </dialog>
+
+      {portalMounted && actionsMenu
+        ? createPortal(
+            (() => {
+              const menuRow = rows.find((r) => r.id === actionsMenu.rowId);
+              if (!menuRow) return null;
+              const pad = 8;
+              const w = ACTIONS_MENU_WIDTH;
+              let left = actionsMenu.rect.left + actionsMenu.rect.width / 2 - w / 2;
+              left = Math.max(pad, Math.min(left, typeof window !== "undefined" ? window.innerWidth - w - pad : left));
+              const top = actionsMenu.rect.top - pad;
+              const toggleDisabled = menuRow.status !== "DISABLED";
+              return (
+                <div
+                  ref={actionsMenuPanelRef}
+                  role="menu"
+                  className="fixed z-[400] overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-xl ring-1 ring-black/5"
+                  style={{
+                    left,
+                    top,
+                    width: w,
+                    transform: "translateY(-100%)",
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={menuItemClass}
+                    onClick={() => {
+                      setActionsMenu(null);
+                      openViewDialog(menuRow);
+                    }}
+                  >
+                    عرض
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={menuItemClass}
+                    disabled={mutationPending}
+                    onClick={() => {
+                      setActionsMenu(null);
+                      openPasswordDialog(menuRow);
+                    }}
+                  >
+                    تغيير كلمة المرور
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={menuItemClass}
+                    disabled={mutationPending}
+                    onClick={() => {
+                      setActionsMenu(null);
+                      runToggleDisabled(menuRow, toggleDisabled);
+                    }}
+                  >
+                    {menuRow.status === "DISABLED" ? "تنشيط" : "تعطيل"}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={menuItemDangerClass}
+                    disabled={mutationPending}
+                    onClick={() => {
+                      setActionsMenu(null);
+                      runDeleteAccount(menuRow);
+                    }}
+                  >
+                    حذف
+                  </button>
+                </div>
+              );
+            })(),
+            document.body
+          )
+        : null}
 
       <ToastHost toast={toast} onDismiss={dismissToast} />
     </div>

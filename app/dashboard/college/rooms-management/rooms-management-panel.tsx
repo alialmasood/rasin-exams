@@ -557,12 +557,12 @@ function RoomFields({
 
       {disableAttendanceFields ? (
         <>
-          <input type="hidden" name="attendance_count" value="0" />
-          <input type="hidden" name="absence_count" value="0" />
-          <input type="hidden" name="absence_names" value="" />
-          <input type="hidden" name="attendance_count_2" value="0" />
-          <input type="hidden" name="absence_count_2" value="0" />
-          <input type="hidden" name="absence_names_2" value="" />
+          <input type="hidden" name="attendance_count" value={String(d.attendance_count ?? 0)} />
+          <input type="hidden" name="absence_count" value={String(d.absence_count ?? 0)} />
+          <input type="hidden" name="absence_names" value={d.absence_names ?? ""} />
+          <input type="hidden" name="attendance_count_2" value={String(d.attendance_count_2 ?? 0)} />
+          <input type="hidden" name="absence_count_2" value={String(d.absence_count_2 ?? 0)} />
+          <input type="hidden" name="absence_names_2" value={d.absence_names_2 ?? ""} />
         </>
       ) : null}
     </>
@@ -645,7 +645,13 @@ function EditRoomDialog({
         <h2 className="text-xl font-bold text-[#0F172A]">تعديل القاعة</h2>
         <input type="hidden" name="id" value={row?.id ?? ""} />
         <input type="hidden" name="serial_no" value={row?.serial_no ?? ""} />
-        <RoomFields subjects={subjects} stageOptions={stageOptions} defaults={row ?? undefined} showSerial={false} />
+        <RoomFields
+          subjects={subjects}
+          stageOptions={stageOptions}
+          defaults={row ?? undefined}
+          showSerial={false}
+          disableAttendanceFields
+        />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
@@ -725,18 +731,16 @@ function SubjectsCell({
       <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level ?? 1}</div>
       {aggregateSlot1 ? <MultiRoomSubjectHint slotLabel="الامتحان الأول" agg={aggregateSlot1} roomIndex={idx1} /> : null}
       {dual && row.study_subject_name_2 ? (
-        <div className="border-t border-[#E2E8F0] pt-1 text-[#475569]">
+        <div className="border-t border-[#E2E8F0] pt-1.5">
           <div className="flex flex-wrap items-center gap-1">
-            <span>+ {row.study_subject_name_2}</span>
+            <div className="font-semibold text-[#0F172A]">{row.study_subject_name_2}</div>
             {aggregateSlot2 ? (
-              <span className="inline-flex shrink-0 rounded-full bg-[#7C3AED] px-1.5 py-0.5 text-[9px] font-bold text-white">
+              <span className="inline-flex shrink-0 rounded-full bg-[#4F46E5] px-1.5 py-0.5 text-[9px] font-bold text-white">
                 جزء من توزيع ({idx2}/{aggregateSlot2.roomCount})
               </span>
             ) : null}
           </div>
-          {row.stage_level_2 != null ? (
-            <span className="mt-0.5 block text-[10px] text-[#64748B]">مرحلة {row.stage_level_2}</span>
-          ) : null}
+          <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level_2 ?? 1}</div>
           {aggregateSlot2 ? <MultiRoomSubjectHint slotLabel="الامتحان الثاني" agg={aggregateSlot2} roomIndex={idx2} /> : null}
         </div>
       ) : null}
@@ -827,11 +831,20 @@ export function RoomsManagementPanel({
 }) {
   const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
+  /** إعادة تركيب مودال الإضافة عند كل فتح حتى تُصفَّر حالة useActionState ولا يبقى ok: true من الجلسة السابقة */
+  const [addDialogKey, setAddDialogKey] = useState(0);
+  const [editDialogKey, setEditDialogKey] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [menuCoords, setMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const [editingRow, setEditingRow] = useState<CollegeExamRoomRow | null>(null);
+  const closeAddDialog = useCallback(() => setAddOpen(false), []);
+  const closeEditDialog = useCallback(() => setEditingRow(null), []);
+  const openAddDialog = useCallback(() => {
+    setAddDialogKey((k) => k + 1);
+    setAddOpen(true);
+  }, []);
   /** تفاصيل القاعة مثبتة أسفل الشاشة حتى يغلقها المستخدم */
   const [pinnedDetailRowId, setPinnedDetailRowId] = useState<string | null>(null);
   const [reportRow, setReportRow] = useState<CollegeExamRoomRow | null>(null);
@@ -1024,7 +1037,7 @@ export function RoomsManagementPanel({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
+              onClick={openAddDialog}
               className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
             >
               إضافة قاعة
@@ -1388,6 +1401,7 @@ export function RoomsManagementPanel({
                 role="menuitem"
                 className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
                 onClick={() => {
+                  setEditDialogKey((k) => k + 1);
                   setEditingRow(menuRow);
                   closeActionsMenu();
                 }}
@@ -1412,14 +1426,16 @@ export function RoomsManagementPanel({
         : null}
 
       <AddRoomDialog
+        key={`add-room-${addDialogKey}`}
         open={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={closeAddDialog}
         subjects={studySubjects}
         stageOptions={stageOptions}
       />
       <EditRoomDialog
+        key={`edit-room-${editDialogKey}`}
         open={Boolean(editingRow)}
-        onClose={() => setEditingRow(null)}
+        onClose={closeEditDialog}
         subjects={studySubjects}
         stageOptions={stageOptions}
         row={editingRow}
