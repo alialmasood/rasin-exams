@@ -166,10 +166,7 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
   {
     id: "overview",
     title: "نظرة عامة",
-    items: [
-      { href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> },
-      { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
-    ],
+    items: [{ href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> }],
   },
   {
     id: "master",
@@ -188,7 +185,10 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
   {
     id: "situations",
     title: "المواقف الامتحانية",
-    items: [{ href: "/dashboard/college/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> }],
+    items: [
+      { href: "/dashboard/college/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> },
+      { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
+    ],
   },
   {
     id: "insights",
