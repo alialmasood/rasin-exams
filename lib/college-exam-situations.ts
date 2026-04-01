@@ -259,8 +259,9 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
   });
 }
 
-/** صفوف قابلة للتمرير لمكوّنات العميل (تواريخ كسلاسل ISO). */
-export type StatusFollowupTableRow = {
+/** صف جدول المتابعة مرتبط بجلسة مجدولة + college_exam_situation_reports. */
+export type StatusFollowupScheduleRow = {
+  kind: "schedule";
   schedule_id: string;
   exam_date: string;
   subject_name: string;
@@ -273,15 +274,32 @@ export type StatusFollowupTableRow = {
   is_complete: boolean;
 };
 
+/** صف جدول المتابعة من نموذج «رفع الموقف الامتحاني» المحفوظ في college_situation_form_submissions. */
+export type StatusFollowupFormRow = {
+  kind: "form";
+  form_submission_id: string;
+  exam_date: string;
+  subject_name: string;
+  stage_display: string;
+  branch_name: string;
+  submitted_at_iso: string;
+};
+
+export type StatusFollowupRow = StatusFollowupScheduleRow | StatusFollowupFormRow;
+
+/** @deprecated استخدم StatusFollowupScheduleRow */
+export type StatusFollowupTableRow = StatusFollowupScheduleRow;
+
 /** مواقف رُفع موقفها من رئيس القسم — تظهر في «متابعة المواقف». مرتبة من الأحدث رفعاً. */
 export async function listUploadedExamSituationsForFollowup(
   ownerUserId: string
-): Promise<StatusFollowupTableRow[]> {
+): Promise<StatusFollowupScheduleRow[]> {
   const rows = await listOfficialExamSituationsForOwner(ownerUserId);
   return rows
     .filter((r) => r.is_uploaded)
     .sort((a, b) => (b.head_submitted_at?.getTime() ?? 0) - (a.head_submitted_at?.getTime() ?? 0))
     .map((r) => ({
+      kind: "schedule" as const,
       schedule_id: r.schedule_id,
       exam_date: r.exam_date,
       subject_name: r.subject_name,
@@ -819,5 +837,27 @@ export async function approveDeanExamSituation(input: {
        updated_at = NOW()`,
     [input.ownerUserId, input.scheduleId.trim(), note]
   );
+  return { ok: true };
+}
+
+/** يزيل سجل رفع الموقف من college_exam_situation_reports دون حذف جدول الجلسة. */
+export async function deleteExamSituationReportForOwner(input: {
+  ownerUserId: string;
+  scheduleId: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  await ensureCoreSchema();
+  const sid = input.scheduleId.trim();
+  if (!/^\d+$/.test(sid)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  const pool = getDbPool();
+  const r = await pool.query(
+    `DELETE FROM college_exam_situation_reports
+     WHERE owner_user_id = $1 AND exam_schedule_id = $2::bigint
+     RETURNING id`,
+    [input.ownerUserId, sid]
+  );
+  if ((r.rowCount ?? 0) === 0) {
+    return { ok: false, message: "لا يوجد موقف مرفوع لهذه الجلسة أو ليس لديك صلاحية." };
+  }
   return { ok: true };
 }

@@ -2,27 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
-import type {
-  DeanSituationStatus,
-  ExamDayUploadSummary,
-  StatusFollowupTableRow,
-} from "@/lib/college-exam-situations";
-import { getDailyFinalSituationReportHtmlAction } from "./actions";
-
-const WORKFLOW_LABEL: Record<CollegeExamScheduleRow["workflow_status"], string> = {
-  DRAFT: "مسودة",
-  SUBMITTED: "مرفوع للمتابعة",
-  APPROVED: "معتمد",
-  REJECTED: "مرفوض",
-};
-
-const DEAN_LABEL: Record<DeanSituationStatus, string> = {
-  NONE: "لم يُحدد",
-  PENDING: "بانتظار اعتماد العميد",
-  APPROVED: "معتمد من العميد",
-  REJECTED: "مرفوض من العميد",
-};
+import type { ExamDayUploadSummary, StatusFollowupRow } from "@/lib/college-exam-situations";
+import {
+  deleteSituationFormSubmissionAction,
+  deleteUploadedExamSituationAction,
+  getDailyFinalSituationReportHtmlAction,
+} from "./actions";
 
 function openHtmlPrintWindow(html: string): boolean {
   const w = window.open("", "_blank");
@@ -55,19 +40,6 @@ function openHtmlPrintWindow(html: string): boolean {
   }
 }
 
-function formatDateTimeBaghdad(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("ar-IQ-u-ca-gregory", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: "Asia/Baghdad",
-    }).format(new Date(iso));
-  } catch {
-    return "—";
-  }
-}
-
 function formatExamDateAr(isoDate: string): string {
   try {
     return new Intl.DateTimeFormat("ar-IQ", {
@@ -84,7 +56,7 @@ export function StatusFollowupPanel({
   collegeLabel,
   daySummaries,
 }: {
-  rows: StatusFollowupTableRow[];
+  rows: StatusFollowupRow[];
   collegeLabel: string;
   daySummaries: ExamDayUploadSummary[];
 }) {
@@ -108,6 +80,34 @@ export function StatusFollowupPanel({
       if (!openHtmlPrintWindow(res.html)) {
         window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
       }
+    });
+  }
+
+  function onDeleteUploadedSituation(scheduleId: string, subjectLabel: string) {
+    const ok = window.confirm(
+      `هل تؤكد حذف الموقف المرفوع لهذه الجلسة؟\n${subjectLabel}\n\nسيزال تأكيد الرفع واعتماد العميد المرتبط بهذا السجل من المتابعة.`
+    );
+    if (!ok) return;
+    startTransition(async () => {
+      const res = await deleteUploadedExamSituationAction(scheduleId);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function onDeleteFormSubmission(submissionId: string, subjectLabel: string) {
+    const ok = window.confirm(`هل تؤكد حذف هذا الموقف المرسل من النموذج؟\n${subjectLabel}`);
+    if (!ok) return;
+    startTransition(async () => {
+      const res = await deleteSituationFormSubmissionAction(submissionId);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      router.refresh();
     });
   }
 
@@ -169,106 +169,94 @@ export function StatusFollowupPanel({
         />
         <h1 className="text-3xl font-extrabold text-[#0F172A]">متابعة المواقف الامتحانية</h1>
         <p className="mt-1.5 text-sm text-[#64748B]">
-          المواد التي تم <strong className="font-semibold text-[#334155]">رفع موقفها الامتحاني</strong> من صفحة «رفع
-          الموقف الامتحاني» للتشكيل «{collegeLabel}». اضغط على أي صف لعرض كامل التفاصيل (الحضور، الغياب، الخط الزمني
-          لرفع الموقف واعتماد العميد، والمزيد).
+          التشكيل «{collegeLabel}» — الجدول يجمع مواقف <strong className="font-semibold text-[#334155]">الجلسات المجدولة</strong> (رفع
+          الموقف من صفحة الجلسة) ومواقف <strong className="font-semibold text-[#334155]">نموذج رفع الموقف الامتحاني</strong> بعد الإرسال
+          النهائي. <strong className="font-semibold text-[#334155]">عرض</strong> للتفاصيل، <strong className="font-semibold text-[#334155]">حذف</strong>{" "}
+          لإزالة السجل المعروض (نموذج أو تأكيد رفع جلسة حسب النوع).
         </p>
       </header>
 
-      <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <table className="w-full min-w-[960px] border-collapse text-right">
-          <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
-            <tr className="border-b border-[#E2E8F0]">
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">تاريخ إجراء الامتحان</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">المادة الامتحانية</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">القسم</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">حالة الجدول</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">تاريخ ووقت رفع الموقف</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">اعتماد العميد</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">تاريخ المراجعة</th>
-              <th className="px-4 py-3 text-xs font-bold text-[#334155]">المتابعة</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E2E8F0]">
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-14 text-center text-sm text-[#64748B]">
-                  لا توجد مواقف مرفوعة بعد. بعد تأكيد رفع الموقف لأي مادة من «رفع الموقف الامتحاني» ستظهر هنا تلقائياً.
-                </td>
+      <section className="space-y-3" aria-labelledby="uploaded-situations-heading">
+        <h2 id="uploaded-situations-heading" className="text-xl font-extrabold text-[#0F172A]">
+          المواقف الامتحانية المرفوعة
+        </h2>
+        <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+          <table className="w-full min-w-[640px] border-collapse text-right">
+            <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
+              <tr className="border-b border-[#E2E8F0]">
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">التسلسل</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">القسم</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">المادة الامتحانية</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">التاريخ</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">إجراءات</th>
               </tr>
-            ) : (
-              rows.map((r) => {
-                const deanBadge =
-                  r.dean_status === "APPROVED"
-                    ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
-                    : r.dean_status === "REJECTED"
-                      ? "bg-rose-50 text-rose-800 ring-rose-200"
-                      : r.dean_status === "PENDING"
-                        ? "bg-amber-50 text-amber-800 ring-amber-200"
-                        : "bg-slate-100 text-slate-600 ring-slate-200";
-                return (
-                  <tr
-                    key={r.schedule_id}
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`تفاصيل ${r.subject_name} بتاريخ ${r.exam_date}`}
-                    className="cursor-pointer transition-colors hover:bg-[#F0F9FF] focus-visible:bg-[#EFF6FF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2563EB]"
-                    onClick={() => router.push(`/dashboard/college/upload-status/${r.schedule_id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/dashboard/college/upload-status/${r.schedule_id}`);
-                      }
-                    }}
-                  >
-                    <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{r.exam_date}</td>
-                    <td className="px-4 py-3 text-sm text-[#334155]">
-                      {r.subject_name}
-                      <span className="mt-0.5 block text-xs text-[#64748B]">المرحلة {r.stage_level}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#334155]">{r.branch_name}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${
-                          r.workflow_status === "APPROVED"
-                            ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
-                            : r.workflow_status === "SUBMITTED"
-                              ? "bg-sky-50 text-sky-800 ring-sky-200"
-                              : r.workflow_status === "REJECTED"
-                                ? "bg-rose-50 text-rose-800 ring-rose-200"
-                                : "bg-slate-100 text-slate-700 ring-slate-200"
-                        }`}
-                      >
-                        {WORKFLOW_LABEL[r.workflow_status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[#334155]">{formatDateTimeBaghdad(r.head_submitted_at_iso)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${deanBadge}`}>
-                        {DEAN_LABEL[r.dean_status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[#334155]">
-                      {formatDateTimeBaghdad(r.dean_reviewed_at_iso)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {r.is_complete ? (
-                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800 ring-1 ring-emerald-200">
-                          مكتمل
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-                          قيد المتابعة
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-14 text-center text-sm text-[#64748B]">
+                    لا توجد مواقف مرفوعة بعد. تظهر هنا بعد إرسال نموذج «رفع الموقف الامتحاني» أو بعد تأكيد رفع موقف جلسة
+                    مجدولة من صفحة الجلسة.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((r, index) => {
+                  const rowKey = r.kind === "schedule" ? `s-${r.schedule_id}` : `f-${r.form_submission_id}`;
+                  const stageLine =
+                    r.kind === "schedule" ? `المرحلة ${r.stage_level}` : `المرحلة ${r.stage_display}`;
+                  const label = `${r.subject_name} — ${r.branch_name} — ${r.exam_date}`;
+                  return (
+                    <tr key={rowKey} className="bg-white transition-colors hover:bg-[#F8FAFC]">
+                      <td className="px-3 py-3 text-sm font-bold tabular-nums text-[#64748B] sm:px-4">{index + 1}</td>
+                      <td className="px-3 py-3 text-sm font-semibold text-[#334155] sm:px-4">
+                        {r.branch_name}
+                        {r.kind === "form" ? (
+                          <span className="mt-0.5 block text-[10px] font-bold text-sky-700">نموذج</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-[#0F172A] sm:px-4">
+                        {r.subject_name}
+                        <span className="mt-0.5 block text-xs text-[#64748B]">{stageLine}</span>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-[#334155] sm:px-4">{formatExamDateAr(r.exam_date)}</td>
+                      <td className="px-3 py-3 sm:px-4">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() =>
+                              router.push(
+                                r.kind === "schedule"
+                                  ? `/dashboard/college/upload-status/${r.schedule_id}`
+                                  : `/dashboard/college/exam-situation-form/${r.form_submission_id}`
+                              )
+                            }
+                            className="rounded-lg border border-[#1E3A8A] bg-white px-3 py-1.5 text-xs font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
+                          >
+                            عرض
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() =>
+                              r.kind === "schedule"
+                                ? onDeleteUploadedSituation(r.schedule_id, label)
+                                : onDeleteFormSubmission(r.form_submission_id, label)
+                            }
+                            className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            حذف
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </section>
   );
 }

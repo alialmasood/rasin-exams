@@ -1,8 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { buildDailyExamSituationsFinalReportHtml } from "@/lib/college-exam-situation-report-html";
+import { deleteSituationFormSubmissionForOwner } from "@/lib/college-situation-form-submissions";
 import {
+  deleteExamSituationReportForOwner,
   listExamDayUploadSummariesForOwner,
   listUploadedExamSituationDetailsForOwnerExamDate,
 } from "@/lib/college-exam-situations";
@@ -52,4 +55,33 @@ export async function getDailyFinalSituationReportHtmlAction(examDate: string): 
 
   const html = buildDailyExamSituationsFinalReportHtml(details, d, collegeLabel, deanName, generatedAtLabelAr());
   return { ok: true, html };
+}
+
+export async function deleteUploadedExamSituationAction(
+  scheduleId: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") {
+    return { ok: false, message: "غير مصرح." };
+  }
+  const res = await deleteExamSituationReportForOwner({ ownerUserId: session.uid, scheduleId });
+  if (res.ok) {
+    revalidatePath("/dashboard/college/status-followup");
+  }
+  return res;
+}
+
+export async function deleteSituationFormSubmissionAction(
+  submissionId: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") {
+    return { ok: false, message: "غير مصرح." };
+  }
+  const res = await deleteSituationFormSubmissionForOwner(session.uid, submissionId);
+  if (res.ok) {
+    revalidatePath("/dashboard/college/status-followup");
+    revalidatePath("/dashboard/situations-followup");
+  }
+  return res;
 }

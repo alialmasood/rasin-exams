@@ -142,6 +142,7 @@ function IconCog() {
 
 export const dashboardNavItems: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: <IconDashboard /> },
+  { href: "/dashboard/situations-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
   { href: "/dashboard/exams", label: "الامتحانات", icon: <IconBook /> },
   { href: "/dashboard/students", label: "الطلاب", icon: <IconUsers /> },
   { href: "/dashboard/rooms", label: "القاعات", icon: <IconBuilding /> },
@@ -165,7 +166,10 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
   {
     id: "overview",
     title: "نظرة عامة",
-    items: [{ href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> }],
+    items: [
+      { href: "/dashboard/college", label: "لوحة الكلية", icon: <IconDashboard /> },
+      { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
+    ],
   },
   {
     id: "master",
@@ -184,10 +188,7 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
   {
     id: "situations",
     title: "المواقف الامتحانية",
-    items: [
-      { href: "/dashboard/college/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> },
-      { href: "/dashboard/college/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
-    ],
+    items: [{ href: "/dashboard/college/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> }],
   },
   {
     id: "insights",

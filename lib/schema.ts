@@ -260,6 +260,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeExamSchedulesTable(pool);
   await ensureCollegeHolidaysTable(pool);
   await ensureCollegeExamSituationReportsTable(pool);
+  await ensureCollegeSituationFormSubmissionsTable(pool);
 
   await createIndexSafe(
     pool,
@@ -315,6 +316,11 @@ export async function ensureCoreSchema() {
     pool,
     "idx_college_exam_situations_schedule",
     "CREATE INDEX IF NOT EXISTS idx_college_exam_situations_schedule ON college_exam_situation_reports(owner_user_id, exam_schedule_id)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_college_situation_form_sub_owner",
+    "CREATE INDEX IF NOT EXISTS idx_college_situation_form_sub_owner ON college_situation_form_submissions(owner_user_id, submitted_at DESC)"
   );
 
   coreReady = true;
@@ -875,6 +881,32 @@ async function ensureCollegeHolidaysTable(pool: Pool) {
 }
 
 /** قواعد قديمة: قيد role لا يتضمن COLLEGE — نوسّعه دون كسر التثبيتات الحالية. */
+async function ensureCollegeSituationFormSubmissionsTable(pool: Pool) {
+  const userIdType = await getUsersIdSqlType(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS college_situation_form_submissions (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id ${userIdType} NOT NULL,
+      college_label_snapshot TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  if (!(await constraintExists(pool, "college_situation_form_submissions_owner_user_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_situation_form_submissions
+        ADD CONSTRAINT college_situation_form_submissions_owner_user_id_fkey
+        FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+}
+
 async function ensureCollegeExamSituationReportsTable(pool: Pool) {
   const userIdType = await getUsersIdSqlType(pool);
   await pool.query(`
