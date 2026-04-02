@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  buildFormationExamSchedulePrintHtml,
+  exportFormationExamScheduleExcel,
+  formationExportNowLabel,
+  printFormationExamScheduleHtml,
+  type FormationScheduleExportInput,
+} from "@/lib/admin-formation-exam-schedule-export";
 import type { AdminCollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { fetchAdminExamSchedulesAction } from "./actions";
@@ -126,6 +133,17 @@ function buildFormationBlocks(rows: AdminCollegeExamScheduleRow[]): FormationBlo
   });
 }
 
+function formationBlockToExportInput(b: FormationBlock): FormationScheduleExportInput {
+  return {
+    formationLabel: b.formationLabel,
+    ownerUsername: b.ownerUsername,
+    departments: b.departments.map((d) => ({
+      deptName: d.deptName,
+      sessions: d.sessions,
+    })),
+  };
+}
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <span className={`inline-flex shrink-0 text-[#64748B] transition-transform ${open ? "rotate-180" : ""}`} aria-hidden>
@@ -223,6 +241,7 @@ export function AdminExamsPanel({ initialRows }: Props) {
   const [filterMode, setFilterMode] = useState<"all" | "finalized">("finalized");
   const [openFormations, setOpenFormations] = useState<Set<string>>(() => new Set());
   const [openDepts, setOpenDepts] = useState<Set<string>>(() => new Set());
+  const [exportBusyOwnerId, setExportBusyOwnerId] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(() => {
@@ -302,6 +321,34 @@ export function AdminExamsPanel({ initialRows }: Props) {
 
   const formatTime = (d: Date) =>
     new Intl.DateTimeFormat("ar-IQ", { dateStyle: "short", timeStyle: "medium" }).format(d);
+
+  const onExportFormationPdf = useCallback((b: FormationBlock) => {
+    setExportBusyOwnerId(b.ownerId);
+    try {
+      const html = buildFormationExamSchedulePrintHtml(
+        formationBlockToExportInput(b),
+        formationExportNowLabel()
+      );
+      if (!printFormationExamScheduleHtml(html)) {
+        window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم أعد المحاولة.");
+      }
+    } finally {
+      setExportBusyOwnerId(null);
+    }
+  }, []);
+
+  const onExportFormationExcel = useCallback(async (b: FormationBlock) => {
+    setExportBusyOwnerId(b.ownerId);
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      const base = `جدول-امتحاني-${b.ownerUsername}-${day}`;
+      await exportFormationExamScheduleExcel(formationBlockToExportInput(b), base);
+    } catch {
+      window.alert("تعذر تصدير ملف Excel. أعد المحاولة.");
+    } finally {
+      setExportBusyOwnerId(null);
+    }
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-4 py-6" dir="rtl">
@@ -402,39 +449,75 @@ export function AdminExamsPanel({ initialRows }: Props) {
             const fOpen = openFormations.has(b.ownerId);
             return (
               <li key={b.ownerId} className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => toggleFormation(b.ownerId)}
-                  aria-expanded={fOpen}
-                  className="flex w-full items-start gap-3 border-0 bg-gradient-to-l from-[#EEF2FF] to-white px-4 py-4 text-right transition hover:from-[#E0E7FF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
-                >
-                  <Chevron open={fOpen} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-lg font-bold text-[#0F172A]">{b.formationLabel}</span>
-                    <span className="mt-0.5 block text-xs text-[#64748B]">@{b.ownerUsername}</span>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#1E3A8A] ring-1 ring-[#C7D2FE]">
-                        {b.sessionCount} جلسة
-                      </span>
-                      <span className="inline-flex rounded-lg bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200">
-                        مكتمل: {b.finalizedSessions}
-                      </span>
-                      {b.wf.draft > 0 ? (
-                        <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                          مسودة: {b.wf.draft}
+                <div className="flex flex-col gap-3 bg-gradient-to-l from-[#EEF2FF] to-white px-4 py-4 sm:flex-row sm:items-start sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleFormation(b.ownerId)}
+                    aria-expanded={fOpen}
+                    className="flex min-w-0 flex-1 items-start gap-3 rounded-xl border-0 bg-transparent py-0 text-right transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
+                  >
+                    <Chevron open={fOpen} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-lg font-bold text-[#0F172A]">{b.formationLabel}</span>
+                      <span className="mt-0.5 block text-xs text-[#64748B]">@{b.ownerUsername}</span>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#1E3A8A] ring-1 ring-[#C7D2FE]">
+                          {b.sessionCount} جلسة
                         </span>
-                      ) : null}
-                      {b.wf.rejected > 0 ? (
-                        <span className="inline-flex rounded-lg bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-800">
-                          مرفوض: {b.wf.rejected}
+                        <span className="inline-flex rounded-lg bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                          مكتمل: {b.finalizedSessions}
                         </span>
-                      ) : null}
-                      <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] text-[#64748B] ring-1 ring-[#E2E8F0]">
-                        {b.departments.length} قسم / فرع
-                      </span>
-                    </div>
-                  </span>
-                </button>
+                        {b.wf.draft > 0 ? (
+                          <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                            مسودة: {b.wf.draft}
+                          </span>
+                        ) : null}
+                        {b.wf.rejected > 0 ? (
+                          <span className="inline-flex rounded-lg bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-800">
+                            مرفوض: {b.wf.rejected}
+                          </span>
+                        ) : null}
+                        <span className="inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] text-[#64748B] ring-1 ring-[#E2E8F0]">
+                          {b.departments.length} قسم / فرع
+                        </span>
+                      </div>
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[#C7D2FE]/60 pt-3 sm:border-t-0 sm:pt-0 sm:ps-1">
+                    <button
+                      type="button"
+                      disabled={exportBusyOwnerId === b.ownerId}
+                      onClick={() => onExportFormationPdf(b)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#1E3A8A]/35 bg-white px-3 py-2 text-xs font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
+                      title="فتح نافذة للطباعة أو الحفظ كملف PDF — كل قسم في قسم منفصل"
+                    >
+                      <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z"
+                        />
+                      </svg>
+                      {exportBusyOwnerId === b.ownerId ? "جاري…" : "تحميل PDF"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={exportBusyOwnerId === b.ownerId}
+                      onClick={() => void onExportFormationExcel(b)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-700/25 bg-white px-3 py-2 text-xs font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50"
+                      title="ملف Excel — ورقة لكل قسم/فرع بمعزل عن الآخر"
+                    >
+                      <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                        />
+                      </svg>
+                      {exportBusyOwnerId === b.ownerId ? "جاري التحميل…" : "تحميل Excel"}
+                    </button>
+                  </div>
+                </div>
                 {fOpen ? (
                   <div className="border-t border-[#E2E8F0] bg-[#FAFBFF] px-3 py-3">
                     <ul className="m-0 flex list-none flex-col gap-2 p-0">
