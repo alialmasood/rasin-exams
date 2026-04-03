@@ -338,7 +338,33 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
      ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
     [ownerUserId]
   );
-  return r.rows.map((x) => ({
+  return r.rows.map(mapScheduleQueryRow);
+}
+
+function mapScheduleQueryRow(x: {
+  id: string | number;
+  owner_user_id: string | number;
+  college_subject_id: string | number;
+  college_subject_name: string;
+  study_subject_id: string | number;
+  study_subject_name: string;
+  room_id: string | number;
+  room_name: string;
+  stage_level: number;
+  study_type: string;
+  schedule_type: string;
+  workflow_status: string;
+  term_label: string | null;
+  academic_year: string | null;
+  exam_date: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  notes: string | null;
+  created_at: Date;
+  meal_slot: number | string | null;
+}): CollegeExamScheduleRow {
+  return {
     id: String(x.id),
     owner_user_id: String(x.owner_user_id),
     college_subject_id: String(x.college_subject_id),
@@ -367,7 +393,59 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     duration_minutes: x.duration_minutes,
     notes: x.notes,
     created_at: x.created_at,
-  }));
+  };
+}
+
+/** جداول امتحان لمالك واحد في يوم محدد فقط — مطابق لحقول «الجداول الامتحانية». */
+export async function listCollegeExamSchedulesByOwnerForExamDate(
+  ownerUserId: string,
+  examDate: string
+): Promise<CollegeExamScheduleRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  const d = examDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{
+    id: string | number;
+    owner_user_id: string | number;
+    college_subject_id: string | number;
+    college_subject_name: string;
+    study_subject_id: string | number;
+    study_subject_name: string;
+    room_id: string | number;
+    room_name: string;
+    stage_level: number;
+    study_type: string;
+    schedule_type: string;
+    workflow_status: string;
+    term_label: string | null;
+    academic_year: string | null;
+    exam_date: string;
+    start_time: string;
+    end_time: string;
+    duration_minutes: number;
+    notes: string | null;
+    created_at: Date;
+    meal_slot: number | string | null;
+  }>(
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+            e.study_subject_id, s.subject_name AS study_subject_name,
+            e.room_id, r.room_name, e.stage_level,
+            COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
+            e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
+            e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
+            e.start_time::text, e.end_time::text,
+            e.duration_minutes, e.notes, e.created_at
+     FROM college_exam_schedules e
+     INNER JOIN college_subjects c ON c.id = e.college_subject_id
+     INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
+     INNER JOIN college_exam_rooms r ON r.id = e.room_id
+     WHERE e.owner_user_id = $1 AND e.exam_date = $2::date
+     ORDER BY e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
+    [ownerUserId, d]
+  );
+  return r.rows.map(mapScheduleQueryRow);
 }
 
 /** صف جدول امتحاني مع تسمية التشكيل لعرض المدير لجميع الحسابات */

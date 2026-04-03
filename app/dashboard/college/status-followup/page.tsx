@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listSubmittedSituationFormsForOwner } from "@/lib/college-situation-form-submissions";
+import { listFollowupSavedDayReportsForOwner } from "@/lib/college-followup-saved-reports";
 import {
+  listExamDatesWithBothMealsFullyComplete,
   listExamDayUploadSummariesForOwner,
   listUploadedExamSituationsForFollowup,
   type StatusFollowupFormRow,
@@ -34,11 +36,12 @@ export default async function CollegeStatusFollowupPage() {
   if (!session) redirect("/");
   if (session.role !== "COLLEGE") redirect("/dashboard");
 
-  const [scheduleRows, formRows, profile, daySummaries] = await Promise.all([
+  const [scheduleRows, formRows, profile, daySummaries, savedReportsRaw] = await Promise.all([
     listUploadedExamSituationsForFollowup(session.uid),
     listSubmittedSituationFormsForOwner(session.uid),
     getCollegeProfileByUserId(session.uid),
     listExamDayUploadSummariesForOwner(session.uid),
+    listFollowupSavedDayReportsForOwner(session.uid),
   ]);
   const rows = mergeFollowupRows(scheduleRows, formRows);
 
@@ -47,7 +50,29 @@ export default async function CollegeStatusFollowupPage() {
       ? (profile.holder_name ?? "—")
       : (profile?.formation_name ?? "—");
 
+  const fullDayBothMealsReadyDates = listExamDatesWithBothMealsFullyComplete(daySummaries);
+
+  const savedReports = savedReportsRaw.map((r) => ({
+    id: r.id,
+    exam_date: r.exam_date,
+    saved_at_iso: r.saved_at.toISOString(),
+    has_meal_1: r.has_meal_1,
+    has_meal_2: r.has_meal_2,
+    has_both_meals: r.has_both_meals,
+  }));
+
+  const examDatesAlreadySaved = [...new Set(savedReports.map((s) => s.exam_date))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
   return (
-    <StatusFollowupPanel rows={rows} collegeLabel={collegeLabel} daySummaries={daySummaries} />
+    <StatusFollowupPanel
+      rows={rows}
+      collegeLabel={collegeLabel}
+      daySummaries={daySummaries}
+      fullDayBothMealsReadyDates={fullDayBothMealsReadyDates}
+      savedReports={savedReports}
+      examDatesAlreadySaved={examDatesAlreadySaved}
+    />
   );
 }

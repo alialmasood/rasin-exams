@@ -1,16 +1,24 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import type { ExamDayUploadSummary, StatusFollowupRow } from "@/lib/college-exam-situations";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { formatExamScheduleStudyLevelTierStageOnly } from "@/lib/college-study-stage-display";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import {
+  deleteSavedFollowupDayReportAction,
   deleteSituationFormSubmissionAction,
   deleteUploadedExamSituationAction,
   getDailyFinalSituationReportHtmlAction,
+  getDailyFullDayBothMealsReportHtmlAction,
+  getSavedFollowupDayReportHtmlAction,
+  saveFollowupDayReportsAction,
 } from "./actions";
+
+/** نوع جزء التقرير المحفوظ — محليًا لتجنّب استيراد أنواع من ملف الإجراءات (قد يسبب أخطاء وقت التشغيل مع Turbopack). */
+type SavedReportPart = "meal1" | "meal2" | "both";
 
 function openHtmlPrintWindow(html: string): boolean {
   const w = window.open("", "_blank");
@@ -54,6 +62,78 @@ function formatExamDateAr(isoDate: string): string {
   }
 }
 
+function formatSavedAtLabel(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      timeZone: "Asia/Baghdad",
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+function openHtmlPreviewWindow(html: string): boolean {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  try {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    return true;
+  } catch {
+    try {
+      w.close();
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
+type DayReportBundle = {
+  examDate: string;
+  meal1: boolean;
+  meal2: boolean;
+  both: boolean;
+};
+
+function buildDayReportBundles(
+  completedDays: ExamDayUploadSummary[],
+  fullDayBothMealsReadyDates: string[]
+): DayReportBundle[] {
+  const map = new Map<string, { meal1: boolean; meal2: boolean; both: boolean }>();
+  for (const d of completedDays) {
+    if (d.total_sessions <= 0 || d.uploaded_sessions < d.total_sessions) continue;
+    if (!map.has(d.exam_date)) {
+      map.set(d.exam_date, { meal1: false, meal2: false, both: false });
+    }
+    const b = map.get(d.exam_date)!;
+    if (d.meal_slot === 1) b.meal1 = true;
+    if (d.meal_slot === 2) b.meal2 = true;
+  }
+  for (const ed of fullDayBothMealsReadyDates) {
+    if (!map.has(ed)) {
+      map.set(ed, { meal1: false, meal2: false, both: false });
+    }
+    map.get(ed)!.both = true;
+  }
+  return [...map.entries()]
+    .map(([examDate, flags]) => ({ examDate, ...flags }))
+    .sort((a, b) => a.examDate.localeCompare(b.examDate));
+}
+
+export type FollowupSavedReportRowProps = {
+  id: string;
+  exam_date: string;
+  saved_at_iso: string;
+  has_meal_1: boolean;
+  has_meal_2: boolean;
+  has_both_meals: boolean;
+};
+
 function FollowupScheduleStudyLevelCell({ stageLevel, studyType }: { stageLevel: number; studyType: StudyType }) {
   return (
     <div className="min-w-[7.5rem] space-y-2 text-right">
@@ -75,10 +155,18 @@ export function StatusFollowupPanel({
   rows,
   collegeLabel,
   daySummaries,
+  /** يُحسب على الخادم — لا تستورد `college-exam-situations` في العميل (يربط حزمة `pg`). */
+  fullDayBothMealsReadyDates,
+  savedReports,
+  examDatesAlreadySaved,
 }: {
   rows: StatusFollowupRow[];
   collegeLabel: string;
   daySummaries: ExamDayUploadSummary[];
+  fullDayBothMealsReadyDates: string[];
+  savedReports: FollowupSavedReportRowProps[];
+  /** تواريخ امتحان سبق حفظ موقفها (منع التكرار في الواجهة). */
+  examDatesAlreadySaved: string[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -90,9 +178,19 @@ export function StatusFollowupPanel({
     (d) => d.total_sessions > 0 && d.uploaded_sessions < d.total_sessions
   );
 
-  function onPrintDailyReport(examDate: string) {
+  const dayBundles = useMemo(
+    () => buildDayReportBundles(completedDays, fullDayBothMealsReadyDates),
+    [completedDays, fullDayBothMealsReadyDates]
+  );
+
+  const savedDatesSet = useMemo(
+    () => new Set(examDatesAlreadySaved),
+    [examDatesAlreadySaved]
+  );
+
+  function onPrintDailyReport(examDate: string, mealSlot: 1 | 2) {
     startTransition(async () => {
-      const res = await getDailyFinalSituationReportHtmlAction(examDate);
+      const res = await getDailyFinalSituationReportHtmlAction(examDate, mealSlot);
       if (!res.ok) {
         window.alert(res.message);
         return;
@@ -100,6 +198,61 @@ export function StatusFollowupPanel({
       if (!openHtmlPrintWindow(res.html)) {
         window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
       }
+    });
+  }
+
+  function onPrintFullDayBothMealsReport(examDate: string) {
+    startTransition(async () => {
+      const res = await getDailyFullDayBothMealsReportHtmlAction(examDate);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      if (!openHtmlPrintWindow(res.html)) {
+        window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+      }
+    });
+  }
+
+  function onSaveFollowupDay(examDate: string) {
+    startTransition(async () => {
+      const res = await saveFollowupDayReportsAction(examDate);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      window.alert("تم حفظ التقارير المتاحة لهذا اليوم في «التقارير المحفوظة».");
+      router.refresh();
+    });
+  }
+
+  function onViewSavedReport(reportId: string, part: SavedReportPart, printAfter: boolean) {
+    startTransition(async () => {
+      const res = await getSavedFollowupDayReportHtmlAction(reportId, part);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      if (printAfter) {
+        if (!openHtmlPrintWindow(res.html)) {
+          window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+        }
+      } else if (!openHtmlPreviewWindow(res.html)) {
+        window.alert("تعذر فتح نافذة العرض. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+      }
+    });
+  }
+
+  function onDeleteSavedReport(reportId: string) {
+    const ok = window.confirm("حذف هذا السجل المحفوظ من التقارير؟ لا يمكن التراجع.");
+    if (!ok) return;
+    startTransition(async () => {
+      const res = await deleteSavedFollowupDayReportAction(reportId);
+      if (!res.ok) {
+        window.alert(res.message);
+        return;
+      }
+      router.refresh();
     });
   }
 
@@ -133,33 +286,71 @@ export function StatusFollowupPanel({
 
   return (
     <section className="space-y-6" dir="rtl">
-      {completedDays.length > 0 ? (
+      {dayBundles.length > 0 ? (
         <div
           className="space-y-3 rounded-[22px] border border-emerald-200/90 bg-gradient-to-b from-emerald-50/95 to-white px-5 py-4 shadow-sm"
           role="status"
         >
-          <p className="text-sm font-extrabold text-emerald-900">اكتمال مواقف يوم امتحاني</p>
-          <p className="text-sm leading-relaxed text-emerald-950/90">
-            للأيام التالية تم رفع موقف <strong>جميع</strong> المواد الامتحانية المجدولة (المرسلة أو المعتمدة في
-            الجداول). يمكنك طباعة <strong>التقرير النهائي</strong> لليوم أو حفظه كـ PDF من نافذة الطباعة.
-          </p>
-          <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            {completedDays.map((d) => (
-              <li
-                key={d.exam_date}
-                className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2"
-              >
-                <span className="text-sm font-semibold text-[#0F172A]">{formatExamDateAr(d.exam_date)}</span>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => onPrintDailyReport(d.exam_date)}
-                  className="rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#163170] disabled:opacity-50"
+          <p className="text-sm font-extrabold text-emerald-900">اكتمال مواقف وجبة امتحانية</p>
+          <ul className="flex flex-row flex-nowrap items-stretch gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
+            {dayBundles.map((bundle) => {
+              const alreadySaved = savedDatesSet.has(bundle.examDate);
+              return (
+                <li
+                  key={bundle.examDate}
+                  className="flex min-w-[11rem] shrink-0 flex-col items-stretch gap-1.5 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2"
                 >
-                  تقرير نهائي لليوم — طباعة / PDF
-                </button>
-              </li>
-            ))}
+                  <span className="text-center text-xs font-semibold leading-snug text-[#0F172A] sm:text-sm">
+                    {formatExamDateAr(bundle.examDate)}
+                  </span>
+                  <div className="flex flex-col gap-1">
+                    {bundle.meal1 ? (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => onPrintDailyReport(bundle.examDate, 1)}
+                        className="w-full rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-[#163170] disabled:opacity-50 sm:text-xs"
+                      >
+                        تقرير نهائي — {formatExamMealSlotLabel(1)} — طباعة / PDF
+                      </button>
+                    ) : null}
+                    {bundle.meal2 ? (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => onPrintDailyReport(bundle.examDate, 2)}
+                        className="w-full rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-[#163170] disabled:opacity-50 sm:text-xs"
+                      >
+                        تقرير نهائي — {formatExamMealSlotLabel(2)} — طباعة / PDF
+                      </button>
+                    ) : null}
+                    {bundle.both ? (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => onPrintFullDayBothMealsReport(bundle.examDate)}
+                        className="w-full rounded-lg border-2 border-emerald-800 bg-emerald-900 px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-emerald-950 disabled:opacity-50 sm:text-xs"
+                      >
+                        تقرير شامل — الوجبتان — طباعة / PDF
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={isPending || alreadySaved}
+                      title={
+                        alreadySaved
+                          ? "تم حفظ هذا اليوم — احذف من التقارير المحفوظة لإعادة الحفظ"
+                          : undefined
+                      }
+                      onClick={() => onSaveFollowupDay(bundle.examDate)}
+                      className="w-full rounded-lg border-2 border-slate-500 bg-slate-700 px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45 sm:text-xs"
+                    >
+                      حفظ الموقف
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -169,12 +360,15 @@ export function StatusFollowupPanel({
           className="rounded-[22px] border border-amber-200/90 bg-amber-50/60 px-5 py-4 text-sm text-amber-950/95"
           role="status"
         >
-          <p className="font-extrabold text-amber-900">متابعة رفع المواقف حسب اليوم</p>
+          <p className="font-extrabold text-amber-900">متابعة رفع المواقف حسب اليوم والوجبة</p>
           <ul className="mt-2 list-inside list-disc space-y-1">
             {inProgressDays.map((d) => (
-              <li key={d.exam_date}>
-                <span className="font-semibold">{formatExamDateAr(d.exam_date)}</span>: مرفوع {d.uploaded_sessions} من{" "}
-                {d.total_sessions} جلسة — عند اكتمال العدد يظهر تنبيه التقرير النهائي أعلاه.
+              <li key={`${d.exam_date}-${d.meal_slot}`}>
+                <span className="font-semibold">
+                  {formatExamDateAr(d.exam_date)} — {formatExamMealSlotLabel(d.meal_slot)}
+                </span>
+                : مرفوع {d.uploaded_sessions} من {d.total_sessions} جلسة — عند اكتمال هذه الوجبة يظهر زر التقرير
+                النهائي لها أعلاه.
               </li>
             ))}
           </ul>
@@ -195,6 +389,134 @@ export function StatusFollowupPanel({
           لإزالة السجل المعروض (نموذج أو تأكيد رفع جلسة حسب النوع).
         </p>
       </header>
+
+      <section className="space-y-3" aria-labelledby="saved-followup-reports-heading">
+        <h2 id="saved-followup-reports-heading" className="text-xl font-extrabold text-[#0F172A]">
+          التقارير المحفوظة
+        </h2>
+        <p className="text-xs text-[#64748B]">من «حفظ الموقف» — عرض أو طباعة / PDF لكل جزء محفوظ.</p>
+        <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
+          <table className="w-full min-w-[720px] border-collapse text-right">
+            <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
+              <tr className="border-b border-[#E2E8F0]">
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">تاريخ الحفظ</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">تاريخ الامتحان</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">ما تضمّنه</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">إجراءات</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {savedReports.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-[#64748B]">
+                    لا توجد تقارير محفوظة بعد. بعد اكتمال الوجبات استخدم «حفظ الموقف» أعلى الصفحة.
+                  </td>
+                </tr>
+              ) : (
+                savedReports.map((sr) => (
+                  <tr key={sr.id} className="bg-white transition-colors hover:bg-[#F8FAFC]">
+                    <td className="px-3 py-3 text-sm text-[#334155] sm:px-4">{formatSavedAtLabel(sr.saved_at_iso)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-[#0F172A] sm:px-4">
+                      {formatExamDateAr(sr.exam_date)}
+                    </td>
+                    <td className="px-3 py-3 sm:px-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        {sr.has_meal_1 ? (
+                          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900 ring-1 ring-sky-200">
+                            الوجبة الأولى
+                          </span>
+                        ) : null}
+                        {sr.has_meal_2 ? (
+                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-900 ring-1 ring-indigo-200">
+                            الوجبة الثانية
+                          </span>
+                        ) : null}
+                        {sr.has_both_meals ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900 ring-1 ring-emerald-200">
+                            شامل الوجبتين
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 sm:px-4">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {sr.has_meal_1 ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "meal1", false)}
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50 sm:text-[11px]"
+                            >
+                              عرض ١
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "meal1", true)}
+                              className="rounded-md border border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1 text-[10px] font-bold text-white hover:bg-[#163170] disabled:opacity-50 sm:text-[11px]"
+                            >
+                              PDF ١
+                            </button>
+                          </>
+                        ) : null}
+                        {sr.has_meal_2 ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "meal2", false)}
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50 sm:text-[11px]"
+                            >
+                              عرض ٢
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "meal2", true)}
+                              className="rounded-md border border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1 text-[10px] font-bold text-white hover:bg-[#163170] disabled:opacity-50 sm:text-[11px]"
+                            >
+                              PDF ٢
+                            </button>
+                          </>
+                        ) : null}
+                        {sr.has_both_meals ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "both", false)}
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50 sm:text-[11px]"
+                            >
+                              عرض شامل
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => onViewSavedReport(sr.id, "both", true)}
+                              className="rounded-md border border-emerald-800 bg-emerald-900 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-950 disabled:opacity-50 sm:text-[11px]"
+                            >
+                              PDF شامل
+                            </button>
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => onDeleteSavedReport(sr.id)}
+                          className="rounded-md border border-rose-300 bg-white px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50 sm:text-[11px]"
+                        >
+                          حذف
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="space-y-3" aria-labelledby="uploaded-situations-heading">
         <h2 id="uploaded-situations-heading" className="text-xl font-extrabold text-[#0F172A]">

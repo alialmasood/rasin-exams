@@ -605,6 +605,10 @@ export type ExamSituationDetail = UploadStatusTableRow & {
   invigilators: string;
   absence_names: string;
   notes: string | null;
+  /** الفصل الدراسي من الجدول الامتحاني (الأول / الثاني …) */
+  term_label: string | null;
+  /** اسم التدريسي من سجل المادة الدراسية */
+  instructor_name: string;
   /** سعة الدوام الصباحي للمادة المطابقة لهذا الجدول (من college_exam_rooms) */
   capacity_morning: number;
   /** سعة الدوام المسائي للمادة المطابقة لهذا الجدول */
@@ -649,6 +653,8 @@ type ExamSituationDetailDbRow = {
   branch_name: string;
   branch_head_name: string;
   academic_year: string | null;
+  term_label: string | null;
+  instructor_name: string | null;
   stage_level: number;
   head_submitted_at: Date | null;
   dean_status: string | null;
@@ -748,7 +754,8 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
               ELSE r.invigilators
             END AS invigilators,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
-            c.branch_name, c.branch_head_name, e.academic_year, e.stage_level,
+            TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
+            c.branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
             e.notes
      FROM college_exam_schedules e
@@ -823,6 +830,8 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     invigilators: row.invigilators ?? "",
     absence_names: row.absence_names ?? "",
     notes: row.notes,
+    term_label: row.term_label?.trim() ? row.term_label.trim() : null,
+    instructor_name: String(row.instructor_name ?? "").trim() || "—",
   };
 }
 
@@ -968,40 +977,78 @@ export async function getExamSituationBundleForOwner(
   return { sessions, active_schedule_id: scheduleId.trim(), aggregates };
 }
 
-/** جلسات يوم امتحاني مرفوع موقفها (للتقرير النهائي اليومي). */
+/** جلسات يوم امتحاني مرفوع موقفها (للتقرير النهائي اليومي). يُقيَّد بالوجبة عند التمرير `mealSlot`. */
 export async function listUploadedExamSituationDetailsForOwnerExamDate(
   ownerUserId: string,
-  examDate: string
+  examDate: string,
+  mealSlot?: 1 | 2
 ): Promise<ExamSituationDetail[]> {
   if (!isDatabaseConfigured()) return [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(examDate.trim())) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const mealClause =
+    mealSlot === 1 || mealSlot === 2 ? `AND COALESCE(e.meal_slot, 1) = $3::smallint` : "";
+  const params: unknown[] =
+    mealSlot === 1 || mealSlot === 2
+      ? [ownerUserId, examDate.trim(), mealSlot]
+      : [ownerUserId, examDate.trim()];
   const r = await pool.query<ExamSituationDetailDbRow>(
     `${EXAM_SITUATION_DETAIL_SQL_BASE}
      WHERE e.owner_user_id = $1
        AND e.exam_date = $2::date
        AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
        AND rep.head_submitted_at IS NOT NULL
+       ${mealClause}
      ORDER BY e.start_time ASC, e.created_at ASC`,
-    [ownerUserId, examDate.trim()]
+    params
   );
   return r.rows.map(mapDbRowToExamSituationDetail);
 }
 
 export type ExamDayUploadSummary = {
   exam_date: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  meal_slot: 1 | 2;
   total_sessions: number;
   uploaded_sessions: number;
 };
 
-/** عدد جلسات كل يوم (المرسلة/المعتمدة في الجدول) مقابل المرفوع موقفها. */
+/** تواريخ يكون فيها للوجبتين جلسات مجدولة وقد اكتمل رفع موقف كل جلسة فيهما (لتقرير يوم كامل شامل). */
+export function listExamDatesWithBothMealsFullyComplete(summaries: ExamDayUploadSummary[]): string[] {
+  const byDate = new Map<string, Map<1 | 2, { total: number; uploaded: number }>>();
+  for (const s of summaries) {
+    if (!byDate.has(s.exam_date)) byDate.set(s.exam_date, new Map());
+    byDate.get(s.exam_date)!.set(s.meal_slot, {
+      total: s.total_sessions,
+      uploaded: s.uploaded_sessions,
+    });
+  }
+  const out: string[] = [];
+  for (const [examDate, slots] of byDate) {
+    const m1 = slots.get(1);
+    const m2 = slots.get(2);
+    if (!m1 || m1.total <= 0 || !m2 || m2.total <= 0) continue;
+    if (m1.uploaded < m1.total || m2.uploaded < m2.total) continue;
+    out.push(examDate);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+/** عدد جلسات كل يوم ولكل وجبة (المرسلة/المعتمدة في الجدول) مقابل المرفوع موقفها — للمتابعة والتقرير لكل وجبة على حدة. */
 export async function listExamDayUploadSummariesForOwner(ownerUserId: string): Promise<ExamDayUploadSummary[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
-  const r = await pool.query<{ exam_date: string; total_sessions: string; uploaded_sessions: string }>(
+  const r = await pool.query<{
+    exam_date: string;
+    meal_slot: number | string | null;
+    total_sessions: string;
+    uploaded_sessions: string;
+  }>(
     `SELECT e.exam_date::text AS exam_date,
+            COALESCE(e.meal_slot, 1) AS meal_slot,
             COUNT(*)::text AS total_sessions,
             SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
      FROM college_exam_schedules e
@@ -1009,12 +1056,13 @@ export async function listExamDayUploadSummariesForOwner(ownerUserId: string): P
             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
      WHERE e.owner_user_id = $1
        AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
-     GROUP BY e.exam_date
-     ORDER BY e.exam_date ASC`,
+     GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
+     ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`,
     [ownerUserId]
   );
   return r.rows.map((row) => ({
     exam_date: row.exam_date,
+    meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
     total_sessions: Number(row.total_sessions ?? 0),
     uploaded_sessions: Number(row.uploaded_sessions ?? 0),
   }));

@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 import type { CollegeStatisticsPageData } from "@/lib/college-statistics-page";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 const BORDER = "#E2E8F0";
 const MUTED = "#64748B";
@@ -726,10 +727,11 @@ export function CollegeStatisticsPanel({
             )}
           </ChartCard>
         </div>
-        <ReportTable caption="ملخص الرفع لكل يوم امتحان (جلسات مرفوعة للمتابعة أو معتمدة فقط)">
+        <ReportTable caption="ملخص الرفع لكل يوم امتحان ووجبة (جلسات مرفوعة للمتابعة أو معتمدة فقط)">
           <thead>
             <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs font-bold text-[#475569]">
               <th className="px-4 py-3">تاريخ الامتحان</th>
+              <th className="px-4 py-3">الوجبة</th>
               <th className="px-4 py-3 tabular-nums">إجمالي الجلسات</th>
               <th className="px-4 py-3 tabular-nums">بعد تأكيد الرفع</th>
               <th className="px-4 py-3 tabular-nums">المتبقي</th>
@@ -738,7 +740,7 @@ export function CollegeStatisticsPanel({
           <tbody className="divide-y divide-[#F1F5F9]">
             {dayUploads.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-sm text-[#64748B]">
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-[#64748B]">
                   لا توجد جلسات في حالة مرفوع/معتمد، أو لا توجد أيام مجدولة بعد.
                 </td>
               </tr>
@@ -746,8 +748,9 @@ export function CollegeStatisticsPanel({
               dayUploads.map((d) => {
                 const rest = Math.max(0, d.total_sessions - d.uploaded_sessions);
                 return (
-                  <tr key={d.exam_date}>
+                  <tr key={`${d.exam_date}-${d.meal_slot}`}>
                     <td className="px-4 py-2.5 font-medium text-[#0F172A]">{d.exam_date}</td>
+                    <td className="px-4 py-2.5 text-[#334155]">{formatExamMealSlotLabel(d.meal_slot)}</td>
                     <td className="px-4 py-2.5 tabular-nums">{formatNum(d.total_sessions)}</td>
                     <td className="px-4 py-2.5 tabular-nums">{formatNum(d.uploaded_sessions)}</td>
                     <td className="px-4 py-2.5 tabular-nums text-[#64748B]">{formatNum(rest)}</td>

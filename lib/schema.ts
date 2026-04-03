@@ -261,6 +261,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeHolidaysTable(pool);
   await ensureCollegeExamSituationReportsTable(pool);
   await ensureCollegeSituationFormSubmissionsTable(pool);
+  await ensureCollegeFollowupSavedDayReportsTable(pool);
 
   await createIndexSafe(
     pool,
@@ -968,6 +969,44 @@ async function ensureCollegeExamSituationReportsTable(pool: Pool) {
       if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
     }
   }
+}
+
+/** لقطات HTML للتقارير النهائية اليومية (متابعة المواقف) — للرجوع إليها لاحقاً. */
+async function ensureCollegeFollowupSavedDayReportsTable(pool: Pool) {
+  const userIdType = await getUsersIdSqlType(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS college_followup_saved_day_reports (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id ${userIdType} NOT NULL,
+      exam_date DATE NOT NULL,
+      meal_1_html TEXT,
+      meal_2_html TEXT,
+      both_meals_html TEXT,
+      saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  if (!(await constraintExists(pool, "college_followup_saved_day_reports_owner_user_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_followup_saved_day_reports
+        ADD CONSTRAINT college_followup_saved_day_reports_owner_user_id_fkey
+        FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+  await createIndexSafe(
+    pool,
+    "idx_followup_saved_day_owner_saved",
+    "CREATE INDEX IF NOT EXISTS idx_followup_saved_day_owner_saved ON college_followup_saved_day_reports (owner_user_id, saved_at DESC)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_followup_saved_day_owner_exam",
+    "CREATE INDEX IF NOT EXISTS idx_followup_saved_day_owner_exam ON college_followup_saved_day_reports (owner_user_id, exam_date DESC)"
+  );
 }
 
 async function widenUsersRoleCheckForCollege(pool: Pool) {

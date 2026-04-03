@@ -179,10 +179,12 @@ function uploadStatusListItemExamFields(item: UploadStatusListItem): {
 /** إحصاءات بطاقات لوحة «رفع الموقف» — نفس منطق دمج الجلسات متعددة القاعات */
 export function computeUploadStatusDashboardStats(
   allRows: UploadStatusTableRow[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** إن وُجد، يُحسب «بانتظار الرفع» من هذه المجموعة بدل كل غير المرفوع من `allRows`. */
+  pendingRowsOverride?: UploadStatusTableRow[]
 ): UploadStatusDashboardStats {
   const today = calendarDateInTimeZone(now, EXAM_SITUATION_TZ);
-  const pendingRows = allRows.filter((r) => !r.is_uploaded);
+  const pendingRows = pendingRowsOverride ?? allRows.filter((r) => !r.is_uploaded);
   const pendingItems = buildUploadStatusListItems(pendingRows);
   let pendingWindowNotOpen = 0;
   let pendingWindowOpenOrLate = 0;

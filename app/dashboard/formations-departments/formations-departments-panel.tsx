@@ -474,7 +474,10 @@ function FormationExamScheduleDetailBlock({
 }
 
 function FormationCard({ f }: { f: FormationControlSnapshot }) {
-  const scheduleFinalized = f.schedules_submitted + f.schedules_approved;
+  /** جلسات خرجت من المسودة (مرفوع + معتمد + مرفوض) — يطابق النص في قسم «الجداول الامتحانية» */
+  const schedulePastDraft = f.schedules_total - f.schedules_draft;
+  /** مطابقة تقويم الكلية: هناك «مرفوع» = جلسات معتمدة أو مرفوعة للمتابعة (ليست مسودة ولا مرفوضة فقط) */
+  const schedulePublishedLikeCalendar = f.schedules_submitted + f.schedules_approved;
   const studyTypes: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA"];
   const activeStudyTypes = studyTypes.filter((t) => (f.study_subjects_by_type[t] ?? 0) > 0);
   const supShow = f.supervisors_unique.slice(0, 12);
@@ -497,7 +500,7 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
           <span className="rounded-lg bg-[#F1F5F9] px-2 py-1 tabular-nums">مواد {formatNum(f.study_subjects_total)}</span>
           <span className="rounded-lg bg-[#F1F5F9] px-2 py-1 tabular-nums">قاعات {formatNum(f.exam_rooms_count)}</span>
           <span className="rounded-lg bg-[#EFF6FF] px-2 py-1 tabular-nums text-[#1E3A8A]">
-            جدول: {formatNum(scheduleFinalized)}/{formatNum(f.schedules_total)}
+            جدول: {formatNum(schedulePastDraft)}/{formatNum(f.schedules_total)}
           </span>
           <span className="rounded-lg bg-[#FEF3C7] px-2 py-1 tabular-nums text-[#92400E]">
             موقف مرفوع {formatNum(f.situation_head_submitted)} · معلّق {formatNum(f.situation_pending_after_schedule)}
@@ -729,13 +732,16 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
             <div className="mb-3 flex flex-wrap gap-2 text-[11px] font-semibold">
               <Pill tone="slate">إجمالي الجلسات: {formatNum(f.schedules_total)}</Pill>
               <Pill tone="amber">مسودة: {formatNum(f.schedules_draft)}</Pill>
-              <Pill tone="emerald">مرفوع: {formatNum(f.schedules_submitted)}</Pill>
-              <Pill tone="emerald">معتمد: {formatNum(f.schedules_approved)}</Pill>
+              <Pill tone="emerald">مرفوع: {formatNum(schedulePublishedLikeCalendar)}</Pill>
               <Pill tone="rose">مرفوض: {formatNum(f.schedules_rejected)}</Pill>
             </div>
             <p className="text-xs leading-relaxed text-[#64748B]">
-              «مكتمل في الجدول» هنا يعني الجلسات التي خرجت من المسودة: مرفوعة للمتابعة أو معتمدة أو مرفوضة (
-              {formatNum(f.schedules_total - f.schedules_draft)} من {formatNum(f.schedules_total)}).
+              «مرفوع» هنا بنفس منطق تقويم الكلية: جلسات بحالة معتمد أو مرفوع للمتابعة (الجديدة تُحفظ غالباً معتمدة مباشرة).
+              التفصيل: معتمد {formatNum(f.schedules_approved)} · مرفوع للمتابعة فقط {formatNum(f.schedules_submitted)}.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-[#64748B]">
+              «مكتمل في الجدول» أي خرجت من المسودة: مرفوعة للمتابعة أو معتمدة أو مرفوضة (
+              {formatNum(schedulePastDraft)} من {formatNum(f.schedules_total)}).
             </p>
           </Section>
 

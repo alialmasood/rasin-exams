@@ -1,7 +1,19 @@
 "use client";
 
 import { logoutAction } from "@/app/dashboard/actions";
-import { refreshCentralTrackingAction } from "@/app/tracking/actions";
+import type {
+  FollowupExamSituationBundleJson,
+  FollowupFormationScheduleDayRow,
+} from "@/app/tracking/actions";
+import { FollowupSituationBundleModal } from "@/app/tracking/followup-situation-bundle-modal";
+import { FormationScheduleDayModal } from "@/app/tracking/formation-schedule-day-modal";
+import {
+  getFollowupExamSituationBundleAction,
+  getFollowupFormationExamSchedulesForDateAction,
+  getFollowupFormationFullDayBothMealsReportHtmlAction,
+  getFollowupFormationMealDailyReportHtmlAction,
+  refreshCentralTrackingAction,
+} from "@/app/tracking/actions";
 import { participationExportNowLabel } from "@/lib/admin-exam-participation-export";
 import {
   buildCentralTrackingReportPrintHtml,
@@ -65,9 +77,13 @@ function highAbsence(row: CentralTrackingExamRow): boolean {
   return row.absencesCount / c >= 0.15;
 }
 
+function headSituationSent(r: CentralTrackingExamRow): boolean {
+  return Boolean(r.headSubmittedAtIso);
+}
+
 /** تمييز صف الجدول: عدم رفع الموقف أولاً، ثم غياب مرتفع */
 function trackingRowVisual(r: CentralTrackingExamRow): "notSubmitted" | "highAbsence" | "normal" {
-  if (r.reportStatus === "NOT_SUBMITTED") return "notSubmitted";
+  if (!headSituationSent(r)) return "notSubmitted";
   if (highAbsence(r)) return "highAbsence";
   return "normal";
 }
@@ -96,7 +112,7 @@ function operationalAlertCount(r: CentralTrackingExamRow[], now: Date): number {
         n++;
       }
     }
-    if (row.reportStatus === "NOT_SUBMITTED" && examEnded(row, now)) {
+    if (!headSituationSent(row) && examEnded(row, now)) {
       const id = `late-${row.scheduleId}`;
       if (!seen.has(id)) {
         seen.add(id);
@@ -111,11 +127,11 @@ function examSituationLevel(
   r: CentralTrackingExamRow[],
   now: Date
 ): { tone: SemanticTone; labelAr: string } {
-  const anyLateCritical = r.some((x) => x.reportStatus === "NOT_SUBMITTED" && examEnded(x, now));
+  const anyLateCritical = r.some((x) => !headSituationSent(x) && examEnded(x, now));
   if (anyLateCritical) {
     return { tone: "danger", labelAr: "تحتاج تدخل" };
   }
-  const anyMissing = r.some((x) => x.reportStatus === "NOT_SUBMITTED");
+  const anyMissing = r.some((x) => !headSituationSent(x));
   const anyPending = r.some((x) => x.reportStatus === "PENDING");
   const alerts = operationalAlertCount(r, now);
   if (anyMissing || anyPending || alerts > 0) {
@@ -176,32 +192,50 @@ function formatLastRefreshLabel(seconds: number, loading: boolean): string {
   return `قبل ${h} ساعة`;
 }
 
-/** شارات حالة رسمية — نقطة لونية + نص */
-function trackingStatusMonitorBadge(r: CentralTrackingExamRow, now: Date) {
-  const late = r.reportStatus === "NOT_SUBMITTED" && examEnded(r, now);
+/** شارات حالة رسمية — نقطة لونية + نص (الأخضر عند تأكيد رفع الموقف من رئيس القسم، بغضّ النظر عن اعتماد العميد) */
+function trackingStatusMonitorBadge(
+  r: CentralTrackingExamRow,
+  now: Date,
+  opts?: { onSentClick?: () => void }
+) {
+  const sent = Boolean(r.headSubmittedAtIso);
+  const late = !sent && r.reportStatus === "NOT_SUBMITTED" && examEnded(r, now);
 
-  if (r.reportStatus === "SUBMITTED") {
-    return (
-      <span className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-teal-600/25 bg-teal-50/80 px-2.5 py-1 text-[11px] font-semibold text-teal-900 sm:text-xs">
-        <span className="size-1.5 shrink-0 rounded-full bg-teal-600" aria-hidden />
-        تم الرفع
-      </span>
-    );
+  const sentBadge = (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-emerald-600/30 bg-emerald-50/90 px-2.5 py-1 text-[11px] font-semibold text-emerald-950 sm:text-xs">
+      <span className="size-1.5 shrink-0 rounded-full bg-emerald-600" aria-hidden />
+      تم إرسال الموقف الامتحاني
+    </span>
+  );
+
+  if (sent) {
+    if (opts?.onSentClick) {
+      return (
+        <button
+          type="button"
+          onClick={opts.onSentClick}
+          className="cursor-pointer rounded-md text-start transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+        >
+          {sentBadge}
+        </button>
+      );
+    }
+    return sentBadge;
   }
 
   if (late) {
     return (
       <span className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-rose-500/35 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-900 sm:text-xs">
         <span className="size-1.5 shrink-0 rounded-full bg-rose-600" aria-hidden />
-        متأخر
+        متأخر — لم يتم إرسال الموقف
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-amber-500/30 bg-amber-50/90 px-2.5 py-1 text-[11px] font-semibold text-amber-950 sm:text-xs">
-      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
-      قيد الانتظار
+    <span className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-rose-500/25 bg-rose-50/80 px-2.5 py-1 text-[11px] font-semibold text-rose-950 sm:text-xs">
+      <span className="size-1.5 shrink-0 rounded-full bg-rose-600" aria-hidden />
+      لم يتم إرسال الموقف الامتحاني
     </span>
   );
 }
@@ -262,6 +296,37 @@ function examDateLongAr(isoDate: string): string {
     }).format(new Date(`${isoDate}T12:00:00`));
   } catch {
     return isoDate;
+  }
+}
+
+function openHtmlPrintWindow(html: string): boolean {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  try {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    const runPrint = () => {
+      try {
+        w.print();
+      } catch {
+        window.alert("تعذر بدء الطباعة. جرّب متصفحاً آخر أو أعد المحاولة.");
+      }
+    };
+    if (w.document.readyState === "complete") {
+      window.setTimeout(runPrint, 120);
+    } else {
+      w.addEventListener("load", () => window.setTimeout(runPrint, 120), { once: true });
+    }
+    return true;
+  } catch {
+    try {
+      w.close();
+    } catch {
+      /* ignore */
+    }
+    return false;
   }
 }
 
@@ -329,6 +394,65 @@ function groupCollegePanels(rows: CentralTrackingExamRow[]) {
   pending.sort((a, b) => a.localeCompare(b, "ar"));
   submitted.sort((a, b) => a.localeCompare(b, "ar"));
   return { notSubmitted, pending, submitted };
+}
+
+/** صف ملخص إرسال الموقف لكل تشكيل ووجبة — يوم العرض الكامل (غير متأثر بتصفية الجدول التفصيلي). */
+function buildFormationExamDayTable(rows: CentralTrackingExamRow[]): {
+  formationCount: number;
+  rowsOut: {
+    collegeName: string;
+    meal1Status: string;
+    meal2Status: string;
+    hasMeal1Sessions: boolean;
+    hasMeal2Sessions: boolean;
+    meal1Complete: boolean;
+    meal2Complete: boolean;
+    finalReportsReady: boolean;
+    /** جلسات للوجبتين واكتمال إرسال مواقفهما — يتاح عندها التقرير الشامل كما في متابعة المواقف. */
+    fullDayBothMealsReportReady: boolean;
+  }[];
+} {
+  const byCollege = new Map<string, CentralTrackingExamRow[]>();
+  for (const r of rows) {
+    if (!byCollege.has(r.collegeName)) byCollege.set(r.collegeName, []);
+    byCollege.get(r.collegeName)!.push(r);
+  }
+  const statusForMeal = (list: CentralTrackingExamRow[]): { text: string; complete: boolean } => {
+    if (list.length === 0) return { text: "—", complete: true };
+    const complete = list.every(headSituationSent);
+    return {
+      text: complete ? "تم إرسال الموقف الامتحاني" : "لم يتم إرسال الموقف الامتحاني",
+      complete,
+    };
+  };
+  const rowsOut = [...byCollege.entries()]
+    .map(([collegeName, list]) => {
+      const m1 = list.filter((x) => x.mealSlot === 1);
+      const m2 = list.filter((x) => x.mealSlot === 2);
+      const s1 = statusForMeal(m1);
+      const s2 = statusForMeal(m2);
+      const hasMeal1Sessions = m1.length > 0;
+      const hasMeal2Sessions = m2.length > 0;
+      const finalReportsReady =
+        (hasMeal1Sessions || hasMeal2Sessions) &&
+        (!hasMeal1Sessions || s1.complete) &&
+        (!hasMeal2Sessions || s2.complete);
+      const fullDayBothMealsReportReady =
+        hasMeal1Sessions && hasMeal2Sessions && s1.complete && s2.complete;
+      return {
+        collegeName,
+        meal1Status: s1.text,
+        meal2Status: s2.text,
+        hasMeal1Sessions,
+        hasMeal2Sessions,
+        meal1Complete: s1.complete,
+        meal2Complete: s2.complete,
+        finalReportsReady,
+        fullDayBothMealsReportReady,
+      };
+    })
+    .sort((a, b) => a.collegeName.localeCompare(b.collegeName, "ar"));
+  return { formationCount: rowsOut.length, rowsOut };
 }
 
 /** قائمة إجراءات مدمجة (توفير عرض الجدول) — منفذة إلى `document` لتفادي القص داخل منطقة scroll */
@@ -429,7 +553,7 @@ function SessionRowActionsMenu({
       <button
         ref={btnRef}
         type="button"
-        className="flex size-8 items-center justify-center rounded-lg border border-stone-200 bg-white text-stone-500 shadow-sm transition hover:bg-stone-50 hover:text-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-1"
+        className="flex size-8 items-center justify-center rounded-lg border-0 bg-transparent text-stone-500 transition hover:bg-stone-100/80 hover:text-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2"
         aria-expanded={isOpen}
         aria-haspopup="menu"
         aria-label={`إجراءات الجلسة — ${row.subject}`}
@@ -465,6 +589,16 @@ export function CentralTrackingDashboard({
   const [clock, setClock] = useState(() => new Date());
   const [detail, setDetail] = useState<CentralTrackingExamRow | null>(null);
   const [actionMenuScheduleId, setActionMenuScheduleId] = useState<string | null>(null);
+  const [formationScheduleModal, setFormationScheduleModal] = useState<{
+    formationName: string;
+    rows: FollowupFormationScheduleDayRow[];
+    loading: boolean;
+  } | null>(null);
+  const [situationBundleModal, setSituationBundleModal] = useState<{
+    bundle: FollowupExamSituationBundleJson;
+    collegeLabel: string;
+    deanName: string;
+  } | null>(null);
   const [collegeFilter, setCollegeFilter] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
   const [examTypeFilter, setExamTypeFilter] = useState<ExamTypeFilter>("ALL");
@@ -488,6 +622,76 @@ export function CentralTrackingDashboard({
       setLoading(false);
     }
   }, []);
+
+  const openFormationExamSchedule = useCallback(
+    (formationName: string) => {
+      setFormationScheduleModal({ formationName, rows: [], loading: true });
+      void (async () => {
+        const res = await getFollowupFormationExamSchedulesForDateAction(formationName, examDate);
+        if (!res.ok) {
+          window.alert(res.message);
+          setFormationScheduleModal(null);
+          return;
+        }
+        setFormationScheduleModal({
+          formationName: res.formationLabel,
+          rows: res.rows,
+          loading: false,
+        });
+      })();
+    },
+    [examDate]
+  );
+
+  const openFormationMealDailyReport = useCallback(
+    (formationName: string, mealSlot: 1 | 2) => {
+      void (async () => {
+        const res = await getFollowupFormationMealDailyReportHtmlAction(formationName, examDate, mealSlot);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        if (!openHtmlPrintWindow(res.html)) {
+          window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+        }
+      })();
+    },
+    [examDate]
+  );
+
+  const openFormationFullDayBothMealsReport = useCallback(
+    (formationName: string) => {
+      void (async () => {
+        const res = await getFollowupFormationFullDayBothMealsReportHtmlAction(formationName, examDate);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        if (!openHtmlPrintWindow(res.html)) {
+          window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+        }
+      })();
+    },
+    [examDate]
+  );
+
+  const openSessionSituationBundle = useCallback(
+    (row: CentralTrackingExamRow) => {
+      void (async () => {
+        const res = await getFollowupExamSituationBundleAction(row.scheduleId, examDate);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        setSituationBundleModal({
+          bundle: res.bundle,
+          collegeLabel: res.collegeLabel,
+          deanName: res.deanName,
+        });
+      })();
+    },
+    [examDate]
+  );
 
   const secondsSinceRefresh = useMemo(
     () => Math.max(0, Math.floor((clock.getTime() - lastRefreshAt) / 1000)),
@@ -555,6 +759,7 @@ export function CentralTrackingDashboard({
   const commandAlertCount = useMemo(() => operationalAlertCount(rows, clock), [rows, clock]);
 
   const panels = useMemo(() => groupCollegePanels(rows), [rows]);
+  const formationExamDayTable = useMemo(() => buildFormationExamDayTable(rows), [rows]);
 
   /** تنبيهات بصيغة «غرفة القيادة» — عنوان + تفاصيل */
   const systemAlerts = useMemo(() => {
@@ -734,7 +939,7 @@ export function CentralTrackingDashboard({
                   طباعة / PDF رسمي
                 </button>
                 {loading ? (
-                  <span className="text-[10px] font-medium text-stone-500 sm:text-xs">جاري تحديث البيانات…</span>
+                  <span className="text-[10px] font-medium text-stone-500 sm:text-xs">جاري تحديث التشكيلات والتقارير…</span>
                 ) : (
                   <span className="text-[10px] text-stone-500 sm:text-xs">تحديث تلقائي كل ٣٠ ثانية</span>
                 )}
@@ -818,7 +1023,7 @@ export function CentralTrackingDashboard({
                 onClick={() => void loadDate(examDate)}
                 className="w-full rounded border border-[#1a3052] bg-[#1e4976] px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 sm:py-2"
               >
-                تحديث البيانات
+                التشكيلات والتقارير
               </button>
             </div>
           </div>
@@ -990,7 +1195,134 @@ export function CentralTrackingDashboard({
             </div>
           </aside>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-5">
+            <section
+              className="overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm shadow-stone-200/30"
+              aria-label="ملخص التشكيلات ليوم الامتحان"
+            >
+              <div className="border-b border-[#1a3052]/15 bg-gradient-to-l from-sky-50/85 to-amber-50/25 px-3 py-2.5 sm:px-4 sm:py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 gap-y-1">
+                  <h2 className="text-xs font-extrabold text-[#1a3052] sm:text-sm">
+                    التشكيلات التي لها امتحان في يوم العرض
+                  </h2>
+                  <p className="text-[11px] font-bold text-stone-700 sm:text-xs" suppressHydrationWarning>
+                    <span className="text-stone-500">التاريخ:</span> {examDateLongAr(examDate)}
+                  </p>
+                </div>
+                <p className="mt-2 text-[11px] font-semibold text-[#1a3052] sm:text-xs">
+                  عدد التشكيلات التي لها امتحان لهذا اليوم:{" "}
+                  <span className="tabular-nums text-stone-900">{formationExamDayTable.formationCount}</span>
+                </p>
+              </div>
+              <div className="max-h-[min(40vh,22rem)] overflow-auto bg-white">
+                <table className="w-full min-w-[640px] border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 border-b border-stone-200 bg-stone-100/95 text-[11px] font-bold text-[#1a3052] backdrop-blur-sm sm:text-xs">
+                    <tr>
+                      <th className="px-3 py-2 text-start sm:px-4 sm:py-2.5">اسم التشكيل / الكلية</th>
+                      <th className="px-3 py-2 text-start sm:px-4 sm:py-2.5">الوجبة الأولى</th>
+                      <th className="px-3 py-2 text-start sm:px-4 sm:py-2.5">الوجبة الثانية</th>
+                      <th className="px-3 py-2 text-start sm:px-4 sm:py-2.5">التقرير النهائي</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formationExamDayTable.rowsOut.length === 0 ? (
+                      <tr className="border-b border-stone-100">
+                        <td colSpan={4} className="px-4 py-8 text-center text-sm font-medium text-stone-500">
+                          لا توجد تشكيلات بجلسات امتحانية مسجّلة لهذا اليوم في النطاق الحالي.
+                        </td>
+                      </tr>
+                    ) : (
+                      formationExamDayTable.rowsOut.map((fr) => (
+                        <tr key={fr.collegeName} className="border-b border-stone-100 hover:bg-stone-50/60">
+                          <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => openFormationExamSchedule(fr.collegeName)}
+                              className="text-start font-bold text-[#1a3052] underline decoration-[#1a3052]/30 decoration-2 underline-offset-2 transition hover:decoration-[#1a3052] hover:text-[#0f2744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+                            >
+                              {fr.collegeName}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                            {!fr.hasMeal1Sessions ? (
+                              <span className="text-[11px] text-stone-400 sm:text-xs">—</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (fr.meal1Complete) openFormationMealDailyReport(fr.collegeName, 1);
+                                  else
+                                    window.alert(
+                                      "لم يكتمل رفع مواقف هذه الوجبة بعد. بعد تأكيد رفع كل الجلسات يمكن فتح التقرير النهائي للوجبة (نفس قالب متابعة المواقف)."
+                                    );
+                                }}
+                                className="flex max-w-full items-start gap-2 rounded-md text-start text-[11px] font-medium leading-snug transition hover:bg-stone-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 sm:text-xs"
+                              >
+                                <span
+                                  className={`mt-1.5 size-2 shrink-0 rounded-full ${fr.meal1Complete ? "bg-emerald-600" : "bg-rose-600"}`}
+                                  aria-hidden
+                                />
+                                <span className={fr.meal1Complete ? "text-emerald-950" : "text-rose-950"}>
+                                  {fr.meal1Status}
+                                </span>
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                            {!fr.hasMeal2Sessions ? (
+                              <span className="text-[11px] text-stone-400 sm:text-xs">—</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (fr.meal2Complete) openFormationMealDailyReport(fr.collegeName, 2);
+                                  else
+                                    window.alert(
+                                      "لم يكتمل رفع مواقف هذه الوجبة بعد. بعد تأكيد رفع كل الجلسات يمكن فتح التقرير النهائي للوجبة (نفس قالب متابعة المواقف)."
+                                    );
+                                }}
+                                className="flex max-w-full items-start gap-2 rounded-md text-start text-[11px] font-medium leading-snug transition hover:bg-stone-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 sm:text-xs"
+                              >
+                                <span
+                                  className={`mt-1.5 size-2 shrink-0 rounded-full ${fr.meal2Complete ? "bg-emerald-600" : "bg-rose-600"}`}
+                                  aria-hidden
+                                />
+                                <span className={fr.meal2Complete ? "text-emerald-950" : "text-rose-950"}>
+                                  {fr.meal2Status}
+                                </span>
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                            {fr.fullDayBothMealsReportReady ? (
+                              <button
+                                type="button"
+                                onClick={() => openFormationFullDayBothMealsReport(fr.collegeName)}
+                                className="w-full max-w-[16rem] rounded-lg border-2 border-emerald-800 bg-emerald-900 px-2 py-1.5 text-center text-[10px] font-bold leading-snug text-white transition hover:bg-emerald-950 sm:text-[11px]"
+                              >
+                                تقرير شامل — الوجبتان — طباعة / PDF
+                              </button>
+                            ) : fr.finalReportsReady ? (
+                              <span className="text-[10px] leading-snug text-stone-600 sm:text-[11px]">
+                                التقرير الشامل يتاح عند وجود جلسات للوجبتين واكتمال إرسال مواقفهما. إن وُجدت وجبة
+                                واحدة فقط أو لم تكتمل إحداهما، استخدم عمودي الوجبة أعلاه لطباعة التقرير النهائي لكل
+                                وجبة.
+                              </span>
+                            ) : (
+                              <span className="text-[10px] leading-snug text-stone-500 sm:text-[11px]">
+                                بانتظار اكتمال رفع المواقف لكل الوجبات التي لها جلسات في هذا اليوم (نفس شرط صفحة
+                                متابعة المواقف).
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <section
               className="overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm shadow-stone-200/30"
               aria-label="جدول الجلسات"
@@ -1003,7 +1335,11 @@ export function CentralTrackingDashboard({
                 <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-[10px] text-stone-600 sm:text-[11px]">
                   <li className="flex items-center gap-1.5 font-medium">
                     <span className="size-2 rounded-full bg-rose-600" aria-hidden />
-                    موقف غير مُرفوع
+                    لم يُرسَل الموقف (حد الصف)
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="size-2 rounded-full bg-emerald-600" aria-hidden />
+                    تم إرسال الموقف — اضغط الشارة لعرض التقرير
                   </li>
                   <li className="flex items-center gap-1.5 font-medium">
                     <span className="size-2 rounded-full bg-amber-500" aria-hidden />
@@ -1076,7 +1412,15 @@ export function CentralTrackingDashboard({
                         const rowVis = trackingRowVisual(r);
                         return (
                           <tr key={r.scheduleId} className={trackingRowClass(rowVis)}>
-                            <td className="px-3 py-2 font-semibold text-[#1a3052] sm:px-4 sm:py-2.5">{r.collegeName}</td>
+                            <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => openFormationExamSchedule(r.collegeName)}
+                                className="text-start font-semibold text-[#1a3052] underline decoration-[#1a3052]/25 decoration-2 underline-offset-2 transition hover:decoration-[#1a3052] hover:text-[#0f2744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+                              >
+                                {r.collegeName}
+                              </button>
+                            </td>
                             <td className="px-3 py-2 text-stone-700 sm:px-4 sm:py-2.5">{r.department}</td>
                             <td className="px-3 py-2 font-medium text-stone-900 sm:px-4 sm:py-2.5">{r.subject}</td>
                             <td className="px-3 py-2 tabular-nums text-stone-700 sm:px-4 sm:py-2.5">{r.studyStageLabel}</td>
@@ -1095,7 +1439,13 @@ export function CentralTrackingDashboard({
                             <td className="px-3 py-2 text-center tabular-nums text-stone-700 sm:px-4 sm:py-2.5">
                               {r.roomsCount}
                             </td>
-                            <td className="px-3 py-2 sm:px-4 sm:py-2.5">{trackingStatusMonitorBadge(r, clock)}</td>
+                            <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+                              {trackingStatusMonitorBadge(r, clock, {
+                                onSentClick: headSituationSent(r)
+                                  ? () => openSessionSituationBundle(r)
+                                  : undefined,
+                              })}
+                            </td>
                             <td className="px-1 py-2 sm:px-2">
                               <SessionRowActionsMenu
                                 row={r}
@@ -1149,6 +1499,24 @@ export function CentralTrackingDashboard({
           </div>
         </div>
       ) : null}
+
+      <FormationScheduleDayModal
+        open={formationScheduleModal !== null}
+        onClose={() => setFormationScheduleModal(null)}
+        formationLabel={formationScheduleModal?.formationName ?? ""}
+        examDateIso={examDate}
+        examDateLongAr={examDateLongAr(examDate)}
+        rows={formationScheduleModal?.rows ?? []}
+        loading={formationScheduleModal?.loading ?? false}
+      />
+
+      <FollowupSituationBundleModal
+        open={situationBundleModal !== null}
+        onClose={() => setSituationBundleModal(null)}
+        bundle={situationBundleModal?.bundle ?? null}
+        collegeLabel={situationBundleModal?.collegeLabel ?? ""}
+        deanName={situationBundleModal?.deanName ?? ""}
+      />
     </div>
   );
 }

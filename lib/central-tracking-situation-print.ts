@@ -47,6 +47,8 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     invigilators: "",
     absence_names: row.absenceDetails.trim() && row.absenceDetails !== "—" ? row.absenceDetails : "",
     notes: notesTrim && notesTrim !== "—" ? notesTrim : null,
+    term_label: row.termLabel?.trim() ? row.termLabel.trim() : null,
+    instructor_name: notesTrim && notesTrim !== "—" ? notesTrim : "—",
     capacity_morning: row.capacityMorning,
     capacity_evening: row.capacityEvening,
     attendance_morning: row.attendanceMorning,

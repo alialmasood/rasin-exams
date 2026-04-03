@@ -16,12 +16,11 @@ export default async function CollegeUploadStatusPage() {
     listOfficialExamSituationsForOwner(session.uid),
     getCollegeProfileByUserId(session.uid),
   ]);
-  /** الجلسات التي بقيت بانتظار رفع/إكمال الموقف — المؤكَّد رفعُها تُعرَض في «متابعة المواقف» فقط */
-  const rows = allSituationRows.filter((r) => !r.is_uploaded);
-  const listItems = buildUploadStatusListItems(rows);
-  const dashboardStats = computeUploadStatusDashboardStats(allSituationRows);
+  const pendingAll = allSituationRows.filter((r) => !r.is_uploaded);
+  const listItems = buildUploadStatusListItems(pendingAll);
+  const dashboardStats = computeUploadStatusDashboardStats(allSituationRows, new Date());
   const allUploadedPendingNone =
-    allSituationRows.length > 0 && rows.length === 0;
+    allSituationRows.length > 0 && pendingAll.length === 0;
 
   const collegeLabel =
     profile?.account_kind === "FOLLOWUP"

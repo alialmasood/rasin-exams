@@ -1,7 +1,12 @@
 import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
-import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+} from "@/lib/college-study-stage-display";
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
+import { formatExamClock12hAr } from "@/lib/exam-situation-window";
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
 
 function escapeHtml(s: string): string {
@@ -45,6 +50,11 @@ const SCHEDULE_TYPE_AR: Record<ExamSituationDetail["schedule_type"], string> = {
   FINAL: "جدول امتحانات نهائية",
   SEMESTER: "جدول امتحانات فصلية",
 };
+
+/** نص مختصر لعمود التقرير الرسمي */
+function scheduleExamKindShortAr(t: ExamSituationDetail["schedule_type"]): string {
+  return t === "SEMESTER" ? "امتحان فصلي" : "امتحان نهائي";
+}
 
 const WORKFLOW_AR: Record<ExamSituationDetail["workflow_status"], string> = {
   DRAFT: "مسودة",
@@ -601,6 +611,7 @@ export function buildExamSituationBundleReportHtml(
     .table th, .table td { border: 1px solid #ccc; padding: 8px; vertical-align: top; text-align: right; }
     .table th { background: #e5e7eb; font-weight: 800; }
     .muted { color: #6b7280; }
+    .list-dot { margin: 4px 0 0; padding-right: 20px; }
     .list-dot li { margin: 2px 0; }
     .box { margin-top: 14px; padding: 10px; border: 1px solid #1e3a8a; background: #f8fafc; border-radius: 8px; }
   </style>
@@ -663,7 +674,7 @@ function formatExamDateLongAr(isoDate: string): string {
 function invigilatorsHtml(inv: string): string {
   const e = escapeHtml;
   const items = splitLines(inv).map((n) => `<li>${e(n)}</li>`).join("");
-  return items ? `<ul class="list-dot" style="margin:0;padding-right:18px">${items}</ul>` : "—";
+  return items ? `<ul class="list-dot">${items}</ul>` : "—";
 }
 
 function attendanceCellHtml(detail: ExamSituationDetail): string {
@@ -704,7 +715,7 @@ function groupExamSituationDetailsForDailyReport(details: ExamSituationDetail[])
       schedule_type: d.schedule_type,
       meal_slot: d.meal_slot,
       academic_year: d.academic_year,
-      term_label: null,
+      term_label: d.term_label ?? null,
     });
     if (!m.has(k)) m.set(k, []);
     m.get(k)!.push(d);
@@ -714,125 +725,544 @@ function groupExamSituationDetailsForDailyReport(details: ExamSituationDetail[])
   );
 }
 
+const OFFICIAL_DAILY_COLS = 13;
+/** أعمدة الجدول قبل أعمدة السعة/الحضور/الغياب (لصف الإجمالي الفرعي) */
+const OFFICIAL_DAILY_COLS_BEFORE_COUNTS = 7;
+/** أعمدة ذيل صف الإجمالي (غياب + مشرف + مراقبون) */
+const OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN = 3;
+
+type DailyOfficialTotals = {
+  examsUndergraduate: number;
+  examsPostgraduate: number;
+  distinctExamSubjects: number;
+  totalRooms: number;
+  totalCapacity: number;
+  /** مجموع سعات الدوام الصباحي من القاعات التي لها تقسيم صباحي/مسائي */
+  totalCapacityMorning: number;
+  totalCapacityEvening: number;
+  totalAttendance: number;
+  totalAttendanceMorning: number;
+  totalAttendanceEvening: number;
+  totalAbsence: number;
+  totalAbsenceMorning: number;
+  totalAbsenceEvening: number;
+  supervisorsDistinct: number;
+  invigilatorsDistinct: number;
+};
+
+/** إجماليات التقرير النهائي اليومي — الامتحانات = مجموعات الجلسة المنطقية؛ المواد = متميزة بالمادة والمرحلة. */
+function computeDailyOfficialReportTotals(
+  details: ExamSituationDetail[],
+  groups: ExamSituationDetail[][]
+): DailyOfficialTotals {
+  let examsUndergraduate = 0;
+  let examsPostgraduate = 0;
+  const subjectKeys = new Set<string>();
+  for (const group of groups) {
+    const head = group[0]!;
+    if (isPostgraduateStudyStageLevel(head.stage_level)) examsPostgraduate += 1;
+    else examsUndergraduate += 1;
+    subjectKeys.add(`${head.college_subject_id}\0${head.study_subject_id}\0${head.stage_level}`);
+  }
+  let totalCapacity = 0;
+  let totalCapacityMorning = 0;
+  let totalCapacityEvening = 0;
+  let totalAttendance = 0;
+  let totalAttendanceMorning = 0;
+  let totalAttendanceEvening = 0;
+  let totalAbsence = 0;
+  let totalAbsenceMorning = 0;
+  let totalAbsenceEvening = 0;
+  const supervisors = new Set<string>();
+  const invigilators = new Set<string>();
+  for (const d of details) {
+    totalCapacity += d.capacity_total;
+    totalCapacityMorning += d.capacity_morning;
+    totalCapacityEvening += d.capacity_evening;
+    totalAttendance += d.attendance_count;
+    totalAttendanceMorning += d.attendance_morning;
+    totalAttendanceEvening += d.attendance_evening;
+    totalAbsence += d.absence_count;
+    totalAbsenceMorning += d.absence_morning;
+    totalAbsenceEvening += d.absence_evening;
+    const sup = d.supervisor_name?.trim();
+    if (sup) supervisors.add(sup);
+    for (const name of splitLines(d.invigilators)) {
+      invigilators.add(name);
+    }
+  }
+  return {
+    examsUndergraduate,
+    examsPostgraduate,
+    distinctExamSubjects: subjectKeys.size,
+    totalRooms: details.length,
+    totalCapacity,
+    totalCapacityMorning,
+    totalCapacityEvening,
+    totalAttendance,
+    totalAttendanceMorning,
+    totalAttendanceEvening,
+    totalAbsence,
+    totalAbsenceMorning,
+    totalAbsenceEvening,
+    supervisorsDistinct: supervisors.size,
+    invigilatorsDistinct: invigilators.size,
+  };
+}
+
+function buildOfficialDailyTotalsTableHtml(
+  t: DailyOfficialTotals,
+  z: typeof escapeHtml,
+  materialsColumnHeader = "عدد المواد الامتحانية لهذا اليوم أو الوجبة"
+): string {
+  const h = (label: string) => `<th scope="col" class="totals-h">${z(label)}</th>`;
+  const h2 = (line1: string, line2: string) =>
+    `<th scope="col" class="totals-h">${z(line1)}<br/>${z(line2)}</th>`;
+  const c = (n: number) => `<td class="tabular totals-v">${n}</td>`;
+  return `<section class="official-totals-wrap" aria-label="إجماليات التقرير">
+  <h2 class="official-totals-title">الإجماليات — الأعداد الكلية</h2>
+  <table class="table-official-summary">
+    <thead>
+      <tr>
+        ${h("عدد الامتحانات الدراسة الأولية")}
+        ${h("عدد الامتحانات الدراسات العليا")}
+        ${h(materialsColumnHeader)}
+        ${h("عدد القاعات الامتحانية الإجمالي")}
+        ${h2("عدد الطلبة الكلي", "(جميع المقاعد)")}
+        ${h2("إجمالي المقاعد", "الصباحي")}
+        ${h2("إجمالي المقاعد", "المسائي")}
+        ${h("عدد الحضور الكلي")}
+        ${h2("إجمالي الحضور", "الصباحي")}
+        ${h2("إجمالي الحضور", "المسائي")}
+        ${h("عدد الغياب الكلي")}
+        ${h2("إجمالي الغياب", "الصباحي")}
+        ${h2("إجمالي الغياب", "المسائي")}
+        ${h("عدد المشرفين الكلي")}
+        ${h("عدد المراقبين الكلي")}
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        ${c(t.examsUndergraduate)}
+        ${c(t.examsPostgraduate)}
+        ${c(t.distinctExamSubjects)}
+        ${c(t.totalRooms)}
+        ${c(t.totalCapacity)}
+        ${c(t.totalCapacityMorning)}
+        ${c(t.totalCapacityEvening)}
+        ${c(t.totalAttendance)}
+        ${c(t.totalAttendanceMorning)}
+        ${c(t.totalAttendanceEvening)}
+        ${c(t.totalAbsence)}
+        ${c(t.totalAbsenceMorning)}
+        ${c(t.totalAbsenceEvening)}
+        ${c(t.supervisorsDistinct)}
+        ${c(t.invigilatorsDistinct)}
+      </tr>
+    </tbody>
+  </table>
+</section>`;
+}
+
+/**
+ * القيم المخزّنة في الجداول غالباً «الأول» / «الثاني» (قيمة الحقل في بوابة الكلية).
+ * في التقرير الرسمي يُفضَّل عرض الصيغة الكاملة.
+ */
+function formatTermLabelForOfficialReportHeader(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (t === "الأول") return "الفصل الدراسي الأول";
+  if (t === "الثاني") return "الفصل الدراسي الثاني";
+  return t;
+}
+
+/** سطر الهيدر: أنظمة الدراسة المميّزة في بيانات التقرير */
+function formatStudyTypesHeaderLineHtml(details: ExamSituationDetail[], z: typeof escapeHtml): string {
+  const seen = new Set<string>();
+  for (const d of details) {
+    seen.add(STUDY_TYPE_AR[d.study_type] ?? d.study_type);
+  }
+  const arr = [...seen].sort((a, b) => a.localeCompare(b, "ar"));
+  const text =
+    arr.length > 0
+      ? arr.map((x) => z(x)).join(` <span class="muted"> · </span> `)
+      : z("—");
+  return `<div><strong>نظام الدراسة:</strong> ${text}</div>`;
+}
+
+/** قيم فقط تحت عنوان التقرير: نوع الامتحان (نهائي/فصلي) + الفصل أو الدور / العام الدراسي */
+function formatReportHeaderMetaValuesOnlyHtml(details: ExamSituationDetail[], z: typeof escapeHtml): string {
+  const kindsSeen = new Set<string>();
+  for (const d of details) {
+    kindsSeen.add(scheduleExamKindShortAr(d.schedule_type));
+  }
+  const kindsArr = [...kindsSeen].sort((a, b) => a.localeCompare(b, "ar"));
+  const examKindsHtml =
+    kindsArr.length > 0
+      ? kindsArr.map((k) => z(k)).join(` <span class="muted"> · </span> `)
+      : z("—");
+
+  const seenTy = new Set<string>();
+  const termYearParts: string[] = [];
+  for (const d of details) {
+    const tRaw = (d.term_label ?? "").trim();
+    const y = (d.academic_year ?? "").trim();
+    const key = `${tRaw}\0${y}`;
+    if (seenTy.has(key)) continue;
+    seenTy.add(key);
+    if (!tRaw && !y) continue;
+    const termShown = tRaw ? formatTermLabelForOfficialReportHeader(tRaw) : "";
+    termYearParts.push([termShown || null, y || null].filter(Boolean).join(" — "));
+  }
+  const termYearHtml =
+    termYearParts.length > 0
+      ? termYearParts.map((p) => z(p)).join(` <span class="muted"> · </span> `)
+      : z("—");
+
+  return `<p class="official-term-year official-term-year--values-only">
+    <span class="official-term-year-value">${examKindsHtml}</span>
+    <span class="muted" aria-hidden="true"> · </span>
+    <span class="official-term-year-value">${termYearHtml}</span>
+  </p>`;
+}
+
+function studyLevelTierCell(d: ExamSituationDetail, z: typeof escapeHtml): string {
+  const tier = formatCollegeStudyLevelTierLabel(d.stage_level);
+  return z(tier);
+}
+
+function shiftModeLabel(d: ExamSituationDetail): string {
+  return describeCapacityByShiftAr(d.capacity_morning, d.capacity_evening, d.capacity_total).modeLabelAr;
+}
+
+function absenceNamesOfficialCell(d: ExamSituationDetail, z: typeof escapeHtml): string {
+  const capM = d.capacity_morning;
+  const capE = d.capacity_evening;
+  if (capM > 0 || capE > 0) {
+    const chunks: string[] = [];
+    if (capM > 0) {
+      const n = (d.absence_names_morning ?? "").trim();
+      chunks.push(`<strong>صباحي:</strong> ${z(n) || "—"}`);
+    }
+    if (capE > 0) {
+      const n = (d.absence_names_evening ?? "").trim();
+      chunks.push(`<strong>مسائي:</strong> ${z(n) || "—"}`);
+    }
+    return `${chunks.join("<br/>")}<div class="muted" style="font-size:11px;margin-top:4px">يُذكر السبب في النص إن وُجد عند الإدخال</div>`;
+  }
+  const n = (d.absence_names ?? "").trim();
+  return n
+    ? `${z(n)}<div class="muted" style="font-size:11px;margin-top:4px">يُذكر السبب في النص إن وُجد عند الإدخال</div>`
+    : "—";
+}
+
+/** أوقات ومدد متميزة من جلسات التقرير — تُعرض في عمود التاريخ/الوقت بالهيدر */
+function formatDistinctExamTimesHeaderHtml(details: ExamSituationDetail[], z: typeof escapeHtml): string {
+  const map = new Map<string, { start: string; end: string; dur: number }>();
+  for (const d of details) {
+    const k = `${d.start_time}\0${d.end_time}\0${d.duration_minutes}`;
+    if (!map.has(k)) map.set(k, { start: d.start_time, end: d.end_time, dur: d.duration_minutes });
+  }
+  const items = [...map.values()].sort((a, b) => {
+    if (a.start !== b.start) return a.start.localeCompare(b.start);
+    if (a.end !== b.end) return a.end.localeCompare(b.end);
+    return a.dur - b.dur;
+  });
+  if (items.length === 0) {
+    return `<div style="margin-top:4px"><strong>وقت الامتحان والمدة:</strong> ${z("—")}</div>`;
+  }
+  const parts = items.map((it) => {
+    const tStart = formatExamClock12hAr(it.start);
+    const tEnd = formatExamClock12hAr(it.end);
+    const dur = formatDurationAr(it.dur);
+    return `${z(tStart)} — ${z(tEnd)} <span class="muted">(${z(dur)})</span>`;
+  });
+  return `<div style="margin-top:4px"><strong>وقت الامتحان والمدة:</strong> ${parts.join(` <span class="muted">·</span> `)}</div>`;
+}
+
+function buildWorkflowAndApprovalSectionHtml(
+  z: typeof escapeHtml,
+  opts?: { fullDayBothMeals?: boolean }
+): string {
+  return `<section class="post-table-block" dir="rtl">
+  <h2 class="post-table-title">حالة الجدول والاعتماد</h2>
+  ${buildDeanSignatureBlockHtml(z, opts)}
+</section>`;
+}
+
+function buildDeanSignatureBlockHtml(
+  z: typeof escapeHtml,
+  opts?: { fullDayBothMeals?: boolean }
+): string {
+  if (opts?.fullDayBothMeals) {
+    return `<div class="sign-stamp-block">
+  <div class="sign-row">
+    <span class="sign-label">${z("توقيع وختم عميد الكلية / المعاون العلمي")}</span>
+    <span class="sign-line-area" aria-hidden="true"></span>
+  </div>
+</div>`;
+  }
+  return `<div class="sign-stamp-block">
+  <div class="sign-row">
+    <span class="sign-label">${z("توقيع عميد الكلية / المعاون العلمي")}</span>
+    <span class="sign-line-area" aria-hidden="true"></span>
+  </div>
+  <div class="stamp-row">
+    <span class="sign-label">${z("الختم")}</span>
+    <span class="stamp-box" aria-hidden="true"></span>
+  </div>
+</div>`;
+}
+
+function officialDailyDataRow(
+  d: ExamSituationDetail,
+  z: typeof escapeHtml,
+  roomPos: number,
+  roomTotal: number
+): string {
+  const roomCol =
+    roomTotal > 1
+      ? `${z(d.room_name)}<br/><span class="muted" style="font-size:11px">قاعة ${roomPos} من ${roomTotal}</span>`
+      : z(d.room_name);
+  return `<tr>
+  <td>${z(formatCollegeStudyStageLabel(d.stage_level))}</td>
+  <td>${studyLevelTierCell(d, z)}</td>
+  <td>${z(d.branch_name)}</td>
+  <td><strong>${z(d.subject_name)}</strong></td>
+  <td>${z(d.instructor_name)}</td>
+  <td>${z(shiftModeLabel(d))}</td>
+  <td>${roomCol}</td>
+  <td class="tabular">${d.capacity_total}</td>
+  <td class="tabular">${d.attendance_count}</td>
+  <td class="tabular">${d.absence_count}</td>
+  <td style="font-size:12px;line-height:1.45">${absenceNamesOfficialCell(d, z)}</td>
+  <td>${z(d.supervisor_name?.trim() || "—")}</td>
+  <td style="font-size:12px">${invigilatorsHtml(d.invigilators)}</td>
+</tr>`;
+}
+
+export type DailyOfficialReportOptions = {
+  /** شعار الجامعة كـ data URI لضمان الظهور عند الطباعة من نافذة منبثقة */
+  logoDataUri?: string | null;
+  /** يُعرض في الترويسة — الافتراضي جامعة البصرة */
+  universityNameAr?: string;
+  /**
+   * تقرير واحد يجمع الوجبة الأولى والثانية لنفس اليوم (نفس هيكل التقرير لكل وجبة، مع عنوان يصف اليوم الكامل).
+   */
+  fullDayBothMeals?: boolean;
+};
+
+/**
+ * قالب HTML واحد للتقرير النهائي اليومي: الوجبة الأولى، الثانية، أو اليوم الكامل (`fullDayBothMeals`).
+ * تنسيق الجدول الرسمي موحّد لجميع الحالات.
+ */
 export function buildDailyExamSituationsFinalReportHtml(
   details: ExamSituationDetail[],
   examDate: string,
   collegeLabel: string,
   deanName: string,
-  generatedLabel: string
+  generatedLabel: string,
+  /** عند تحديدها يُذكر عنوان التقرير والوجبة صراحةً (تقرير لكل وجبة على حدة). يُتجاهل إن وُجد `fullDayBothMeals`. */
+  mealSlot?: 1 | 2,
+  options?: DailyOfficialReportOptions
 ): string {
-  const e = escapeHtml;
+  const z = escapeHtml;
+  const fullDayBoth = options?.fullDayBothMeals === true;
   const dateLine = formatExamDateLongAr(examDate);
+  const mealLine =
+    fullDayBoth
+      ? null
+      : mealSlot === 1 || mealSlot === 2
+        ? formatExamMealSlotLabel(mealSlot)
+        : null;
+  const titlePlain = fullDayBoth
+    ? "التقرير النهائي الشامل — الوجبة الأولى والوجبة الثانية — المواقف الامتحانية"
+    : mealLine != null
+      ? `التقرير النهائي — ${mealLine} — المواقف الامتحانية`
+      : "التقرير النهائي — المواقف الامتحانية لليوم";
+  const titleHtml = fullDayBoth
+    ? "التقرير النهائي الشامل — الوجبة الأولى والوجبة الثانية — المواقف الامتحانية"
+    : mealLine != null
+      ? `التقرير النهائي — ${z(mealLine)} — المواقف الامتحانية`
+      : z(titlePlain);
+  const uni = (options?.universityNameAr ?? "جامعة البصرة").trim() || "جامعة البصرة";
+  const logoUri = options?.logoDataUri?.trim() ?? "";
+  const logoBlock = logoUri
+    ? `<div class="logo-wrap"><img src="${logoUri}" alt="${z("شعار " + uni)}" class="logo-img" /></div>`
+    : `<div class="logo-wrap logo-missing muted" style="font-size:13px">شعار الجامعة (uob-logo.png)</div>`;
+
   const groups = groupExamSituationDetailsForDailyReport(details);
+  const dailyTotals = computeDailyOfficialReportTotals(details, groups);
+  const materialsTotalsHeader = fullDayBoth
+    ? "عدد المواد الامتحانية (الوجبتان — اليوم الكامل)"
+    : "عدد المواد الامتحانية لهذا اليوم أو الوجبة";
+  const totalsTableHtml = buildOfficialDailyTotalsTableHtml(dailyTotals, z, materialsTotalsHeader);
   const rowChunks: string[] = [];
   if (details.length === 0) {
-    rowChunks.push(`<tr><td colspan="8" class="muted">لا توجد جلسات مرفوعة لهذا التاريخ.</td></tr>`);
+    rowChunks.push(
+      `<tr><td colspan="${OFFICIAL_DAILY_COLS}" class="muted">لا توجد جلسات مرفوعة لهذا التقرير.</td></tr>`
+    );
   } else {
     for (const group of groups) {
-      const head = group[0]!;
-      const timeRange = `${e(head.start_time)} — ${e(head.end_time)} (${e(formatDurationAr(head.duration_minutes))})`;
-      const subjectCell = `<strong>${e(head.subject_name)}</strong><div class="muted" style="font-size:11px;margin-top:2px">${e(formatCollegeStudyStageLabel(head.stage_level))} — ${e(head.branch_name)}</div>`;
-      if (group.length === 1) {
-        const d = head;
-        rowChunks.push(`<tr>
-  <td>${subjectCell}</td>
-  <td>${e(d.room_name)}</td>
-  <td>${timeRange}</td>
-  <td>${e(d.supervisor_name?.trim() || "—")}</td>
-  <td>${invigilatorsHtml(d.invigilators)}</td>
-  <td style="font-size:12px;line-height:1.45">${attendanceCellHtml(d)}</td>
-  <td>${d.is_uploaded ? "نعم" : "لا"}</td>
-  <td>${e(DEAN_AR[d.dean_status])}</td>
-</tr>`);
+      const n = group.length;
+      if (n === 1) {
+        rowChunks.push(officialDailyDataRow(group[0]!, z, 1, 1));
         continue;
       }
       let cap = 0;
       let att = 0;
       let abs = 0;
       const nameChunks: string[] = [];
-      for (const s of group) {
-        cap += s.capacity_total;
-        att += s.attendance_count;
-        abs += s.absence_count;
-        const merged = mergeAbsenceNamesByShift(s.absence_names_morning, s.absence_names_evening);
-        const src = merged.trim() || (s.absence_names ?? "").trim();
+      for (let i = 0; i < group.length; i++) {
+        const d = group[i]!;
+        cap += d.capacity_total;
+        att += d.attendance_count;
+        abs += d.absence_count;
+        const merged = mergeAbsenceNamesByShift(d.absence_names_morning, d.absence_names_evening);
+        const src = merged.trim() || (d.absence_names ?? "").trim();
         if (src) nameChunks.push(src);
+        rowChunks.push(officialDailyDataRow(d, z, i + 1, n));
       }
       const absenceSorted = sortUniqueAbsenceNamesLocal(nameChunks.join("\n"));
-      const roomLines = group
-        .map(
-          (d) =>
-            `<div style="margin-bottom:6px"><strong>${e(d.room_name)}:</strong> سعة ${d.capacity_total}، حضور ${d.attendance_count}، غياب ${d.absence_count}</div>`
-        )
-        .join("");
-      const multiHint = `<div class="muted" style="font-size:10px;margin-top:4px">توزيع على ${group.length} قاعة</div>`;
-      for (const d of group) {
-        rowChunks.push(`<tr>
-  <td>${subjectCell}${multiHint}</td>
-  <td>${e(d.room_name)}</td>
-  <td>${timeRange}</td>
-  <td>${e(d.supervisor_name?.trim() || "—")}</td>
-  <td>${invigilatorsHtml(d.invigilators)}</td>
-  <td style="font-size:12px;line-height:1.45">${attendanceCellHtml(d)}</td>
-  <td>${d.is_uploaded ? "نعم" : "لا"}</td>
-  <td>${e(DEAN_AR[d.dean_status])}</td>
-</tr>`);
-      }
-      rowChunks.push(`<tr style="background:#eff6ff;font-weight:600">
-  <td colspan="2"><strong>إجمالي المادة على القاعات</strong></td>
-  <td colspan="2">${roomLines}</td>
-  <td colspan="4" style="font-size:12px;line-height:1.5"><strong>المجموع:</strong> سعة ${cap}، حضور ${att}، غياب ${abs}<br/><strong>أسماء الغياب (مفرّزة):</strong> ${e(absenceSorted) || "—"}</td>
+      const head = group[0]!;
+      rowChunks.push(`<tr class="subtotal-row">
+  <td colspan="${OFFICIAL_DAILY_COLS_BEFORE_COUNTS}"><strong>إجمالي جلسة واحدة موزّعة على ${n} قاعة امتحانية</strong><br/><span class="muted" style="font-size:12px;font-weight:600">${z(head.subject_name)} — ${z(head.branch_name)} — ${z(formatCollegeStudyStageLabel(head.stage_level))}</span></td>
+  <td class="tabular"><strong>${cap}</strong></td>
+  <td class="tabular"><strong>${att}</strong></td>
+  <td class="tabular"><strong>${abs}</strong></td>
+  <td colspan="${OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN}" style="font-size:12px;line-height:1.45"><strong>أسماء الغياب مفرّزة من كل القاعات:</strong><br/>${z(absenceSorted) || "—"}</td>
 </tr>`);
     }
   }
   const rows = rowChunks.join("\n");
+  const headerMetaValuesHtml = formatReportHeaderMetaValuesOnlyHtml(details, z);
+  const studyTypesHeaderLineHtml = formatStudyTypesHeaderLineHtml(details, z);
+  const examTimesHeaderHtml = formatDistinctExamTimesHeaderHtml(details, z);
+  const workflowSectionHtml = buildWorkflowAndApprovalSectionHtml(z, { fullDayBothMeals: fullDayBoth });
+  const titleTag = fullDayBoth
+    ? `تقرير شامل — الوجبتان — ${examDate}`
+    : mealLine != null
+      ? `تقرير نهائي — ${mealLine} — ${examDate}`
+      : `تقرير نهائي — ${examDate}`;
 
   return `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>تقرير نهائي — ${e(examDate)}</title>
+  <title>${z(titleTag)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
-    body { font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; padding: 16px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
-    @page { size: A4 landscape; margin: 12mm; }
-    @media print { body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-    .report-header { border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 14px; }
-    .report-header h1 { margin: 0; font-size: 20px; color: #1e3a8a; }
-    .meta { margin-top: 8px; font-size: 13px; color: #374151; }
-    .table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-    .table th, .table td { border: 1px solid #ccc; padding: 8px; vertical-align: top; text-align: right; }
-    .table th { background: #e5e7eb; font-weight: 800; color: #111827; }
+    body { font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; padding: 14px 16px 20px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
+    @page { size: A4 landscape; margin: 10mm; }
+    @media print {
+      body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .table-official thead tr > th,
+      .table-official tbody tr > td {
+        vertical-align: middle !important;
+        text-align: center !important;
+      }
+      .table-official-summary thead tr > th,
+      .table-official-summary tbody tr > td {
+        vertical-align: middle !important;
+        text-align: center !important;
+      }
+    }
+    .official-top { border-bottom: 3px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 12px; }
+    .hdr-main-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .hdr-institution { flex: 1 1 200px; min-width: 180px; text-align: right; font-size: 14px; line-height: 1.55; color: #1f2937; }
+    .hdr-center { flex: 0 1 auto; text-align: center; max-width: min(440px, 100%); }
+    .hdr-center .logo-wrap { margin: 0 0 8px; text-align: center; }
+    .logo-img { max-height: 72px; max-width: 200px; height: auto; width: auto; object-fit: contain; display: inline-block; vertical-align: middle; }
+    .official-title { margin: 0; font-size: 19px; font-weight: 800; color: #1e3a8a; text-align: center; line-height: 1.35; }
+    .official-term-year { margin: 8px 0 0; text-align: center; font-size: 13px; line-height: 1.45; color: #1f2937; }
+    .official-term-year-value { font-weight: 600; }
+    .official-term-year--values-only { font-weight: 600; }
+    .hdr-datetime { flex: 1 1 200px; min-width: 180px; text-align: left; font-size: 14px; line-height: 1.55; color: #1f2937; direction: ltr; }
+    .hdr-datetime-inner { display: inline-block; direction: rtl; text-align: right; }
+    .official-totals-wrap { margin-top: 12px; margin-bottom: 14px; }
+    .official-totals-title { margin: 0 0 8px; font-size: 15px; font-weight: 800; color: #1e3a8a; text-align: right; }
+    .table-official-summary { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+    .table-official-summary .totals-h, .table-official-summary .totals-v { border: 1px solid #9ca3af; padding: 5px 3px; vertical-align: middle; }
+    .table-official-summary thead .totals-h { background: #f3f4f6; font-weight: 800; color: #111827; text-align: center; line-height: 1.25; word-wrap: break-word; }
+    .table-official-summary tbody .totals-v { text-align: center; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 11px; }
+    .table-official { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; table-layout: fixed; }
+    /* نفس الجدول لكل من: الوجبة الأولى، الوجبة الثانية، والتقرير الشامل (fullDayBothMeals) */
+    .table-official thead tr > th,
+    .table-official tbody tr > td {
+      border: 1px solid #9ca3af;
+      padding: 5px 4px;
+      vertical-align: middle;
+      text-align: center;
+      word-wrap: break-word;
+    }
+    .table-official th { background: #e5e7eb; font-weight: 800; color: #111827; font-size: 10px; line-height: 1.25; }
+    .table-official .tabular { text-align: center; font-variant-numeric: tabular-nums; }
+    .table-official ul.list-dot { width: fit-content; max-width: 100%; margin: 0 auto; padding-inline-start: 1.15em; text-align: start; }
+    .subtotal-row td { background: #eff6ff; font-weight: 600; vertical-align: middle; text-align: center; }
     .muted { color: #6b7280; }
     .list-dot li { margin: 2px 0; }
-    .footer { margin-top: 16px; padding-top: 8px; border-top: 1px solid #ccc; font-size: 11px; color: #4b5563; text-align: center; }
+    .post-table-block { margin-top: 18px; padding-top: 14px; border-top: 2px solid #1e3a8a; }
+    .post-table-title { margin: 0 0 14px; font-size: 16px; font-weight: 800; color: #1e3a8a; text-align: right; }
+    /* يسار الصفحة فعلياً: هامش أيمن تلقائي داخل مقطع rtl */
+    .sign-stamp-block { margin-top: 4px; max-width: 520px; margin-left: 0; margin-right: auto; }
+    .sign-row, .stamp-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 22px; flex-wrap: wrap; }
+    .sign-label { font-weight: 700; color: #111827; white-space: nowrap; font-size: 13px; }
+    .sign-line-area { flex: 1; min-width: 180px; border-bottom: 1px solid #111827; height: 28px; min-height: 28px; }
+    .stamp-box { width: 100px; height: 100px; border: 2px dashed #6b7280; border-radius: 4px; flex-shrink: 0; }
+    .footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid #ccc; font-size: 11px; color: #4b5563; text-align: center; }
   </style>
 </head>
 <body>
-  <header class="report-header">
-    <h1>التقرير النهائي — المواقف الامتحانية لليوم</h1>
-    <div class="meta"><strong>الكلية / التشكيل:</strong> ${e(collegeLabel)} — <strong>عميد الكلية (المسجّل):</strong> ${e(deanName.trim() || "—")}</div>
-    <div class="meta"><strong>التاريخ واليوم:</strong> ${e(dateLine)} <span class="muted">(${e(examDate)})</span></div>
-    <div class="meta"><strong>أُنشئ في:</strong> ${e(generatedLabel)} — <strong>عدد الجلسات في التقرير:</strong> ${details.length}</div>
+  <header class="official-top">
+    <div class="hdr-main-row">
+      <div class="hdr-institution">
+        <div><strong>${z(uni)}</strong></div>
+        <div><strong>الكلية / التشكيل:</strong> ${z(collegeLabel)}</div>
+        <div><strong>عميد الكلية (المسجّل):</strong> ${z(deanName.trim() || "—")}</div>
+        ${fullDayBoth ? `<div><strong>نطاق التقرير:</strong> الوجبة الأولى والوجبة الثانية — اليوم الامتحاني كامل</div>` : mealLine != null ? `<div><strong>الوجبة:</strong> ${z(mealLine)}</div>` : ""}
+        ${studyTypesHeaderLineHtml}
+      </div>
+      <div class="hdr-center">
+        ${logoBlock}
+        <h1 class="official-title">${titleHtml}</h1>
+        ${headerMetaValuesHtml}
+      </div>
+      <div class="hdr-datetime">
+        <div class="hdr-datetime-inner">
+          <div><strong>تاريخ الامتحان:</strong> ${z(dateLine)}</div>
+          <div><strong>اليوم (تقويم):</strong> ${z(examDate)}</div>
+          <div><strong>وقت إصدار التقرير:</strong> ${z(generatedLabel)}</div>
+          <div class="muted" style="margin-top:4px">عدد سجلات القاعات في التقرير: ${details.length}</div>
+          ${examTimesHeaderHtml}
+        </div>
+      </div>
+    </div>
   </header>
-  <table class="table">
+  ${totalsTableHtml}
+  <table class="table-official">
     <thead>
       <tr>
-        <th>المادة الامتحانية</th>
-        <th>القاعة</th>
-        <th>وقت البدء والنهاية والمدة</th>
-        <th>المشرف</th>
+        <th>المرحلة<br/>الدراسية</th>
+        <th>المستوى الدراسي<br/>(أولية / عليا)</th>
+        <th>القسم</th>
+        <th>المادة<br/>الدراسية</th>
+        <th>اسم<br/>التدريسي</th>
+        <th>نوع الدوام<br/>بالقاعة</th>
+        <th>القاعة<br/>الامتحانية</th>
+        <th>المقاعد<br/>الكلية</th>
+        <th>الحضور</th>
+        <th>الغياب</th>
+        <th>الطالب الغائب<br/>(والسبب إن وُجد)</th>
+        <th>مشرف<br/>القاعة</th>
         <th>المراقبون</th>
-        <th>الطلاب (صباحي/مسائي): الإجمالي، الحضور، الغياب، أسماء الغياب</th>
-        <th>مرفوع الموقف</th>
-        <th>اعتماد الإدارة</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
-  <footer class="footer">نظام رصين لإدارة الامتحانات — للحفظ PDF استخدم الطباعة ثم «حفظ كـ PDF».</footer>
+  ${workflowSectionHtml}
+  <footer class="footer">نظام رصين لإدارة الامتحانات — جامعة البصرة — للحفظ PDF استخدم الطباعة ثم «حفظ كـ PDF».</footer>
 </body>
 </html>`;
 }
