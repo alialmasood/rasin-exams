@@ -10,8 +10,15 @@ import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import type { CollegeHolidayRow } from "@/lib/college-holidays";
 import { assertExamDateNotInPast, todayCalendarDateLocal } from "@/lib/exam-schedule-date";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
-import { getExamScheduleStageLevelOptions } from "@/lib/college-stage-level";
-import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
+import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
+import {
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+  POSTGRAD_STUDY_STAGE_DIPLOMA,
+  POSTGRAD_STUDY_STAGE_DOCTOR,
+  POSTGRAD_STUDY_STAGE_MASTER,
+} from "@/lib/college-study-stage-display";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import {
   createExamScheduleAction,
   createHolidayAction,
@@ -23,15 +30,21 @@ import { downloadCollegeScheduleGroupPdf, shareCollegeScheduleGroupForWhatsApp }
 import { ExamScheduleTicketModal } from "./exam-schedule-ticket-modal";
 
 type ScheduleType = "FINAL" | "SEMESTER";
+type StudyTierUi = "UNDERGRAD" | "POSTGRAD";
+
 type FormState = {
   id?: string;
   collegeSubjectId: string;
   scheduleType: ScheduleType;
   academicYear: string;
   termLabel: string;
+  /** الدراسة الأولية أو الدراسات العليا — يحدد قائمة المواد وخيارات المرحلة */
+  studyTier: StudyTierUi;
   studySubjectId: string;
   stageLevel: string;
   examDate: string;
+  /** 1 | 2 — الوجبة الأولى أو الثانية */
+  mealSlot: string;
   startTime: string;
   endTime: string;
   /** قاعة واحدة عند التعديل؛ عدة قاعات عند الإنشاء (نفس المادة والوقت) */
@@ -120,9 +133,10 @@ function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel
       "العام الدراسي": r.academic_year || "—",
       "الفصل الدراسي": r.term_label || "—",
       "المادة الدراسية": r.study_subject_name,
-      "المرحلة": `المرحلة ${r.stage_level}`,
+      "المرحلة": formatCollegeStudyStageLabel(Number(r.stage_level)),
       "اليوم": weekdayAr(r.exam_date),
       "التاريخ": r.exam_date,
+      "رقم الوجبة": formatExamMealSlotLabel(r.meal_slot),
       "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
       "مدة الامتحان": formatDuration(r.duration_minutes),
       "القاعة": roomCell,
@@ -135,8 +149,8 @@ function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel
 
 function sortSchedules(rows: CollegeExamScheduleRow[]) {
   return [...rows].sort((a, b) => {
-    const da = `${a.exam_date} ${a.start_time}`;
-    const db = `${b.exam_date} ${b.start_time}`;
+    const da = `${a.exam_date} ${a.meal_slot} ${a.start_time}`;
+    const db = `${b.exam_date} ${b.meal_slot} ${b.start_time}`;
     return da.localeCompare(db);
   });
 }
@@ -223,9 +237,11 @@ export function ExamSchedulesPanel({
     scheduleType: "FINAL",
     academicYear: suggestedAcademicYear(),
     termLabel: "",
+    studyTier: "UNDERGRAD",
     studySubjectId: "",
     stageLevel: "",
     examDate: "",
+    mealSlot: "1",
     startTime: "08:00",
     endTime: "09:00",
     roomIds: [],
@@ -249,7 +265,15 @@ export function ExamSchedulesPanel({
   useCollegeQuickUrlTrigger("exam-schedule", openExamScheduleFromFab);
   const hours12 = useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1)), []);
   const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")), []);
-  const stageOptions = useMemo(() => getExamScheduleStageLevelOptions(collegeLabel), [collegeLabel]);
+  const undergradStageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const postgradStageOptions = useMemo(
+    () => [POSTGRAD_STUDY_STAGE_DIPLOMA, POSTGRAD_STUDY_STAGE_MASTER, POSTGRAD_STUDY_STAGE_DOCTOR],
+    []
+  );
+  const stageOptionsForForm = useMemo(
+    () => (form.studyTier === "POSTGRAD" ? postgradStageOptions : undergradStageOptions),
+    [form.studyTier, postgradStageOptions, undergradStageOptions]
+  );
   const startParts = useMemo(() => to12Parts(form.startTime || "08:00"), [form.startTime]);
   const endParts = useMemo(() => to12Parts(form.endTime || "09:00"), [form.endTime]);
 
@@ -321,8 +345,18 @@ export function ExamSchedulesPanel({
 
   const availableStudySubjects = useMemo(() => {
     if (!form.collegeSubjectId) return [];
-    return studySubjects.filter((x) => x.college_subject_id === form.collegeSubjectId);
-  }, [studySubjects, form.collegeSubjectId]);
+    return studySubjects.filter((x) => {
+      if (x.college_subject_id !== form.collegeSubjectId) return false;
+      const pg = isPostgraduateStudyStageLevel(x.study_stage_level);
+      return form.studyTier === "POSTGRAD" ? pg : !pg;
+    });
+  }, [studySubjects, form.collegeSubjectId, form.studyTier]);
+
+  useEffect(() => {
+    if (!form.studySubjectId) return;
+    if (availableStudySubjects.some((s) => s.id === form.studySubjectId)) return;
+    setForm((f) => ({ ...f, studySubjectId: "", stageLevel: "", roomIds: [] }));
+  }, [availableStudySubjects, form.studySubjectId]);
 
   const roomsForSelectedSubject = useMemo(() => {
     if (!form.studySubjectId) return [];
@@ -393,9 +427,11 @@ export function ExamSchedulesPanel({
         scheduleType: lockedGeneral.scheduleType,
         academicYear: lockedGeneral.academicYear,
         termLabel: lockedGeneral.termLabel,
+        studyTier: "UNDERGRAD",
         studySubjectId: "",
         stageLevel: "",
         examDate: "",
+        mealSlot: "1",
         startTime: "08:00",
         endTime: "09:00",
         roomIds: [],
@@ -433,6 +469,13 @@ export function ExamSchedulesPanel({
     if (!form.termLabel.trim()) return "يرجى اختيار الفصل الدراسي";
     if (!form.studySubjectId) return "يرجى اختيار المادة الدراسية";
     if (!form.stageLevel) return "يرجى اختيار المرحلة";
+    const stageN = Number.parseInt(form.stageLevel, 10);
+    if (!stageOptionsForForm.includes(stageN)) return "المرحلة المختارة غير متاحة لمستوى الدراسة الحالي";
+    const subj = studySubjects.find((s) => s.id === form.studySubjectId);
+    if (!subj) return "المادة الدراسية المحددة غير موجودة في القائمة.";
+    if (subj.study_stage_level !== stageN) {
+      return "مرحلة المادة الدراسية المختارة لا تطابق حقل المرحلة — أعد الاختيار أو غيّر المادة.";
+    }
     const examDateCheck = assertExamDateNotInPast(form.examDate);
     if (!examDateCheck.ok) return examDateCheck.message;
     if (!form.startTime) return "يرجى تحديد وقت بداية الامتحان";
@@ -457,6 +500,7 @@ export function ExamSchedulesPanel({
     fd.set("study_subject_id", form.studySubjectId);
     fd.set("stage_level", form.stageLevel);
     fd.set("exam_date", form.examDate);
+    fd.set("meal_slot", form.mealSlot);
     fd.set("start_time", form.startTime);
     fd.set("end_time", form.endTime);
     if (form.id) {
@@ -490,6 +534,7 @@ export function ExamSchedulesPanel({
         setForm({
           ...emptyForm,
           ...snapshot,
+          studyTier: "UNDERGRAD",
           stageLevel: "",
         });
       } else {
@@ -500,15 +545,18 @@ export function ExamSchedulesPanel({
   }
 
   function onEdit(row: CollegeExamScheduleRow) {
+    const st = Number(row.stage_level);
     setForm({
       id: row.id,
       collegeSubjectId: row.college_subject_id,
       scheduleType: row.schedule_type,
       academicYear: row.academic_year ?? "",
       termLabel: row.term_label ?? "",
+      studyTier: isPostgraduateStudyStageLevel(st) ? "POSTGRAD" : "UNDERGRAD",
       studySubjectId: row.study_subject_id,
       stageLevel: String(row.stage_level),
       examDate: row.exam_date,
+      mealSlot: String(row.meal_slot ?? 1),
       startTime: row.start_time,
       endTime: row.end_time,
       roomIds: [row.room_id],
@@ -606,7 +654,7 @@ export function ExamSchedulesPanel({
           sess.length === 1 ? r.room_name : sess.map((x) => x.room_name).join("، ");
         return `<tr>
       <td>${i + 1}</td><td>${collegeLabel}</td><td>${r.college_subject_name}</td><td>${SCHEDULE_TYPE_LABEL[r.schedule_type]}</td>
-      <td>${r.study_subject_name}${sess.length > 1 ? ` <span style="font-size:10px;color:#4338ca">(جلسة واحدة — ${sess.length} قاعات)</span>` : ""}</td><td>المرحلة ${r.stage_level}</td><td>${weekdayAr(r.exam_date)}</td><td>${r.exam_date}</td>
+      <td>${r.study_subject_name}${sess.length > 1 ? ` <span style="font-size:10px;color:#4338ca">(جلسة واحدة — ${sess.length} قاعات)</span>` : ""}</td><td>${formatCollegeStudyStageLabel(Number(r.stage_level))}</td><td>${weekdayAr(r.exam_date)}</td><td>${r.exam_date}</td><td>${formatExamMealSlotLabel(r.meal_slot)}</td>
       <td>${timeRangeLabel(r.start_time, r.end_time)}</td><td>${formatDuration(r.duration_minutes)}</td><td>${rooms}</td></tr>`;
       })
       .join("");
@@ -614,7 +662,7 @@ export function ExamSchedulesPanel({
       body{font-family:Tahoma,Arial;padding:24px} table{width:100%;border-collapse:collapse}
       th,td{border:1px solid #cbd5e1;padding:8px;font-size:12px;text-align:right} th{background:#f1f5f9}
       </style></head><body><h1>الجدول الامتحاني - ${collegeLabel}</h1>
-      <table><thead><tr><th>#</th><th>الكلية</th><th>القسم</th><th>نوع الجدول</th><th>المادة</th><th>المرحلة</th><th>اليوم</th><th>التاريخ</th><th>الوقت</th><th>المدة</th><th>القاعة</th></tr></thead>
+      <table><thead><tr><th>#</th><th>الكلية</th><th>القسم</th><th>نوع الجدول</th><th>المادة</th><th>المرحلة</th><th>اليوم</th><th>التاريخ</th><th>الوجبة</th><th>الوقت</th><th>المدة</th><th>القاعة</th></tr></thead>
       <tbody>${rowsHtml}</tbody></table></body></html>`);
     popup.document.close();
     popup.focus();
@@ -796,6 +844,50 @@ export function ExamSchedulesPanel({
 
           <h3 className="mt-6 border-t border-[#E2E8F0] pt-4 text-lg font-bold text-[#0F172A]">تفاصيل المادة الامتحانية</h3>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <fieldset className="sm:col-span-2 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
+              <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة</legend>
+              <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+                  <input
+                    type="radio"
+                    className="size-4 accent-[#1E3A8A]"
+                    checked={form.studyTier === "UNDERGRAD"}
+                    disabled={Boolean(form.id)}
+                    onChange={() =>
+                      setForm((f) => ({
+                        ...f,
+                        studyTier: "UNDERGRAD",
+                        studySubjectId: "",
+                        stageLevel: "",
+                        roomIds: [],
+                      }))
+                    }
+                  />
+                  الدراسة الأولية
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+                  <input
+                    type="radio"
+                    className="size-4 accent-[#1E3A8A]"
+                    checked={form.studyTier === "POSTGRAD"}
+                    disabled={Boolean(form.id)}
+                    onChange={() =>
+                      setForm((f) => ({
+                        ...f,
+                        studyTier: "POSTGRAD",
+                        studySubjectId: "",
+                        stageLevel: "",
+                        roomIds: [],
+                      }))
+                    }
+                  />
+                  الدراسات العليا
+                </label>
+              </div>
+              {form.id ? (
+                <p className="mt-2 text-xs text-[#64748B]">لا يمكن تغيير مستوى الدراسة أثناء تعديل جدول موجود — افتح إدخالاً جديداً.</p>
+              ) : null}
+            </fieldset>
             <div className="sm:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الدراسية</label>
@@ -804,18 +896,35 @@ export function ExamSchedulesPanel({
                   disabled={!form.collegeSubjectId}
                   onChange={(e) => {
                     const sid = e.target.value;
+                    const sub = sid ? studySubjects.find((s) => s.id === sid) : undefined;
                     setForm((f) => {
                       const allowed = new Set(
                         rooms.filter((r) => sid && roomMatchesStudySubject(r, sid)).map((r) => r.id)
                       );
-                      return { ...f, studySubjectId: sid, roomIds: f.roomIds.filter((id) => allowed.has(id)) };
+                      return {
+                        ...f,
+                        studySubjectId: sid,
+                        stageLevel: sub ? String(sub.study_stage_level) : "",
+                        roomIds: f.roomIds.filter((id) => allowed.has(id)),
+                      };
                     });
                   }}
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
                 >
                   <option value="">{form.collegeSubjectId ? "اختر المادة الدراسية" : "اختر القسم/الفرع أولًا"}</option>
-                  {availableStudySubjects.map((s) => <option key={s.id} value={s.id}>{s.subject_name}</option>)}
+                  {availableStudySubjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.subject_name}
+                    </option>
+                  ))}
                 </select>
+                {form.collegeSubjectId && availableStudySubjects.length === 0 ? (
+                  <p className="mt-1.5 text-xs font-medium text-amber-900">
+                    {form.studyTier === "POSTGRAD"
+                      ? "لا توجد مواد دراسية مُعرَّفة للدراسات العليا في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسات العليا (دبلوم / ماجستير / دكتوراه)."
+                      : "لا توجد مواد دراسية مُعرَّفة للدراسة الأولية في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسة الأولية."}
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة</label>
@@ -825,7 +934,7 @@ export function ExamSchedulesPanel({
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
                 >
                   <option value="">اختر المرحلة</option>
-                  {stageOptions.map((s) => (
+                  {stageOptionsForForm.map((s) => (
                     <option key={s} value={String(s)}>
                       {formatCollegeStudyStageLabel(s)}
                     </option>
@@ -833,16 +942,33 @@ export function ExamSchedulesPanel({
                 </select>
               </div>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-[#334155]">تاريخ الامتحان</label>
-              <input
-                type="date"
-                min={todayCalendarDateLocal()}
-                value={form.examDate}
-                onChange={(e) => setForm((f) => ({ ...f, examDate: e.target.value }))}
-                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
-              />
-              {form.examDate ? <span className="mt-1 inline-flex rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-semibold text-[#1D4ED8]">{weekdayAr(form.examDate)}</span> : null}
+            <div className="sm:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-[#334155]">تاريخ الامتحان</label>
+                <input
+                  type="date"
+                  min={todayCalendarDateLocal()}
+                  value={form.examDate}
+                  onChange={(e) => setForm((f) => ({ ...f, examDate: e.target.value }))}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
+                />
+                {form.examDate ? (
+                  <span className="mt-1 inline-flex rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-semibold text-[#1D4ED8]">
+                    {weekdayAr(form.examDate)}
+                  </span>
+                ) : null}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-[#334155]">رقم الوجبة</label>
+                <select
+                  value={form.mealSlot}
+                  onChange={(e) => setForm((f) => ({ ...f, mealSlot: e.target.value }))}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="1">الوجبة الأولى</option>
+                  <option value="2">الوجبة الثانية</option>
+                </select>
+              </div>
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-semibold text-[#334155]">
@@ -1048,8 +1174,14 @@ export function ExamSchedulesPanel({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h4 className="text-sm font-bold text-[#0F172A]">{r.study_subject_name}</h4>
-                      <p className="mt-0.5 text-xs text-[#64748B]">{weekdayAr(r.exam_date)} | {r.exam_date} | {timeRangeLabel(r.start_time, r.end_time)}</p>
-                      <p className="mt-0.5 text-xs text-[#64748B]">المرحلة: {r.stage_level} | المدة: {formatDuration(r.duration_minutes)} | القاعة: {r.room_name}</p>
+                      <p className="mt-0.5 text-xs text-[#64748B]">
+                        {weekdayAr(r.exam_date)} | {r.exam_date} | {formatExamMealSlotLabel(r.meal_slot)} |{" "}
+                        {timeRangeLabel(r.start_time, r.end_time)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[#64748B]">
+                        المرحلة: {formatCollegeStudyStageLabel(Number(r.stage_level))} | المدة: {formatDuration(r.duration_minutes)} | القاعة:{" "}
+                        {r.room_name}
+                      </p>
                       {r.notes ? <p className="mt-0.5 text-xs text-[#64748B]">ملاحظات: {r.notes}</p> : null}
                     </div>
                     <div className="flex gap-1">
@@ -1311,16 +1443,17 @@ export function ExamSchedulesPanel({
             <colgroup>
               <col style={{ width: "4%" }} />
               <col style={{ width: "6%" }} />
-              <col style={{ width: "11%" }} />
+              <col style={{ width: "10%" }} />
               <col style={{ width: "6%" }} />
-              <col style={{ width: "17%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "6%" }} />
               <col style={{ width: "6%" }} />
               <col style={{ width: "8%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "6%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "5%" }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
               <tr className="border-b border-[#E2E8F0]">
@@ -1331,6 +1464,7 @@ export function ExamSchedulesPanel({
                 <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">المادة</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المرحلة</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">التاريخ</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold text-[#334155]">الوجبة</th>
                 <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">اليوم</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">الوقت</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المدة</th>
@@ -1348,7 +1482,7 @@ export function ExamSchedulesPanel({
             <tbody className="divide-y divide-[#E2E8F0] bg-white">
               {pagedSessionItems.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-sm text-[#64748B]">
+                  <td colSpan={13} className="px-4 py-12 text-center text-sm text-[#64748B]">
                     لا توجد بيانات مطابقة.
                   </td>
                 </tr>
@@ -1356,7 +1490,7 @@ export function ExamSchedulesPanel({
                 groupedPagedSessionItems.map((g) => (
                   <Fragment key={`wrap-${g.subjectId}`}>
                     <tr key={`g-${g.subjectId}`} className="bg-[#EEF2FF]">
-                      <td colSpan={12} className="px-3 py-2">
+                      <td colSpan={13} className="px-3 py-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-sm font-bold text-[#1E3A8A]">جدول: {g.subjectName}</span>
                           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1479,11 +1613,14 @@ export function ExamSchedulesPanel({
                               ) : null}
                             </div>
                           </td>
-                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
-                            {r.stage_level}
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm text-[#334155]">
+                            {formatCollegeStudyStageLabel(Number(r.stage_level))}
                           </td>
                           <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
                             {r.exam_date}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-xs font-semibold text-[#475569]">
+                            {formatExamMealSlotLabel(r.meal_slot)}
                           </td>
                           <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
                             {weekdayAr(r.exam_date)}

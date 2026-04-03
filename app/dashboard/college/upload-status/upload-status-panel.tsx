@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { UploadStatusListItem, UploadStatusWorkflow } from "@/lib/upload-status-display";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 const WORKFLOW_LABEL: Record<UploadStatusWorkflow, string> = {
   DRAFT: "مسودة",
@@ -43,10 +44,11 @@ export function UploadStatusPanel({
       </header>
 
       <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-        <table className="w-full min-w-[920px] border-collapse text-right">
+        <table className="w-full min-w-[1000px] border-collapse text-right">
           <thead className="sticky top-0 z-10 border-b border-[#1f3578] bg-[#274092]">
             <tr>
               <th className="px-4 py-3 text-xs font-bold text-white">تاريخ الامتحان</th>
+              <th className="px-4 py-3 text-xs font-bold text-white">الوجبة</th>
               <th className="px-4 py-3 text-xs font-bold text-white">الوقت / المدة</th>
               <th className="px-4 py-3 text-xs font-bold text-white">القاعة</th>
               <th className="px-4 py-3 text-xs font-bold text-white">المادة</th>
@@ -60,7 +62,7 @@ export function UploadStatusPanel({
           <tbody className="divide-y divide-[#E2E8F0]">
             {listItems.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-14 text-center text-sm text-[#64748B]">
+                <td colSpan={10} className="px-4 py-14 text-center text-sm text-[#64748B]">
                   لا توجد مواد امتحانية في الجدول بعد. أضف مواداً من صفحة «الجداول الامتحانية» ثم ستظهر هنا تلقائياً.
                 </td>
               </tr>
@@ -71,6 +73,7 @@ export function UploadStatusPanel({
                   return (
                     <tr key={r.schedule_id} className="transition-colors hover:bg-[#F8FAFC]">
                       <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{r.exam_date}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-[#475569]">{formatExamMealSlotLabel(r.meal_slot)}</td>
                       <td className="px-4 py-3 text-xs text-[#334155]">
                         {r.start_time} – {r.end_time}
                         <span className="mt-0.5 block text-[#64748B]">{formatDuration(r.duration_minutes)}</span>
@@ -135,6 +138,7 @@ export function UploadStatusPanel({
                 return (
                   <tr key={g.primary_schedule_id} className="transition-colors hover:bg-[#F0F9FF]">
                     <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{g.exam_date}</td>
+                    <td className="px-4 py-3 text-xs font-semibold text-[#475569]">{formatExamMealSlotLabel(g.meal_slot)}</td>
                     <td className="px-4 py-3 text-xs text-[#334155]">
                       {g.start_time} – {g.end_time}
                       <span className="mt-0.5 block text-[#64748B]">{formatDuration(g.duration_minutes)}</span>

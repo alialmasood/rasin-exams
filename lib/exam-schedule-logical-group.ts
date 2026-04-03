@@ -7,12 +7,15 @@ export type ExamScheduleLogicalGroupFields = {
   start_time: string;
   end_time: string;
   schedule_type: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  meal_slot?: number;
   /** يمنع دمج جلسات متطابقة زمنياً عبر أعوام أو فصول مختلفة */
   academic_year?: string | null;
   term_label?: string | null;
 };
 
 export function examScheduleLogicalGroupKeyFromRow(row: ExamScheduleLogicalGroupFields): string {
+  const meal = row.meal_slot === 2 ? 2 : 1;
   return [
     row.college_subject_id,
     row.study_subject_id,
@@ -21,6 +24,7 @@ export function examScheduleLogicalGroupKeyFromRow(row: ExamScheduleLogicalGroup
     row.start_time.slice(0, 5),
     row.end_time.slice(0, 5),
     row.schedule_type,
+    String(meal),
     (row.academic_year ?? "").trim(),
     (row.term_label ?? "").trim(),
   ].join("|");
@@ -48,6 +52,7 @@ export function groupExamScheduleRowsIntoSessions<T extends ExamScheduleSessionR
       start_time: r.start_time,
       end_time: r.end_time,
       schedule_type: r.schedule_type,
+      meal_slot: r.meal_slot,
       academic_year: r.academic_year,
       term_label: r.term_label,
     });

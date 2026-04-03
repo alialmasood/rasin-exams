@@ -804,6 +804,18 @@ async function ensureCollegeExamSchedulesTable(pool: Pool) {
     if (!isPermissionError(err)) throw err;
   }
 
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS meal_slot SMALLINT NOT NULL DEFAULT 1`
+    );
+    await pool.query(
+      `UPDATE public.college_exam_schedules SET meal_slot = 1 WHERE meal_slot IS NULL OR meal_slot NOT IN (1, 2)`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+    console.warn("[schema] تعذر توسيع college_exam_schedules بإضافة meal_slot (صلاحيات).");
+  }
+
   if (!(await constraintExists(pool, "college_exam_schedules_owner_user_id_fkey"))) {
     try {
       await pool.query(`

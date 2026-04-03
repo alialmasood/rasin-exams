@@ -746,6 +746,10 @@ export function SituationDetailClient({
           </p>
           <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             <ReadOnlyStat label="التاريخ" value={detail.exam_date} />
+            <ReadOnlyStat
+              label="رقم الوجبة"
+              value={detail.meal_slot === 2 ? "الوجبة الثانية" : "الوجبة الأولى"}
+            />
             <ReadOnlyStat label="الوقت" value={`${detail.start_time} – ${detail.end_time}`} />
             <ReadOnlyStat label="مدة الامتحان" value={formatDuration(detail.duration_minutes)} />
             <ReadOnlyStat label="القاعة" value={detail.room_name} />

@@ -1,6 +1,7 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import type { CollegeExamScheduleRow, ScheduleType } from "@/lib/college-exam-schedules";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 
 const SCHEDULE_SHORT: Record<ScheduleType, string> = {
@@ -32,8 +33,8 @@ function formatDuration(minutes: number) {
 
 function sortRows(rows: CollegeExamScheduleRow[]) {
   return [...rows].sort((a, b) => {
-    const da = `${a.exam_date} ${a.start_time}`;
-    const db = `${b.exam_date} ${b.start_time}`;
+    const da = `${a.exam_date} ${a.meal_slot} ${a.start_time}`;
+    const db = `${b.exam_date} ${b.meal_slot} ${b.start_time}`;
     return da.localeCompare(db);
   });
 }
@@ -96,6 +97,7 @@ function buildScheduleGroupDocumentHtml(args: {
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${r.stage_level}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${escHtml(type)}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;white-space:nowrap;direction:ltr;font-variant-numeric:tabular-nums">${escHtml(r.exam_date)}</td>
+        <td style="padding:7px 6px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;font-weight:600">${escHtml(formatExamMealSlotLabel(r.meal_slot))}</td>
         <td style="padding:7px 7px;border:1px solid #94a3b8;text-align:right;vertical-align:middle">${escHtml(weekdayAr(r.exam_date))}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;white-space:nowrap;direction:ltr;font-variant-numeric:tabular-nums">${escHtml(timeRangeLabel(r.start_time, r.end_time))}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${escHtml(formatDuration(r.duration_minutes))}</td>
@@ -128,11 +130,12 @@ function buildScheduleGroupDocumentHtml(args: {
             <col style="width:20%">
             <col style="width:6%">
             <col style="width:7%">
+            <col style="width:8%">
+            <col style="width:8%">
+            <col style="width:11%">
+            <col style="width:13%">
             <col style="width:9%">
-            <col style="width:12%">
-            <col style="width:14%">
-            <col style="width:10%">
-            <col style="width:18%">
+            <col style="width:17%">
           </colgroup>
           <thead>
             <tr style="background:#e2e8f0;color:#0f172a;">
@@ -141,6 +144,7 @@ function buildScheduleGroupDocumentHtml(args: {
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">المرحلة</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">النوع</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">التاريخ</th>
+              <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">الوجبة</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">اليوم</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">وقت الامتحان</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">المدة</th>

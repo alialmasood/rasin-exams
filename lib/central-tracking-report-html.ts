@@ -1,4 +1,5 @@
 import type { CentralTrackingExamRow } from "@/lib/college-exam-situations";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import {
   EXAM_SITUATION_TZ,
   calendarDateInTimeZone,
@@ -90,7 +91,7 @@ export function buildCentralTrackingReportPrintHtml(
 
   const tableBody =
     input.rows.length === 0
-      ? `<tr><td colspan="13" class="muted">لا توجد جلسات ضمن نطاق التقرير الحالي.</td></tr>`
+      ? `<tr><td colspan="14" class="muted">لا توجد جلسات ضمن نطاق التقرير الحالي.</td></tr>`
       : input.rows
           .map((r, i) => {
             const timeR = `${e(r.startTime)} — ${e(r.endTime)}`;
@@ -103,6 +104,7 @@ export function buildCentralTrackingReportPrintHtml(
             <td class="subj">${e(r.subject)}</td>
             <td class="num">${e(r.studyStageLabel)}</td>
             <td class="num nowrap">${timeR}</td>
+            <td class="compact nowrap">${e(formatExamMealSlotLabel(r.mealSlot))}</td>
             <td class="compact">${e(examTypeLabelAr(r.examType))}</td>
             <td class="num">${r.studentsCount}</td>
             <td class="num pres">${typeof att === "number" ? att : att}</td>
@@ -271,6 +273,7 @@ export function buildCentralTrackingReportPrintHtml(
         <th style="width:11%">المادة</th>
         <th style="width:4.5%">المرحلة</th>
         <th style="width:6.5%">وقت الجلسة</th>
+        <th style="width:4.5%">الوجبة</th>
         <th style="width:4%">النوع</th>
         <th style="width:4%">الطلبة</th>
         <th style="width:4%">الحضور</th>

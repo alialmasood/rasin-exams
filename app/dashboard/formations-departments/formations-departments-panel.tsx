@@ -11,6 +11,7 @@ import type { FormationActivityItem } from "@/lib/formation-activity-feed";
 import { fetchFormationActivityFeedAction } from "./actions";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 function formatNum(n: number): string {
   return new Intl.NumberFormat("en-US").format(n);
@@ -310,10 +311,11 @@ function FormationExamScheduleDetailBlock({
           <p className="py-6 text-center text-sm text-[#64748B]">لا جلسات بهذه الحالة.</p>
         ) : (
           <div className="max-h-[min(70vh,26rem)] overflow-auto rounded-xl ring-1 ring-[#E2E8F0]">
-            <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-right text-[11px]">
+            <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-right text-[11px]">
               <thead>
                 <tr className="sticky top-0 z-[1] border-b border-[#E2E8F0] bg-[#EFF6FF]">
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">التاريخ</th>
+                  <th className="px-2 py-2.5 font-extrabold text-[#475569]">الوجبة</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">الوقت</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">المادة</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">القسم</th>
@@ -329,6 +331,9 @@ function FormationExamScheduleDetailBlock({
                 {filtered.map((r) => (
                   <tr key={r.id} className="hover:bg-[#F8FAFC]">
                     <td className="whitespace-nowrap px-2 py-2 tabular-nums text-[#334155]">{formatExamDate(r.exam_date)}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-[11px] font-semibold text-[#475569]">
+                      {formatExamMealSlotLabel(r.meal_slot)}
+                    </td>
                     <td className="whitespace-nowrap px-2 py-2 tabular-nums text-[#475569]">
                       {r.start_time} – {r.end_time}
                     </td>

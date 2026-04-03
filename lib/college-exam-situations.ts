@@ -1,4 +1,5 @@
 import { mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
+import { normalizeExamMealSlot } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { canUploadSituationInExamWindow } from "@/lib/exam-situation-window";
@@ -88,6 +89,7 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
     college_subject_id: string;
     study_subject_id: string;
     exam_date: string;
+    meal_slot: number | string | null;
     start_time: string;
     end_time: string;
     duration_minutes: number;
@@ -117,7 +119,7 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
     absence_names: string | null;
   }>(
     `SELECT e.id AS schedule_id, e.college_subject_id::text AS college_subject_id, e.study_subject_id::text AS study_subject_id,
-            e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
+            e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot, e.start_time::text, e.end_time::text, e.duration_minutes,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             r.id AS room_id, r.room_name,
             CASE
@@ -202,7 +204,7 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
      LEFT JOIN college_exam_situation_reports rep
             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
      WHERE e.owner_user_id = $1
-     ORDER BY e.exam_date ASC, e.start_time ASC, e.created_at ASC`,
+     ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
     [ownerUserId]
   );
   return r.rows.map((row) => {
@@ -235,6 +237,7 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
       college_subject_id: String(row.college_subject_id),
       study_subject_id: String(row.study_subject_id),
       exam_date: row.exam_date,
+      meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
       start_time: row.start_time.slice(0, 5),
       end_time: row.end_time.slice(0, 5),
       duration_minutes: Number(row.duration_minutes ?? 0),
@@ -274,6 +277,8 @@ export type CentralTrackingExamRow = {
   roomsCount: number;
   reportStatus: "SUBMITTED" | "PENDING" | "NOT_SUBMITTED";
   examDate: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  mealSlot: 1 | 2;
   examType: "FINAL" | "SEMESTER";
   /**
    * الفصل الدراسي من `college_exam_schedules.term_label` — نفس القيمة المُختارة في بوابة الكلية ضمن
@@ -367,10 +372,12 @@ export async function listCentralTrackingExamRowsForDate(examDate: string): Prom
     formation_label: string;
     notes: string | null;
     term_label: string | null;
+    meal_slot: number | null;
   }>(
     `SELECT e.id AS schedule_id, e.owner_user_id,
             e.college_subject_id::text AS college_subject_id, e.study_subject_id::text AS study_subject_id,
-            e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
+            e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
+            e.start_time::text, e.end_time::text, e.duration_minutes,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             r.id AS room_id, r.room_name,
             CASE
@@ -511,6 +518,7 @@ export async function listCentralTrackingExamRowsForDate(examDate: string): Prom
       roomsCount: 1,
       reportStatus: centralReportStatus(uploaded, dean),
       examDate: row.exam_date,
+      mealSlot: Number(row.meal_slot) === 2 ? 2 : 1,
       examType: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
       termLabel: row.term_label?.trim() ? row.term_label.trim() : null,
       studyTypeKey: st,
@@ -612,6 +620,7 @@ type ExamSituationDetailDbRow = {
   college_subject_id: string;
   schedule_study_subject_id: string;
   exam_date: string;
+  meal_slot: number | string | null;
   start_time: string;
   end_time: string;
   duration_minutes: number;
@@ -649,7 +658,7 @@ type ExamSituationDetailDbRow = {
 const EXAM_SITUATION_DETAIL_SQL_BASE = `
     SELECT e.id AS schedule_id, e.college_subject_id::text AS college_subject_id,
             e.study_subject_id::text AS schedule_study_subject_id,
-            e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
+            e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot, e.start_time::text, e.end_time::text, e.duration_minutes,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             r.id AS room_id, r.room_name,
             CASE
@@ -778,6 +787,7 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     college_subject_id: String(row.college_subject_id ?? ""),
     study_subject_id: String(row.schedule_study_subject_id),
     exam_date: row.exam_date,
+    meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
     start_time: row.start_time.slice(0, 5),
     end_time: row.end_time.slice(0, 5),
     duration_minutes: Number(row.duration_minutes ?? 0),

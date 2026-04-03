@@ -9,6 +9,7 @@ import {
   type FormationScheduleExportInput,
 } from "@/lib/admin-formation-exam-schedule-export";
 import type { AdminCollegeExamScheduleRow } from "@/lib/college-exam-schedules";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { fetchAdminExamSchedulesAction } from "./actions";
 
@@ -161,7 +162,7 @@ function SessionsTable({ sessions }: { sessions: AdminCollegeExamScheduleRow[][]
   let seq = 0;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] table-fixed border-collapse text-right">
+      <table className="w-full min-w-[820px] table-fixed border-collapse text-right">
         <thead className="bg-[#F1F5F9]">
           <tr className="border-b border-[#E2E8F0]">
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">#</th>
@@ -169,6 +170,7 @@ function SessionsTable({ sessions }: { sessions: AdminCollegeExamScheduleRow[][]
             <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">المادة</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">مرحلة</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">التاريخ</th>
+            <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">الوجبة</th>
             <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">اليوم</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">الوقت</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">المدة</th>
@@ -197,6 +199,9 @@ function SessionsTable({ sessions }: { sessions: AdminCollegeExamScheduleRow[][]
                 </td>
                 <td className="px-2 py-2 text-center text-[11px] tabular-nums text-[#334155]">{r.stage_level}</td>
                 <td className="px-2 py-2 text-center text-[11px] tabular-nums text-[#334155]">{r.exam_date}</td>
+                <td className="px-2 py-2 text-center text-[10px] font-semibold text-[#475569]">
+                  {formatExamMealSlotLabel(r.meal_slot)}
+                </td>
                 <td className="max-w-0 px-2 py-2 break-words text-[11px] text-[#334155]">{weekdayAr(r.exam_date)}</td>
                 <td className="px-2 py-2 text-center text-[11px] tabular-nums text-[#334155]">{timeRangeLabel(r.start_time, r.end_time)}</td>
                 <td className="px-2 py-2 text-center text-[11px] text-[#334155]">{formatDuration(r.duration_minutes)}</td>

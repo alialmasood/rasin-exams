@@ -183,6 +183,7 @@ export async function listFormationActivityFeed(limit = 120): Promise<FormationA
            'branch_name', c.branch_name,
            'room_name', rm.room_name,
            'exam_date', e.exam_date::text,
+           'meal_slot', COALESCE(e.meal_slot, 1),
            'start_time', substring(e.start_time::text, 1, 5),
            'workflow_status', COALESCE(e.workflow_status, 'DRAFT')
          )
@@ -208,6 +209,7 @@ export async function listFormationActivityFeed(limit = 120): Promise<FormationA
            'branch_name', c.branch_name,
            'room_name', rm.room_name,
            'exam_date', e.exam_date::text,
+           'meal_slot', COALESCE(e.meal_slot, 1),
            'start_time', substring(e.start_time::text, 1, 5),
            'workflow_status', COALESCE(e.workflow_status, 'DRAFT')
          )
@@ -276,7 +278,8 @@ export async function listFormationActivityFeed(limit = 120): Promise<FormationA
         const wf = workflowShortAr(String(d.workflow_status ?? "DRAFT"));
         const date = String(d.exam_date ?? "");
         const t = String(d.start_time ?? "");
-        line_ar = `${q(fl)} ${verbAdd} جلسة في الجدول الامتحاني — ${q(String(d.study_subject_name ?? ""))} — ${date} ${t} — قاعة ${q(String(d.room_name ?? ""))} — ${wf}`;
+        const ms = Number(d.meal_slot ?? 1) === 2 ? "الوجبة الثانية" : "الوجبة الأولى";
+        line_ar = `${q(fl)} ${verbAdd} جلسة في الجدول الامتحاني — ${q(String(d.study_subject_name ?? ""))} — ${date} (${ms}) ${t} — قاعة ${q(String(d.room_name ?? ""))} — ${wf}`;
         break;
       }
       case "situation_submit":

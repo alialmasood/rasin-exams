@@ -271,12 +271,7 @@ function CreateCollegeAccountDialogForm({
                 onChange={() => setAccountType("followup")}
                 className="size-4 shrink-0 accent-blue-600"
               />
-              <div className="min-w-0 flex-1">
-                <span className="text-sm font-semibold text-[#0F172A]">متابعة مركزية</span>
-                <span className="mt-0.5 block text-xs font-normal text-[#64748B]">
-                  رئاسة الجامعة / المساعد العلمي — بوابة /tracking
-                </span>
-              </div>
+              <span className="text-sm font-semibold text-[#0F172A]">متابعة مركزية</span>
             </label>
           </div>
         </fieldset>

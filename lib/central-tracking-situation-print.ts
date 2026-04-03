@@ -33,6 +33,7 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     college_subject_id: "—",
     study_subject_id: "—",
     exam_date: row.examDate,
+    meal_slot: row.mealSlot,
     start_time: row.startTime,
     end_time: row.endTime,
     duration_minutes: durationMinutes(row.startTime, row.endTime),

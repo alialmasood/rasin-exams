@@ -1,8 +1,12 @@
 import { assertExamDateNotInPast } from "@/lib/exam-schedule-date";
+import { type ExamMealSlot, normalizeExamMealSlot, formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
 export type ScheduleType = "FINAL" | "SEMESTER";
+
+export type { ExamMealSlot } from "@/lib/exam-meal-slot";
+export { normalizeExamMealSlot, formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 export type CollegeExamScheduleRow = {
   id: string;
@@ -19,6 +23,8 @@ export type CollegeExamScheduleRow = {
   term_label: string | null;
   academic_year: string | null;
   exam_date: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  meal_slot: ExamMealSlot;
   start_time: string;
   end_time: string;
   duration_minutes: number;
@@ -79,6 +85,7 @@ type ValidateScheduleSlotParams = {
   termLabel: string;
   academicYear: string;
   examDate: string;
+  mealSlot: string;
   startTime: string;
   endTime: string;
   /** عند التعديل: استثناء الصف الحالي من فحوص التكرار/التداخل لنفس القاعة */
@@ -142,6 +149,7 @@ async function validateExamScheduleSlot(
   }
 
   const stageNum = Number(input.stageLevel.trim());
+  const mealSlotNum = normalizeExamMealSlot(input.mealSlot ?? "1");
   const excludeId = input.excludeScheduleId?.trim() && /^\d+$/.test(input.excludeScheduleId.trim())
     ? input.excludeScheduleId.trim()
     : null;
@@ -157,7 +165,8 @@ async function validateExamScheduleSlot(
        AND start_time = $6::time
        AND end_time = $7::time
        AND room_id = $8::bigint
-       AND ($9::bigint IS NULL OR id <> $9::bigint)
+       AND COALESCE(meal_slot, 1) = $9
+       AND ($10::bigint IS NULL OR id <> $10::bigint)
      LIMIT 1`,
     [
       input.ownerUserId,
@@ -168,6 +177,7 @@ async function validateExamScheduleSlot(
       input.startTime.trim(),
       input.endTime.trim(),
       input.roomId.trim(),
+      mealSlotNum,
       excludeId,
     ]
   );
@@ -212,6 +222,7 @@ export type CollegeRoomScheduleHint = {
   start_time: string;
   end_time: string;
   study_subject_name: string;
+  meal_slot_label: string;
 };
 
 /** تلميحات جداول لكل قاعة (للعرض في إدارة القاعات). */
@@ -227,23 +238,27 @@ export async function listCollegeExamScheduleHintsByRoom(
     start_time: string;
     end_time: string;
     study_subject_name: string;
+    meal_slot: number | string | null;
   }>(
-    `SELECT e.room_id, e.exam_date::text, e.start_time::text, e.end_time::text, s.subject_name AS study_subject_name
+    `SELECT e.room_id, e.exam_date::text, e.start_time::text, e.end_time::text, s.subject_name AS study_subject_name,
+            COALESCE(e.meal_slot, 1) AS meal_slot
      FROM college_exam_schedules e
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
      WHERE e.owner_user_id = $1
-     ORDER BY e.exam_date ASC, e.start_time ASC, e.id ASC`,
+     ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.id ASC`,
     [ownerUserId]
   );
   const out: Record<string, CollegeRoomScheduleHint[]> = {};
   for (const row of r.rows) {
     const id = String(row.room_id);
     if (!out[id]) out[id] = [];
+    const ms = normalizeExamMealSlot(String(row.meal_slot ?? 1));
     out[id].push({
       exam_date: row.exam_date,
       start_time: String(row.start_time).slice(0, 5),
       end_time: String(row.end_time).slice(0, 5),
       study_subject_name: row.study_subject_name,
+      meal_slot_label: formatExamMealSlotLabel(ms),
     });
   }
   return out;
@@ -293,19 +308,21 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     duration_minutes: number;
     notes: string | null;
     created_at: Date;
+    meal_slot: number | string | null;
   }>(
     `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
-            e.term_label, e.academic_year, e.exam_date::text, e.start_time::text, e.end_time::text,
+            e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
+            e.start_time::text, e.end_time::text,
             e.duration_minutes, e.notes, e.created_at
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
      INNER JOIN college_exam_rooms r ON r.id = e.room_id
      WHERE e.owner_user_id = $1
-     ORDER BY e.exam_date ASC, e.start_time ASC, e.created_at ASC`,
+     ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
     [ownerUserId]
   );
   return r.rows.map((x) => ({
@@ -330,6 +347,7 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     term_label: x.term_label,
     academic_year: x.academic_year,
     exam_date: x.exam_date,
+    meal_slot: normalizeExamMealSlot(String(x.meal_slot ?? 1)),
     start_time: x.start_time.slice(0, 5),
     end_time: x.end_time.slice(0, 5),
     duration_minutes: x.duration_minutes,
@@ -371,6 +389,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     duration_minutes: number;
     notes: string | null;
     created_at: Date;
+    meal_slot: number | string | null;
     formation_label: string;
     owner_username: string;
   }>(
@@ -378,7 +397,8 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
-            e.term_label, e.academic_year, e.exam_date::text, e.start_time::text, e.end_time::text,
+            e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
+            e.start_time::text, e.end_time::text,
             e.duration_minutes, e.notes, e.created_at,
             COALESCE(
               NULLIF(TRIM(
@@ -401,7 +421,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
      INNER JOIN users u
        ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
      LEFT JOIN college_account_profiles p ON p.user_id = u.id
-     ORDER BY formation_label ASC, u.username ASC, e.exam_date ASC, e.start_time ASC, e.created_at ASC`
+     ORDER BY formation_label ASC, u.username ASC, e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`
   );
   return r.rows.map((x) => ({
     id: String(x.id),
@@ -425,6 +445,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     term_label: x.term_label,
     academic_year: x.academic_year,
     exam_date: x.exam_date,
+    meal_slot: normalizeExamMealSlot(String(x.meal_slot ?? 1)),
     start_time: x.start_time.slice(0, 5),
     end_time: x.end_time.slice(0, 5),
     duration_minutes: x.duration_minutes,
@@ -444,6 +465,7 @@ export type CreateCollegeExamScheduleCoreInput = {
   termLabel: string;
   academicYear: string;
   examDate: string;
+  mealSlot: string;
   startTime: string;
   endTime: string;
   notes: string;
@@ -491,6 +513,7 @@ export async function createCollegeExamSchedulesMultiRoom(
       termLabel: input.termLabel,
       academicYear: input.academicYear,
       examDate: input.examDate,
+      mealSlot: input.mealSlot,
       startTime: input.startTime,
       endTime: input.endTime,
     });
@@ -507,11 +530,12 @@ export async function createCollegeExamSchedulesMultiRoom(
   try {
     await pool.query("BEGIN");
     for (const slot of validated) {
+      const mealN = normalizeExamMealSlot(input.mealSlot);
       const ins = await pool.query<{ id: string | number }>(
         `INSERT INTO college_exam_schedules
           (owner_user_id, college_subject_id, study_subject_id, room_id, schedule_type, workflow_status, term_label,
-           academic_year, stage_level, exam_date, start_time, end_time, duration_minutes, notes, created_at, updated_at)
-         VALUES ($1,$2::bigint,$3::bigint,$4::bigint,$5,'APPROVED',$6,$7,$8,$9::date,$10::time,$11::time,$12,$13,NOW(),NOW())
+           academic_year, stage_level, exam_date, meal_slot, start_time, end_time, duration_minutes, notes, created_at, updated_at)
+         VALUES ($1,$2::bigint,$3::bigint,$4::bigint,$5,'APPROVED',$6,$7,$8,$9::date,$10,$11::time,$12::time,$13,$14,NOW(),NOW())
          RETURNING id`,
         [
           input.ownerUserId,
@@ -523,6 +547,7 @@ export async function createCollegeExamSchedulesMultiRoom(
           input.academicYear.trim() || null,
           slot.stageNum,
           input.examDate.trim(),
+          mealN,
           input.startTime.trim(),
           input.endTime.trim(),
           slot.duration,
@@ -567,6 +592,7 @@ export async function updateCollegeExamSchedule(input: {
   termLabel: string;
   academicYear: string;
   examDate: string;
+  mealSlot: string;
   startTime: string;
   endTime: string;
   notes: string;
@@ -586,19 +612,21 @@ export async function updateCollegeExamSchedule(input: {
     termLabel: input.termLabel,
     academicYear: input.academicYear,
     examDate: input.examDate,
+    mealSlot: input.mealSlot,
     startTime: input.startTime,
     endTime: input.endTime,
     excludeScheduleId: input.id.trim(),
   });
   if (!v.ok) return v;
 
+  const mealN = normalizeExamMealSlot(input.mealSlot);
   const upd = await pool.query(
     `UPDATE college_exam_schedules
      SET college_subject_id = $1::bigint, study_subject_id = $2::bigint, room_id = $3::bigint,
          schedule_type = $4, term_label = $5, academic_year = $6, stage_level = $7, exam_date = $8::date,
-         start_time = $9::time, end_time = $10::time, duration_minutes = $11, notes = $12,
+         meal_slot = $9, start_time = $10::time, end_time = $11::time, duration_minutes = $12, notes = $13,
          workflow_status = 'APPROVED', updated_at = NOW()
-     WHERE id = $13::bigint AND owner_user_id = $14
+     WHERE id = $14::bigint AND owner_user_id = $15
        AND UPPER(TRIM(workflow_status::text)) IN ('DRAFT','REJECTED','SUBMITTED','APPROVED')`,
     [
       input.collegeSubjectId.trim(),
@@ -609,6 +637,7 @@ export async function updateCollegeExamSchedule(input: {
       input.academicYear.trim() || null,
       v.stageNum,
       input.examDate.trim(),
+      mealN,
       input.startTime.trim(),
       input.endTime.trim(),
       v.endMin - v.startMin,

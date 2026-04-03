@@ -1,4 +1,5 @@
 import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
@@ -341,6 +342,12 @@ export function buildExamSituationReportHtml(
           <td>${e(detail.supervisor_name)}</td>
         </tr>
         <tr>
+          <td>رقم الوجبة</td>
+          <td>${e(formatExamMealSlotLabel(detail.meal_slot))}</td>
+          <td></td>
+          <td></td>
+        </tr>
+        <tr>
           <td>وقت البداية</td>
           <td>${e(detail.start_time)}</td>
           <td rowspan="3">المراقبون</td>
@@ -597,6 +604,7 @@ function groupExamSituationDetailsForDailyReport(details: ExamSituationDetail[])
       start_time: d.start_time,
       end_time: d.end_time,
       schedule_type: d.schedule_type,
+      meal_slot: d.meal_slot,
       academic_year: d.academic_year,
       term_label: null,
     });

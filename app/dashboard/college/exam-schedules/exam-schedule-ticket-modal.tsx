@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 type ScheduleType = "FINAL" | "SEMESTER";
 
@@ -75,6 +76,7 @@ function buildTicketWhatsAppMessage(row: CollegeExamScheduleRow, collegeLabel: s
     "",
     `يوم الامتحان: ${weekdayAr(row.exam_date)}`,
     `التاريخ: ${row.exam_date}`,
+    `رقم الوجبة: ${formatExamMealSlotLabel(row.meal_slot)}`,
     `وقت الامتحان: ${timeRangeLabel(row.start_time, row.end_time)}`,
     `مدة الامتحان: ${formatDuration(row.duration_minutes)}`,
     "",
@@ -204,6 +206,7 @@ export function ExamScheduleTicketModal({
               <TicketField label="القاعة" value={row.room_name} />
               <TicketField label="يوم الامتحان" value={weekdayAr(row.exam_date)} />
               <TicketField label="التاريخ" value={row.exam_date} />
+              <TicketField label="رقم الوجبة" value={formatExamMealSlotLabel(row.meal_slot)} />
               <TicketField label="وقت الامتحان" value={timeRangeLabel(row.start_time, row.end_time)} />
               <TicketField label="مدة الامتحان" value={formatDuration(row.duration_minutes)} />
               <TicketField

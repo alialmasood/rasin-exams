@@ -948,7 +948,7 @@ function RowDetailHint({
           <ul className="space-y-1 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
             {hints.map((h, i) => (
               <li key={`${h.exam_date}-${h.start_time}-${i}`} className="text-xs sm:text-sm">
-                {h.exam_date} — {h.start_time}–{h.end_time} — <strong>{h.study_subject_name}</strong>
+                {h.exam_date} — {h.meal_slot_label} — {h.start_time}–{h.end_time} — <strong>{h.study_subject_name}</strong>
               </li>
             ))}
           </ul>
@@ -1121,7 +1121,9 @@ export function RoomsManagementPanel({
         const hintsText =
           hints.length === 0
             ? ""
-            : hints.map((h) => `${h.exam_date} ${h.start_time}-${h.end_time} (${h.study_subject_name})`).join("؛ ");
+            : hints
+                .map((h) => `${h.exam_date} ${h.meal_slot_label} ${h.start_time}-${h.end_time} (${h.study_subject_name})`)
+                .join("؛ ");
         return {
           الكلية: collegeLabel,
           التسلسل: r.serial_no,

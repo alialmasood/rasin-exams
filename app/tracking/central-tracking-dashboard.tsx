@@ -10,6 +10,7 @@ import {
 import { printCentralTrackingSingleSituation } from "@/lib/central-tracking-situation-print";
 import { describeCapacityByShiftAr } from "@/lib/capacity-by-shift-ar";
 import type { CentralTrackingExamRow } from "@/lib/college-exam-situations";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import type { DeanSituationStatus } from "@/lib/upload-status-display";
 import {
   calendarDateInTimeZone,
@@ -1022,6 +1023,7 @@ export function CentralTrackingDashboard({
                       <th className="px-3 py-2 text-start whitespace-nowrap sm:px-4 sm:py-2.5">القسم</th>
                       <th className="px-3 py-2 text-start sm:px-4 sm:py-2.5">المادة</th>
                       <th className="px-3 py-2 text-start whitespace-nowrap sm:px-4 sm:py-2.5">المرحلة</th>
+                      <th className="px-3 py-2 text-center whitespace-nowrap sm:px-4 sm:py-2.5">الوجبة</th>
                       <th className="px-3 py-2 text-center tabular-nums whitespace-nowrap sm:px-4 sm:py-2.5">
                         الطلبة
                       </th>
@@ -1043,7 +1045,7 @@ export function CentralTrackingDashboard({
                   <tbody>
                     {sorted.length === 0 ? (
                       <tr className="border-b border-stone-200">
-                        <td colSpan={10} className="p-0">
+                        <td colSpan={11} className="p-0">
                           <div className="flex flex-col items-center justify-center bg-stone-50/60 px-6 py-12 text-center sm:py-14">
                             <span
                               className="mb-3 flex size-12 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-400 shadow-sm"
@@ -1078,6 +1080,9 @@ export function CentralTrackingDashboard({
                             <td className="px-3 py-2 text-stone-700 sm:px-4 sm:py-2.5">{r.department}</td>
                             <td className="px-3 py-2 font-medium text-stone-900 sm:px-4 sm:py-2.5">{r.subject}</td>
                             <td className="px-3 py-2 tabular-nums text-stone-700 sm:px-4 sm:py-2.5">{r.studyStageLabel}</td>
+                            <td className="px-3 py-2 text-center text-xs font-semibold text-stone-700 sm:px-4 sm:py-2.5">
+                              {formatExamMealSlotLabel(r.mealSlot)}
+                            </td>
                             <td className="px-3 py-2 text-center tabular-nums text-stone-900 sm:px-4 sm:py-2.5">
                               {r.studentsCount}
                             </td>
@@ -1279,6 +1284,12 @@ function CentralSituationReport({ row: d, referenceTime }: { row: CentralTrackin
             <span className="min-w-0 font-medium tabular-nums text-stone-900">
               {d.startTime} — {d.endTime}
             </span>
+            <ReportVenueSep />
+            <span className="shrink-0 text-[10px] font-bold text-[#1a3052] sm:text-[11px]">الوجبة</span>
+            <span className="shrink-0 text-stone-400" aria-hidden>
+              :
+            </span>
+            <span className="min-w-0 font-medium text-stone-900">{formatExamMealSlotLabel(d.mealSlot)}</span>
             <ReportVenueSep />
             <span className="shrink-0 text-[10px] font-bold text-[#1a3052] sm:text-[11px]">السنة الأكاديمية</span>
             <span className="shrink-0 text-stone-400" aria-hidden>

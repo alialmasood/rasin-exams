@@ -1,4 +1,5 @@
 import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeExamMealSlot } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
@@ -36,6 +37,8 @@ export type FormationExamScheduleDetailRow = {
   term_label: string | null;
   academic_year: string | null;
   exam_date: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  meal_slot: 1 | 2;
   start_time: string;
   end_time: string;
   duration_minutes: number;
@@ -168,6 +171,7 @@ function normalizeScheduleDetailRow(x: {
   term_label: string | null;
   academic_year: string | null;
   exam_date: string;
+  meal_slot: number | string | null;
   start_time: string;
   end_time: string;
   duration_minutes: number;
@@ -193,6 +197,7 @@ function normalizeScheduleDetailRow(x: {
     term_label: x.term_label,
     academic_year: x.academic_year,
     exam_date: x.exam_date,
+    meal_slot: normalizeExamMealSlot(String(x.meal_slot ?? 1)),
     start_time: String(x.start_time).slice(0, 5),
     end_time: String(x.end_time).slice(0, 5),
     duration_minutes: Number(x.duration_minutes ?? 0),
@@ -375,6 +380,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
       term_label: string | null;
       academic_year: string | null;
       exam_date: string;
+      meal_slot: number | string | null;
       start_time: string;
       end_time: string;
       duration_minutes: number;
@@ -391,6 +397,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
               e.term_label,
               e.academic_year,
               e.exam_date::text,
+              COALESCE(e.meal_slot, 1) AS meal_slot,
               e.start_time::text,
               e.end_time::text,
               e.duration_minutes,
@@ -403,7 +410,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
        INNER JOIN college_exam_rooms rm
          ON rm.id = e.room_id AND rm.owner_user_id = e.owner_user_id
        WHERE e.owner_user_id = ${ownerAnySql}
-       ORDER BY e.owner_user_id, e.exam_date ASC, e.start_time ASC, e.created_at ASC, e.id ASC`,
+       ORDER BY e.owner_user_id, e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC, e.id ASC`,
       ownerAnyParams
     ),
   ]);

@@ -9,6 +9,8 @@ export type UploadStatusTableRow = {
   college_subject_id: string;
   study_subject_id: string;
   exam_date: string;
+  /** 1 = الوجبة الأولى، 2 = الوجبة الثانية */
+  meal_slot: 1 | 2;
   start_time: string;
   end_time: string;
   duration_minutes: number;
@@ -42,6 +44,7 @@ export type UploadStatusListItem =
       end_time: string;
       duration_minutes: number;
       schedule_type: "FINAL" | "SEMESTER";
+      meal_slot: 1 | 2;
       room_names_label: string;
       capacity_total_sum: number;
       attendance_sum: number;
@@ -68,6 +71,7 @@ export function buildUploadStatusListItems(rows: UploadStatusTableRow[]): Upload
       start_time: r.start_time,
       end_time: r.end_time,
       schedule_type: r.schedule_type,
+      meal_slot: r.meal_slot,
       academic_year: r.academic_year,
       term_label: null,
     });
@@ -107,6 +111,7 @@ export function buildUploadStatusListItems(rows: UploadStatusTableRow[]): Upload
       end_time: head.end_time,
       duration_minutes: head.duration_minutes,
       schedule_type: head.schedule_type,
+      meal_slot: head.meal_slot,
       room_names_label: g.map((x) => x.room_name.trim()).filter(Boolean).join("، "),
       capacity_total_sum: g.reduce((a, x) => a + x.capacity_total, 0),
       attendance_sum: g.reduce((a, x) => a + x.attendance_count, 0),
@@ -127,8 +132,12 @@ export function buildUploadStatusListItems(rows: UploadStatusTableRow[]): Upload
     const db = b.kind === "single" ? b.row.exam_date : b.exam_date;
     const ta = a.kind === "single" ? a.row.start_time : a.start_time;
     const tb = b.kind === "single" ? b.row.start_time : b.start_time;
+    const ma = a.kind === "single" ? a.row.meal_slot : a.meal_slot;
+    const mb = b.kind === "single" ? b.row.meal_slot : b.meal_slot;
     const c = da.localeCompare(db);
     if (c !== 0) return c;
+    const cm = ma - mb;
+    if (cm !== 0) return cm;
     return ta.localeCompare(tb);
   });
   return out;

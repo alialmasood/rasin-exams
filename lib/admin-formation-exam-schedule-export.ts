@@ -1,4 +1,5 @@
 import type { AdminCollegeExamScheduleRow } from "@/lib/college-exam-schedules";
+import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
 const SCHEDULE_TYPE_SHORT: Record<AdminCollegeExamScheduleRow["schedule_type"], string> = {
   FINAL: "نهائي",
@@ -116,6 +117,7 @@ export function buildFormationExamSchedulePrintHtml(
             <td>${e(r.study_subject_name)}${multi ? ` <span class="tag">${sess.length} قاعات</span>` : ""}</td>
             <td class="num">${r.stage_level}</td>
             <td class="num">${e(r.exam_date)}</td>
+            <td>${e(formatExamMealSlotLabel(r.meal_slot))}</td>
             <td>${e(weekdayAr(r.exam_date))}</td>
             <td class="num">${e(timeRangeLabel(r.start_time, r.end_time))}</td>
             <td class="num">${e(formatDuration(r.duration_minutes))}</td>
@@ -137,6 +139,7 @@ export function buildFormationExamSchedulePrintHtml(
               <th>المادة</th>
               <th>مرحلة</th>
               <th>التاريخ</th>
+              <th>الوجبة</th>
               <th>اليوم</th>
               <th>الوقت</th>
               <th>المدة</th>
@@ -145,7 +148,7 @@ export function buildFormationExamSchedulePrintHtml(
               <th>الحالة</th>
             </tr>
           </thead>
-          <tbody>${rows || `<tr><td colspan="11" class="muted">لا توجد جلسات</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="12" class="muted">لا توجد جلسات</td></tr>`}</tbody>
         </table>
       </section>`;
     })
@@ -247,6 +250,7 @@ export async function exportFormationExamScheduleExcel(
         المادة: r.study_subject_name,
         مرحلة: r.stage_level,
         التاريخ: r.exam_date,
+        الوجبة: formatExamMealSlotLabel(r.meal_slot),
         اليوم: weekdayAr(r.exam_date),
         الوقت: timeRangeLabel(r.start_time, r.end_time),
         المدة: formatDuration(r.duration_minutes),
