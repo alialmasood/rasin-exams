@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isAdminRole, type UserRole } from "@/lib/authz";
 import { getAdminFormationControlRoomData } from "@/lib/admin-formations-departments";
+import { listFormationActivityFeed } from "@/lib/formation-activity-feed";
 import { getSession } from "@/lib/session";
 import { FormationsDepartmentsPanel } from "./formations-departments-panel";
 
@@ -20,6 +21,6 @@ export default async function FormationsDepartmentsPage() {
     redirect("/dashboard");
   }
 
-  const data = await getAdminFormationControlRoomData();
-  return <FormationsDepartmentsPanel data={data} />;
+  const [data, activityFeed] = await Promise.all([getAdminFormationControlRoomData(), listFormationActivityFeed(160)]);
+  return <FormationsDepartmentsPanel data={data} initialActivityFeed={activityFeed} />;
 }

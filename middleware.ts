@@ -24,8 +24,13 @@ export async function middleware(request: NextRequest) {
     const secret = new TextEncoder().encode(secretRaw);
     const { payload } = await jwtVerify(token, secret);
     const role = String(payload.role ?? "");
+    const collegeKind = String(payload.college_account_kind ?? "FORMATION");
 
-    if (role === "COLLEGE") {
+    if (role === "COLLEGE" && collegeKind === "FOLLOWUP") {
+      if (pathname.startsWith("/dashboard")) {
+        return NextResponse.redirect(new URL("/tracking", request.url));
+      }
+    } else if (role === "COLLEGE") {
       const allowed =
         pathname === "/dashboard/college" || pathname.startsWith("/dashboard/college/");
       if (!allowed) {

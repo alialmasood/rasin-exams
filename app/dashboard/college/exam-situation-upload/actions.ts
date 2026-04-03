@@ -23,6 +23,7 @@ export async function submitSituationFormAction(
   if (!ins.ok) return ins;
 
   revalidatePath("/dashboard/college/status-followup");
+  revalidatePath("/tracking");
   revalidatePath("/dashboard/college");
   revalidatePath("/dashboard/situations-followup");
   return { ok: true, id: ins.id };

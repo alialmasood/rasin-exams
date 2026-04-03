@@ -8,6 +8,8 @@ export type SessionPayload = {
   uid: string;
   username: string;
   role: string;
+  /** للدور COLLEGE — يحدد التوجيه بين لوحة التشكيل وبوابة المتابعة */
+  college_account_kind?: "FORMATION" | "FOLLOWUP";
 };
 
 function getSecret() {
@@ -19,11 +21,15 @@ function getSecret() {
 }
 
 export async function createSession(payload: SessionPayload) {
-  const token = await new SignJWT({
+  const body: Record<string, unknown> = {
     uid: payload.uid,
     username: payload.username,
     role: payload.role,
-  })
+  };
+  if (payload.college_account_kind) {
+    body.college_account_kind = payload.college_account_kind;
+  }
+  const token = await new SignJWT(body)
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("7d")
     .sign(getSecret());
@@ -48,7 +54,10 @@ export async function getSession(): Promise<SessionPayload | null> {
     const username = String(payload.username ?? "");
     const role = String(payload.role ?? "");
     if (!username || !role) return null;
-    return { uid, username, role };
+    const ck = payload.college_account_kind;
+    const college_account_kind =
+      ck === "FOLLOWUP" ? "FOLLOWUP" : ck === "FORMATION" ? "FORMATION" : undefined;
+    return { uid, username, role, college_account_kind };
   } catch {
     return null;
   }

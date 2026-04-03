@@ -67,6 +67,7 @@ export async function submitHeadSituationAction(
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
   revalidatePath("/dashboard/college/status-followup");
+  revalidatePath("/tracking");
   return { ok: true, message: "تم تأكيد رفع الموقف للمتابعة." };
 }
 
@@ -87,5 +88,6 @@ export async function approveDeanSituationAction(
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
   revalidatePath("/dashboard/college/status-followup");
+  revalidatePath("/tracking");
   return { ok: true, message: "تم اعتماد الموقف." };
 }

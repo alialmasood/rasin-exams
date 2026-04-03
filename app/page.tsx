@@ -3,7 +3,7 @@
 import { loginAction } from "@/app/actions/login";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type ViewState = "intro" | "reveal" | "login";
@@ -59,6 +59,7 @@ function HomeContent() {
   const [userOpenedLogin, setUserOpenedLogin] = useState(false);
   const [introComplete, setIntroComplete] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
 
   const loginOpen = Boolean(errorCode) || userOpenedLogin;
   const viewState: ViewState = loginOpen ? "login" : introComplete ? "reveal" : "intro";
@@ -68,6 +69,12 @@ function HomeContent() {
     const t = window.setTimeout(() => setIntroComplete(true), 2350);
     return () => window.clearTimeout(t);
   }, [loginOpen]);
+
+  /** بعد فتح نموذج الدخول ننقل التركيز من زر «الدخول» (يُزال من DOM) لتفادي تحذير aria-hidden + focus في الكونسول */
+  useLayoutEffect(() => {
+    if (viewState !== "login") return;
+    usernameInputRef.current?.focus();
+  }, [viewState]);
 
   const stateClass = useMemo(() => `state-${viewState}`, [viewState]);
 
@@ -102,21 +109,21 @@ function HomeContent() {
           </p>
         </header>
 
-        <button
-          type="button"
-          className="enter-button"
-          onClick={() => {
-            requestViewportFullscreen();
-            setUserOpenedLogin(true);
-          }}
-          aria-hidden={viewState === "login"}
-          tabIndex={viewState === "login" ? -1 : 0}
-        >
-          <span className="enter-button-icon" aria-hidden="true">
-            ↦
-          </span>
-          الدخول إلى النظام
-        </button>
+        {viewState !== "login" ? (
+          <button
+            type="button"
+            className="enter-button"
+            onClick={() => {
+              requestViewportFullscreen();
+              setUserOpenedLogin(true);
+            }}
+          >
+            <span className="enter-button-icon" aria-hidden="true">
+              ↦
+            </span>
+            الدخول إلى النظام
+          </button>
+        ) : null}
 
         <form
           className="login-form"
@@ -137,6 +144,7 @@ function HomeContent() {
           <div className="field-wrap">
             <span className="field-icon field-icon-user" aria-hidden="true" />
             <input
+              ref={usernameInputRef}
               id="username"
               name="username"
               type="text"

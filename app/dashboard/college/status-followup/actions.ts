@@ -67,6 +67,7 @@ export async function deleteUploadedExamSituationAction(
   const res = await deleteExamSituationReportForOwner({ ownerUserId: session.uid, scheduleId });
   if (res.ok) {
     revalidatePath("/dashboard/college/status-followup");
+    revalidatePath("/tracking");
   }
   return res;
 }
@@ -81,6 +82,7 @@ export async function deleteSituationFormSubmissionAction(
   const res = await deleteSituationFormSubmissionForOwner(session.uid, submissionId);
   if (res.ok) {
     revalidatePath("/dashboard/college/status-followup");
+    revalidatePath("/tracking");
     revalidatePath("/dashboard/situations-followup");
   }
   return res;

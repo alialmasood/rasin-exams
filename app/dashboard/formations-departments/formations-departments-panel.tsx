@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   AdminFormationControlRoomData,
   FormationControlSnapshot,
   FormationExamScheduleDetailRow,
 } from "@/lib/admin-formations-departments";
+import type { FormationActivityItem } from "@/lib/formation-activity-feed";
+import { fetchFormationActivityFeedAction } from "./actions";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 
@@ -89,6 +91,170 @@ function formatExamDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium" }).format(d);
+}
+
+function formatActivityAt(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "short", timeStyle: "short" }).format(d);
+}
+
+/**
+ * شريط تحديثات: حركة عمودية واحدة من الأسفل إلى الأعلى ثم الاستقرار عند أحدث حدث؛ تُعاد عند تغيّر القائمة.
+ * الجلب التلقائي كل بضع ثوانٍ (مع إظهار التبويب) دون الحاجة لزر التحديث.
+ */
+function FormationActivityFeedCard({ initialItems }: { initialItems: FormationActivityItem[] }) {
+  const [items, setItems] = useState<FormationActivityItem[]>(initialItems);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const reducedScrollRef = useRef<HTMLDivElement>(null);
+  const animRef = useRef<Animation | null>(null);
+
+  const feedSignature = useMemo(() => items.map((x) => x.id).join("\0"), [items]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduceMotion(mq.matches);
+    const fn = () => setReduceMotion(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const res = await fetchFormationActivityFeedAction();
+    if (!res.ok) {
+      setFeedError(res.error ?? "تعذّر تحديث الشريط");
+      return;
+    }
+    setFeedError(null);
+    setItems(res.items);
+  }, []);
+
+  useEffect(() => {
+    const POLL_MS = 5_000;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void refresh();
+    };
+    const id = window.setInterval(tick, POLL_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [refresh]);
+
+  useLayoutEffect(() => {
+    if (reduceMotion || items.length === 0) return;
+    const outer = viewportRef.current;
+    const track = trackRef.current;
+    if (!outer || !track) return;
+
+    animRef.current?.cancel();
+    animRef.current = null;
+
+    const hOut = outer.clientHeight;
+    const hIn = track.scrollHeight;
+    const fromY = hIn > hOut ? hOut - hIn : 0;
+    const travel = Math.abs(fromY);
+    const durationMs = travel <= 1 ? 0 : Math.min(10_000, Math.max(1_200, travel * 5.5));
+
+    track.style.transform = `translateY(${fromY}px)`;
+
+    if (durationMs === 0) {
+      track.style.transform = "translateY(0px)";
+      return;
+    }
+
+    const anim = track.animate(
+      [{ transform: `translateY(${fromY}px)` }, { transform: "translateY(0px)" }],
+      { duration: durationMs, easing: "cubic-bezier(0.22, 0.61, 0.36, 1)", fill: "forwards" }
+    );
+    animRef.current = anim;
+    return () => {
+      anim.cancel();
+    };
+  }, [feedSignature, reduceMotion, items.length]);
+
+  useLayoutEffect(() => {
+    if (!reduceMotion) return;
+    const el = reducedScrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [feedSignature, reduceMotion]);
+
+  return (
+    <div className="flex min-h-[220px] flex-col rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/95 to-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="text-sm font-bold text-indigo-950">آخر التحديثات من التشكيلات</p>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[10px] font-bold text-emerald-900 ring-1 ring-emerald-500/25"
+            title="يتم جلب الإنشاءات والتعديلات تلقائياً كل بضع ثوانٍ طالما الصفحة ظاهرة"
+          >
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-600" />
+            </span>
+            مباشر
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          className="shrink-0 rounded-lg border border-indigo-300/60 bg-white px-2.5 py-1 text-[11px] font-bold text-indigo-900 shadow-sm hover:bg-indigo-50"
+        >
+          تحديث
+        </button>
+      </div>
+
+      {feedError ? <p className="mt-2 text-[11px] text-amber-800">{feedError}</p> : null}
+
+      <div className="mt-3 min-h-[168px] flex-1">
+        {items.length === 0 ? (
+          <div className="flex h-full min-h-[168px] items-center justify-center rounded-xl border border-dashed border-indigo-200 bg-white/70 px-3 text-center text-sm text-indigo-900/65">
+            لا توجد تحديثات مسجّلة حديثاً من التشكيلات. سيُعرض التمرير تلقائياً عند تسجيل إنشاءات أو تعديلات جديدة.
+          </div>
+        ) : reduceMotion ? (
+          <div
+            ref={reducedScrollRef}
+            className="h-[168px] overflow-y-auto rounded-xl border border-indigo-100 bg-white/90 px-3 py-2 shadow-inner"
+          >
+            <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+              {items.map((it) => (
+                <li key={it.id} className="border-b border-indigo-100/90 pb-2.5 text-right last:border-b-0">
+                  <p className="text-[12px] font-medium leading-snug text-[#0F172A]">{it.line_ar}</p>
+                  <p className="mt-1 text-[10px] tabular-nums text-[#64748B]">{formatActivityAt(it.occurred_at)}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div
+            ref={viewportRef}
+            className="relative h-[168px] overflow-hidden rounded-xl border border-indigo-100 bg-white/90 shadow-inner"
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-7 bg-gradient-to-b from-white to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-7 bg-gradient-to-t from-white to-transparent" />
+            <div ref={trackRef} className="flex flex-col gap-2.5 px-3 py-2 will-change-transform">
+              {items.map((it) => (
+                <div key={it.id} className="shrink-0 border-b border-indigo-100/90 pb-2.5 text-right last:border-b-0">
+                  <p className="text-[12px] font-medium leading-snug text-[#0F172A]">{it.line_ar}</p>
+                  <p className="mt-1 text-[10px] tabular-nums text-[#64748B]">{formatActivityAt(it.occurred_at)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FormationExamScheduleDetailBlock({
@@ -387,7 +553,13 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
   );
 }
 
-export function FormationsDepartmentsPanel({ data }: { data: AdminFormationControlRoomData }) {
+export function FormationsDepartmentsPanel({
+  data,
+  initialActivityFeed,
+}: {
+  data: AdminFormationControlRoomData;
+  initialActivityFeed: FormationActivityItem[];
+}) {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -423,16 +595,19 @@ export function FormationsDepartmentsPanel({ data }: { data: AdminFormationContr
         </p>
       </header>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-emerald-900/90">تشكيلات نشطة</p>
-          <p className="mt-2 text-4xl font-extrabold tabular-nums text-emerald-800">{formatNum(data.activeFormationCount)}</p>
-          <p className="mt-1 text-xs text-emerald-800/75">حسابات بحالة «نشط» في النظام</p>
-        </div>
-        <div className="rounded-2xl border border-rose-200/80 bg-gradient-to-br from-rose-50/90 to-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-rose-900/90">تشكيلات غير نشطة</p>
-          <p className="mt-2 text-4xl font-extrabold tabular-nums text-rose-800">{formatNum(data.inactiveFormationCount)}</p>
-          <p className="mt-1 text-xs text-rose-800/75">معطّل، مقفل، أو قيد المراجعة</p>
+      <div className="mb-6 space-y-4">
+        <FormationActivityFeedCard initialItems={initialActivityFeed} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white p-5 shadow-sm">
+            <p className="text-sm font-bold text-emerald-900/90">تشكيلات نشطة</p>
+            <p className="mt-2 text-4xl font-extrabold tabular-nums text-emerald-800">{formatNum(data.activeFormationCount)}</p>
+            <p className="mt-1 text-xs text-emerald-800/75">حسابات بحالة «نشط» في النظام</p>
+          </div>
+          <div className="rounded-2xl border border-rose-200/80 bg-gradient-to-br from-rose-50/90 to-white p-5 shadow-sm">
+            <p className="text-sm font-bold text-rose-900/90">تشكيلات غير نشطة</p>
+            <p className="mt-2 text-4xl font-extrabold tabular-nums text-rose-800">{formatNum(data.inactiveFormationCount)}</p>
+            <p className="mt-1 text-xs text-rose-800/75">معطّل، مقفل، أو قيد المراجعة</p>
+          </div>
         </div>
       </div>
 
