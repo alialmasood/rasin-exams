@@ -10,7 +10,8 @@ import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import type { CollegeHolidayRow } from "@/lib/college-holidays";
 import { assertExamDateNotInPast, todayCalendarDateLocal } from "@/lib/exam-schedule-date";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
-import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
+import { getExamScheduleStageLevelOptions } from "@/lib/college-stage-level";
+import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
 import {
   createExamScheduleAction,
   createHolidayAction,
@@ -248,7 +249,7 @@ export function ExamSchedulesPanel({
   useCollegeQuickUrlTrigger("exam-schedule", openExamScheduleFromFab);
   const hours12 = useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1)), []);
   const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")), []);
-  const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const stageOptions = useMemo(() => getExamScheduleStageLevelOptions(collegeLabel), [collegeLabel]);
   const startParts = useMemo(() => to12Parts(form.startTime || "08:00"), [form.startTime]);
   const endParts = useMemo(() => to12Parts(form.endTime || "09:00"), [form.endTime]);
 
@@ -826,7 +827,7 @@ export function ExamSchedulesPanel({
                   <option value="">اختر المرحلة</option>
                   {stageOptions.map((s) => (
                     <option key={s} value={String(s)}>
-                      المرحلة {s}
+                      {formatCollegeStudyStageLabel(s)}
                     </option>
                   ))}
                 </select>

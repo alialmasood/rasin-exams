@@ -24,10 +24,10 @@ export default async function DashboardLayout({
     displayName = session.username;
     sidebarTagline =
       profile?.account_kind === "FOLLOWUP"
-        ? (profile.holder_name ?? "حساب متابعة")
+        ? (profile.holder_name ?? "متابعة مركزية")
         : (profile?.formation_name ?? "حساب كلية");
     roleDescription =
-      profile?.account_kind === "FOLLOWUP" ? "حساب متابعة" : "حساب كلية";
+      profile?.account_kind === "FOLLOWUP" ? "متابعة مركزية" : "حساب كلية";
   }
 
   return (

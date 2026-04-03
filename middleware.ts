@@ -6,9 +6,6 @@ const COOKIE = "rasin_session";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (!pathname.startsWith("/dashboard")) {
-    return NextResponse.next();
-  }
 
   const token = request.cookies.get(COOKIE)?.value;
   if (!token) {
@@ -26,6 +23,19 @@ export async function middleware(request: NextRequest) {
     const role = String(payload.role ?? "");
     const collegeKind = String(payload.college_account_kind ?? "FORMATION");
 
+    /** المتابعة المركزية ليست ضمن لوحة الإدارة */
+    if (pathname.startsWith("/tracking")) {
+      if (role === "ADMIN" || role === "SUPER_ADMIN") {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+      return NextResponse.next();
+    }
+
+    if (!pathname.startsWith("/dashboard")) {
+      return NextResponse.next();
+    }
+
+    /** حساب المتابعة المركزية (FOLLOWUP): يدخل فقط `/tracking` وليس `/dashboard` */
     if (role === "COLLEGE" && collegeKind === "FOLLOWUP") {
       if (pathname.startsWith("/dashboard")) {
         return NextResponse.redirect(new URL("/tracking", request.url));
@@ -45,5 +55,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/dashboard/:path*", "/tracking"],
 };

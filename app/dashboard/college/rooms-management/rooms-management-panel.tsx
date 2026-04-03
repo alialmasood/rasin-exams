@@ -5,6 +5,14 @@ import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../co
 import { createPortal } from "react-dom";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+  POSTGRAD_STUDY_STAGE_DIPLOMA,
+  POSTGRAD_STUDY_STAGE_DOCTOR,
+  POSTGRAD_STUDY_STAGE_MASTER,
+} from "@/lib/college-study-stage-display";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import {
@@ -138,26 +146,91 @@ function roomIndexInSubjectDistribution(agg: SubjectMultiRoomAggregate, roomId: 
 const inputNumberClass =
   "h-11 w-full appearance-none rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none [appearance:textfield] focus:border-blue-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
+type StudyTierUi = "UNDERGRAD" | "POSTGRAD";
+
+function tierFromLevel(lv: number): StudyTierUi {
+  return isPostgraduateStudyStageLevel(lv) ? "POSTGRAD" : "UNDERGRAD";
+}
+
+/** عرض المستوى والمرحلة في جدول القاعات (مثل صفحة المواد الدراسية) */
+function RoomStageTableLines({ level }: { level: number }) {
+  const lv = Number(level);
+  return (
+    <div className="space-y-0.5">
+      <span
+        className={`inline-flex max-w-full rounded-full px-2 py-0.5 text-[9px] font-bold break-words ${
+          isPostgraduateStudyStageLevel(lv)
+            ? "bg-[#EEF2FF] text-[#4338CA] ring-1 ring-[#A5B4FC]/50"
+            : "bg-[#F0FDFA] text-[#0F766E] ring-1 ring-[#99F6E4]/70"
+        }`}
+      >
+        {formatCollegeStudyLevelTierLabel(lv)}
+      </span>
+      {!isPostgraduateStudyStageLevel(lv) ? (
+        <div className="text-[10px] text-[#64748B]">{formatCollegeStudyStageLabel(lv)}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/** نص موحّد لتصدير Excel / عرض نصي للمرحلة */
+function roomStageExportLabel(level: number): string {
+  const lv = Number(level);
+  if (isPostgraduateStudyStageLevel(lv)) return formatCollegeStudyLevelTierLabel(lv);
+  return `${formatCollegeStudyLevelTierLabel(lv)} — ${formatCollegeStudyStageLabel(lv)}`;
+}
+
 function RoomFields({
   subjects,
-  stageOptions,
+  collegeLabel,
   defaults,
   showSerial = true,
   disableAttendanceFields = false,
 }: {
   subjects: CollegeStudySubjectRow[];
-  stageOptions: number[];
+  collegeLabel: string;
   defaults?: Partial<CollegeExamRoomRow>;
   showSerial?: boolean;
   disableAttendanceFields?: boolean;
 }) {
   const d = defaults ?? {};
-  const defaultStage1 = String(d.stage_level ?? stageOptions[0] ?? 1);
-  const defaultStage2 = String(d.stage_level_2 ?? stageOptions[0] ?? 1);
+  const undergradStageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const firstUndergrad = undergradStageOptions[0] ?? 1;
+  const raw1 = Number(d.stage_level ?? firstUndergrad);
+  const raw2Parsed = d.stage_level_2 != null ? Number(d.stage_level_2) : firstUndergrad;
+  const raw2 = Number.isFinite(raw2Parsed) ? raw2Parsed : firstUndergrad;
+
+  const [tier1, setTier1] = useState<StudyTierUi>(() => tierFromLevel(raw1));
+  const [undergradStage1, setUndergradStage1] = useState(() => {
+    if (tierFromLevel(raw1) === "UNDERGRAD" && undergradStageOptions.includes(raw1)) return String(raw1);
+    return String(firstUndergrad);
+  });
+  const [postgradStage1, setPostgradStage1] = useState(() =>
+    tierFromLevel(raw1) === "POSTGRAD" && isPostgraduateStudyStageLevel(raw1)
+      ? String(raw1)
+      : String(POSTGRAD_STUDY_STAGE_DIPLOMA)
+  );
+
+  const [tier2, setTier2] = useState<StudyTierUi>(() => tierFromLevel(raw2));
+  const [undergradStage2, setUndergradStage2] = useState(() => {
+    if (tierFromLevel(raw2) === "UNDERGRAD" && undergradStageOptions.includes(raw2)) return String(raw2);
+    return String(firstUndergrad);
+  });
+  const [postgradStage2, setPostgradStage2] = useState(() =>
+    tierFromLevel(raw2) === "POSTGRAD" && isPostgraduateStudyStageLevel(raw2)
+      ? String(raw2)
+      : String(POSTGRAD_STUDY_STAGE_DIPLOMA)
+  );
+
   const invigilatorsFieldId = useId();
   const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
 
   const id2 = d.study_subject_id_2 ?? "";
+  const hiddenStage1 = tier1 === "POSTGRAD" ? postgradStage1 : undergradStage1;
+  const hiddenStage2 = tier2 === "POSTGRAD" ? postgradStage2 : undergradStage2;
+
+  const stageSelectClass =
+    "h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500";
 
   return (
     <>
@@ -254,40 +327,73 @@ function RoomFields({
       <div className="space-y-4 rounded-xl border border-[#CBD5E1] bg-white px-4 py-4 shadow-sm">
         <p className="text-base font-extrabold text-[#0F172A]">الامتحان الأول</p>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_minmax(0,11rem)]">
-          <div className="min-w-0">
-            <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية</label>
-            <select
-              name="study_subject_id"
-              required
-              defaultValue={d.study_subject_id ?? ""}
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-            >
-              <option value="" disabled>
-                اختر المادة الدراسية
+        <div className="min-w-0">
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية</label>
+          <select
+            name="study_subject_id"
+            required
+            defaultValue={d.study_subject_id ?? ""}
+            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+          >
+            <option value="" disabled>
+              اختر المادة الدراسية
+            </option>
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.subject_name}
               </option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.subject_name}
-                </option>
-              ))}
-            </select>
+            ))}
+          </select>
+        </div>
+
+        <fieldset className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
+          <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة (الامتحان الأول)</legend>
+          <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+              <input
+                type="radio"
+                className="size-4 accent-[#1E3A8A]"
+                checked={tier1 === "UNDERGRAD"}
+                onChange={() => {
+                  setTier1("UNDERGRAD");
+                  setUndergradStage1((prev) =>
+                    undergradStageOptions.includes(Number(prev)) ? prev : String(firstUndergrad),
+                  );
+                }}
+              />
+              الدراسة الأولية
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+              <input
+                type="radio"
+                className="size-4 accent-[#1E3A8A]"
+                checked={tier1 === "POSTGRAD"}
+                onChange={() => setTier1("POSTGRAD")}
+              />
+              الدراسات العليا
+            </label>
           </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
-            <select
-              name="stage_level"
-              required
-              defaultValue={defaultStage1}
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-            >
-              {stageOptions.map((s) => (
+        </fieldset>
+
+        <input type="hidden" name="stage_level" value={hiddenStage1} />
+
+        <div className="min-w-0">
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
+          {tier1 === "UNDERGRAD" ? (
+            <select required value={undergradStage1} onChange={(e) => setUndergradStage1(e.target.value)} className={stageSelectClass}>
+              {undergradStageOptions.map((s) => (
                 <option key={s} value={String(s)}>
                   المرحلة {s}
                 </option>
               ))}
             </select>
-          </div>
+          ) : (
+            <select required value={postgradStage1} onChange={(e) => setPostgradStage1(e.target.value)} className={stageSelectClass}>
+              <option value={String(POSTGRAD_STUDY_STAGE_DIPLOMA)}>دبلوم</option>
+              <option value={String(POSTGRAD_STUDY_STAGE_MASTER)}>ماجستير</option>
+              <option value={String(POSTGRAD_STUDY_STAGE_DOCTOR)}>دكتوراه</option>
+            </select>
+          )}
         </div>
 
         <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/90 px-3 py-3">
@@ -408,40 +514,68 @@ function RoomFields({
             نفس <strong>مشرف القاعة</strong> و<strong>المراقبون</strong>؛ أدخل المادة الثانية والسعات وحضور كل دوام كما في الامتحان الأول.
           </p>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_minmax(0,11rem)]">
-            <div className="min-w-0">
-              <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية الثانية</label>
-              <select
-                name="study_subject_id_2"
-                required
-                defaultValue={id2}
-                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
-              >
-                <option value="" disabled>
-                  اختر المادة الثانية
+          <div className="min-w-0">
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية الثانية</label>
+            <select
+              name="study_subject_id_2"
+              required
+              defaultValue={id2}
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
+            >
+              <option value="" disabled>
+                اختر المادة الثانية
+              </option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.subject_name}
                 </option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.subject_name}
-                  </option>
-                ))}
-              </select>
+              ))}
+            </select>
+          </div>
+
+          <fieldset className="rounded-lg border border-[#BFDBFE] bg-white/90 px-3 py-3 sm:px-4">
+            <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة (الامتحان الثاني)</legend>
+            <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+                <input
+                  type="radio"
+                  className="size-4 accent-[#1E3A8A]"
+                  checked={tier2 === "UNDERGRAD"}
+                  onChange={() => {
+                    setTier2("UNDERGRAD");
+                    setUndergradStage2((prev) =>
+                      undergradStageOptions.includes(Number(prev)) ? prev : String(firstUndergrad),
+                    );
+                  }}
+                />
+                الدراسة الأولية
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+                <input type="radio" className="size-4 accent-[#1E3A8A]" checked={tier2 === "POSTGRAD"} onChange={() => setTier2("POSTGRAD")} />
+                الدراسات العليا
+              </label>
             </div>
-            <div className="min-w-0">
-              <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
-              <select
-                name="stage_level_2"
-                required
-                defaultValue={defaultStage2}
-                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
-              >
-                {stageOptions.map((s) => (
+          </fieldset>
+
+          <input type="hidden" name="stage_level_2" value={hiddenStage2} />
+
+          <div className="min-w-0">
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
+            {tier2 === "UNDERGRAD" ? (
+              <select required value={undergradStage2} onChange={(e) => setUndergradStage2(e.target.value)} className={stageSelectClass}>
+                {undergradStageOptions.map((s) => (
                   <option key={s} value={String(s)}>
                     المرحلة {s}
                   </option>
                 ))}
               </select>
-            </div>
+            ) : (
+              <select required value={postgradStage2} onChange={(e) => setPostgradStage2(e.target.value)} className={stageSelectClass}>
+                <option value={String(POSTGRAD_STUDY_STAGE_DIPLOMA)}>دبلوم</option>
+                <option value={String(POSTGRAD_STUDY_STAGE_MASTER)}>ماجستير</option>
+                <option value={String(POSTGRAD_STUDY_STAGE_DOCTOR)}>دكتوراه</option>
+              </select>
+            )}
           </div>
 
           <div className="rounded-lg border border-[#BFDBFE] bg-white px-3 py-3">
@@ -574,12 +708,12 @@ function AddRoomDialog({
   open,
   onClose,
   subjects,
-  stageOptions,
+  collegeLabel,
 }: {
   open: boolean;
   onClose: () => void;
   subjects: CollegeStudySubjectRow[];
-  stageOptions: number[];
+  collegeLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(createCollegeExamRoomAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -599,7 +733,7 @@ function AddRoomDialog({
     >
       <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">إضافة قاعة جديدة</h2>
-        <RoomFields subjects={subjects} stageOptions={stageOptions} showSerial={false} disableAttendanceFields />
+        <RoomFields subjects={subjects} collegeLabel={collegeLabel} showSerial={false} disableAttendanceFields />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
@@ -616,13 +750,13 @@ function EditRoomDialog({
   open,
   onClose,
   subjects,
-  stageOptions,
+  collegeLabel,
   row,
 }: {
   open: boolean;
   onClose: () => void;
   subjects: CollegeStudySubjectRow[];
-  stageOptions: number[];
+  collegeLabel: string;
   row: CollegeExamRoomRow | null;
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeExamRoomAction, null);
@@ -648,7 +782,7 @@ function EditRoomDialog({
         <input type="hidden" name="serial_no" value={row?.serial_no ?? ""} />
         <RoomFields
           subjects={subjects}
-          stageOptions={stageOptions}
+          collegeLabel={collegeLabel}
           defaults={row ?? undefined}
           showSerial={false}
           disableAttendanceFields
@@ -729,7 +863,7 @@ function SubjectsCell({
           </span>
         ) : null}
       </div>
-      <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level ?? 1}</div>
+      <RoomStageTableLines level={row.stage_level ?? 1} />
       {aggregateSlot1 ? <MultiRoomSubjectHint slotLabel="الامتحان الأول" agg={aggregateSlot1} roomIndex={idx1} /> : null}
       {dual && row.study_subject_name_2 ? (
         <div className="border-t border-[#E2E8F0] pt-1.5">
@@ -741,7 +875,7 @@ function SubjectsCell({
               </span>
             ) : null}
           </div>
-          <div className="text-[10px] text-[#64748B]">مرحلة {row.stage_level_2 ?? 1}</div>
+          <RoomStageTableLines level={row.stage_level_2 ?? 1} />
           {aggregateSlot2 ? <MultiRoomSubjectHint slotLabel="الامتحان الثاني" agg={aggregateSlot2} roomIndex={idx2} /> : null}
         </div>
       ) : null}
@@ -782,14 +916,21 @@ function RowDetailHint({
       ) : null}
       <ul className="list-disc space-y-1 pe-4">
         <li>
-          الامتحان 1: <strong>{row.study_subject_name}</strong> — مرحلة {row.stage_level ?? 1} — سعة{" "}
-          {shiftCapacityLabel(row, 1)}
+          الامتحان 1: <strong>{row.study_subject_name}</strong> —{" "}
+          {isPostgraduateStudyStageLevel(row.stage_level ?? 1)
+            ? formatCollegeStudyLevelTierLabel(row.stage_level ?? 1)
+            : `${formatCollegeStudyLevelTierLabel(row.stage_level ?? 1)}، ${formatCollegeStudyStageLabel(row.stage_level ?? 1)}`}{" "}
+          — سعة {shiftCapacityLabel(row, 1)}
           {row.supervisor_name ? ` — مشرف: ${row.supervisor_name}` : null}
         </li>
         {dual && row.study_subject_name_2 ? (
           <li>
             الامتحان 2: <strong>{row.study_subject_name_2}</strong>
-            {row.stage_level_2 != null ? <> — مرحلة {row.stage_level_2}</> : null} — سعة {shiftCapacityLabel(row, 2)}
+            {" — "}
+            {isPostgraduateStudyStageLevel(row.stage_level_2 ?? 1)
+              ? formatCollegeStudyLevelTierLabel(row.stage_level_2 ?? 1)
+              : `${formatCollegeStudyLevelTierLabel(row.stage_level_2 ?? 1)}، ${formatCollegeStudyStageLabel(row.stage_level_2 ?? 1)}`}{" "}
+            — سعة {shiftCapacityLabel(row, 2)}
             {row.supervisor_name ? ` — مشرف: ${row.supervisor_name}` : null}
           </li>
         ) : null}
@@ -830,7 +971,6 @@ export function RoomsManagementPanel({
   scheduleHintsByRoom: Record<string, CollegeRoomScheduleHint[]>;
   collegeLabel: string;
 }) {
-  const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
   /** إعادة تركيب مودال الإضافة عند كل فتح حتى تُصفَّر حالة useActionState ولا يبقى ok: true من الجلسة السابقة */
   const [addDialogKey, setAddDialogKey] = useState(0);
@@ -989,9 +1129,9 @@ export function RoomsManagementPanel({
           "مشرف القاعة": r.supervisor_name,
           المراقبون: r.invigilators,
           "المادة الامتحانية الأولى": r.study_subject_name,
-          "المرحلة (الامتحان الأول)": r.stage_level ?? 1,
+          "المرحلة (الامتحان الأول)": roomStageExportLabel(r.stage_level ?? 1),
           "المادة الامتحانية الثانية": r.study_subject_name_2 || "",
-          "المرحلة (الامتحان الثاني)": r.stage_level_2 ?? "",
+          "المرحلة (الامتحان الثاني)": dual ? roomStageExportLabel(Number(r.stage_level_2 ?? 1)) : "",
           "نوع القاعة": dual ? "مزدوجة" : "منفردة",
           "سعة الامتحان الأول (ملخص)": shiftCapacityLabel(r, 1),
           "صباحي 1": r.capacity_morning,
@@ -1433,14 +1573,14 @@ export function RoomsManagementPanel({
         open={addOpen}
         onClose={closeAddDialog}
         subjects={studySubjects}
-        stageOptions={stageOptions}
+        collegeLabel={collegeLabel}
       />
       <EditRoomDialog
         key={`edit-room-${editDialogKey}`}
         open={Boolean(editingRow)}
         onClose={closeEditDialog}
         subjects={studySubjects}
-        stageOptions={stageOptions}
+        collegeLabel={collegeLabel}
         row={editingRow}
       />
       <RoomReportModal

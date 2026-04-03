@@ -8,7 +8,7 @@ export type SessionPayload = {
   uid: string;
   username: string;
   role: string;
-  /** للدور COLLEGE — يحدد التوجيه بين لوحة التشكيل وبوابة المتابعة */
+  /** للدور COLLEGE — تشكيل مقابل متابعة مركزية (/tracking) */
   college_account_kind?: "FORMATION" | "FOLLOWUP";
 };
 

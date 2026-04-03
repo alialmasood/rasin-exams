@@ -81,7 +81,7 @@ function invigilatorNamesFromRaw(raw: string): string[] {
 
 function parseRequiredStageLevel(raw: string): { ok: true; v: number } | { ok: false; message: string } {
   const n = Number(String(raw ?? "").trim());
-  if (!Number.isInteger(n) || n < 1 || n > 6) {
+  if (!Number.isInteger(n) || n < 1 || n > 13) {
     return { ok: false, message: "يرجى اختيار المرحلة الدراسية للامتحان الأول." };
   }
   return { ok: true, v: n };
@@ -93,7 +93,7 @@ function parseSecondStageLevel(
 ): { ok: true; v: number | null } | { ok: false; message: string } {
   if (!id2) return { ok: true, v: null };
   const n = Number(String(raw ?? "").trim());
-  if (!Number.isInteger(n) || n < 1 || n > 6) {
+  if (!Number.isInteger(n) || n < 1 || n > 13) {
     return { ok: false, message: "يرجى اختيار المرحلة الدراسية للامتحان الثاني." };
   }
   return { ok: true, v: n };

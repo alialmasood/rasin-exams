@@ -7,6 +7,14 @@ import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
 import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+  POSTGRAD_STUDY_STAGE_DIPLOMA,
+  POSTGRAD_STUDY_STAGE_DOCTOR,
+  POSTGRAD_STUDY_STAGE_MASTER,
+} from "@/lib/college-study-stage-display";
+import {
   createCollegeStudySubjectAction,
   deleteCollegeStudySubjectAction,
   updateCollegeStudySubjectAction,
@@ -43,6 +51,8 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
   );
 }
 
+type StudyTierUi = "UNDERGRAD" | "POSTGRAD";
+
 function SubjectFormFields({
   branches,
   stageOptions,
@@ -50,9 +60,34 @@ function SubjectFormFields({
 }: {
   branches: CollegeSubjectRow[];
   stageOptions: number[];
-  defaults?: { collegeSubjectId?: string; subjectName?: string; studyType?: StudyType; studyStageLevel?: number };
+  defaults?: {
+    collegeSubjectId?: string;
+    subjectName?: string;
+    instructorName?: string;
+    studyType?: StudyType;
+    studyStageLevel?: number;
+  };
 }) {
-  const defaultStage = String(defaults?.studyStageLevel ?? stageOptions[0] ?? 1);
+  const rawStage = defaults?.studyStageLevel ?? stageOptions[0] ?? 1;
+  const initialTier: StudyTierUi =
+    rawStage >= POSTGRAD_STUDY_STAGE_DIPLOMA && rawStage <= POSTGRAD_STUDY_STAGE_DOCTOR ? "POSTGRAD" : "UNDERGRAD";
+  const initialUndergrad =
+    initialTier === "UNDERGRAD" && stageOptions.includes(rawStage)
+      ? String(rawStage)
+      : String(stageOptions[0] ?? 1);
+  const initialPostgrad =
+    rawStage === POSTGRAD_STUDY_STAGE_DIPLOMA ||
+    rawStage === POSTGRAD_STUDY_STAGE_MASTER ||
+    rawStage === POSTGRAD_STUDY_STAGE_DOCTOR
+      ? String(rawStage)
+      : String(POSTGRAD_STUDY_STAGE_DIPLOMA);
+
+  const [tier, setTier] = useState<StudyTierUi>(initialTier);
+  const [undergradStage, setUndergradStage] = useState(initialUndergrad);
+  const [postgradStage, setPostgradStage] = useState(initialPostgrad);
+
+  const hiddenStageValue = tier === "POSTGRAD" ? postgradStage : undergradStage;
+
   return (
     <>
       <div>
@@ -73,7 +108,38 @@ function SubjectFormFields({
           ))}
         </select>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+
+      <fieldset className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
+        <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة</legend>
+        <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+            <input
+              type="radio"
+              className="size-4 accent-[#1E3A8A]"
+              checked={tier === "UNDERGRAD"}
+              onChange={() => {
+                setTier("UNDERGRAD");
+                const first = String(stageOptions[0] ?? 1);
+                setUndergradStage((prev) => (stageOptions.includes(Number(prev)) ? prev : first));
+              }}
+            />
+            الدراسة الأولية
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+            <input
+              type="radio"
+              className="size-4 accent-[#1E3A8A]"
+              checked={tier === "POSTGRAD"}
+              onChange={() => setTier("POSTGRAD")}
+            />
+            الدراسات العليا
+          </label>
+        </div>
+      </fieldset>
+
+      <input type="hidden" name="study_stage_level" value={hiddenStageValue} />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
         <div>
           <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم المادة الدراسية</label>
           <input
@@ -85,21 +151,47 @@ function SubjectFormFields({
             className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
-          <select
-            name="study_stage_level"
-            required
-            defaultValue={defaultStage}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          >
-            {stageOptions.map((s) => (
-              <option key={s} value={String(s)}>
-                المرحلة {s}
-              </option>
-            ))}
-          </select>
-        </div>
+        {tier === "UNDERGRAD" ? (
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
+            <select
+              required
+              value={undergradStage}
+              onChange={(e) => setUndergradStage(e.target.value)}
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            >
+              {stageOptions.map((s) => (
+                <option key={s} value={String(s)}>
+                  المرحلة {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">المرحلة الدراسية</label>
+            <select
+              required
+              value={postgradStage}
+              onChange={(e) => setPostgradStage(e.target.value)}
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            >
+              <option value={String(POSTGRAD_STUDY_STAGE_DIPLOMA)}>دبلوم</option>
+              <option value={String(POSTGRAD_STUDY_STAGE_MASTER)}>ماجستير</option>
+              <option value={String(POSTGRAD_STUDY_STAGE_DOCTOR)}>دكتوراه</option>
+            </select>
+          </div>
+        )}
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم التدريسي</label>
+        <input
+          name="instructor_name"
+          maxLength={200}
+          defaultValue={defaults?.instructorName ?? ""}
+          placeholder="يمكن تركه فارغًا"
+          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+        />
       </div>
       <div>
         <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
@@ -210,6 +302,7 @@ function EditStudySubjectDialog({
           defaults={{
             collegeSubjectId: row?.college_subject_id,
             subjectName: row?.subject_name,
+            instructorName: row?.instructor_name,
             studyType: row?.study_type,
             studyStageLevel: row?.study_stage_level,
           }}
@@ -326,18 +419,48 @@ export function StudySubjectsPanel({
     return { totalSubjects, annual, semester, courses, bologna, latest };
   }, [rows]);
 
+  const tierStats = useMemo(() => {
+    let undergradCount = 0;
+    let postgradTotal = 0;
+    let diploma = 0;
+    let master = 0;
+    let doctor = 0;
+    for (const r of rows) {
+      const lv = r.study_stage_level;
+      if (isPostgraduateStudyStageLevel(lv)) {
+        postgradTotal += 1;
+        if (lv === POSTGRAD_STUDY_STAGE_DIPLOMA) diploma += 1;
+        else if (lv === POSTGRAD_STUDY_STAGE_MASTER) master += 1;
+        else if (lv === POSTGRAD_STUDY_STAGE_DOCTOR) doctor += 1;
+      } else {
+        undergradCount += 1;
+      }
+    }
+    return { undergradCount, postgradTotal, diploma, master, doctor };
+  }, [rows]);
+
   const latestAddedText = useMemo(() => {
     if (!stats.latest) return "—";
     return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(stats.latest);
   }, [stats.latest]);
 
   const exportCsv = () => {
-    const header = ["المادة الدراسية", "القسم/الفرع", "نوع الدراسة", "المرحلة الدراسية", "تاريخ الإضافة"];
+    const header = [
+      "المادة الدراسية",
+      "القسم/الفرع",
+      "اسم التدريسي",
+      "المستوى الدراسي",
+      "نوع الدراسة",
+      "المرحلة الدراسية",
+      "تاريخ الإضافة",
+    ];
     const lines = filteredRows.map((row) => [
       row.subject_name,
       `${row.linked_branch_name} (${row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})`,
+      row.instructor_name || "—",
+      formatCollegeStudyLevelTierLabel(row.study_stage_level),
       STUDY_TYPE_LABEL[row.study_type],
-      `المرحلة ${row.study_stage_level}`,
+      formatCollegeStudyStageLabel(row.study_stage_level),
       new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at)),
     ]);
     const csv = [header, ...lines]
@@ -389,7 +512,8 @@ export function StudySubjectsPanel({
         />
         <h1 className="text-3xl font-extrabold text-[#0F172A]">المواد الدراسية</h1>
         <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
-          إدارة المواد الدراسية وربط كل مادة بالقسم أو الفرع مع تحديد نوع الدراسة.
+          إدارة المواد الدراسية وربط كل مادة بالقسم أو الفرع مع تحديد نوع الدراسة ومستواها (الدراسة الأولية أو الدراسات
+          العليا).
         </p>
       </header>
 
@@ -416,7 +540,7 @@ export function StudySubjectsPanel({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث باسم المادة أو القسم"
+              placeholder="ابحث باسم المادة أو القسم أو التدريسي"
               className="h-10 w-[250px] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
             <select
@@ -482,12 +606,39 @@ export function StudySubjectsPanel({
           </div>
         </div>
 
+        <div className="grid grid-cols-1 gap-3 border-b border-[#E2E8F0] bg-gradient-to-l from-[#F0FDFA]/90 to-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-2xl border border-[#99F6E4]/80 bg-white/90 px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold text-[#0F766E]">الدراسة الأولية</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#0D9488]">{tierStats.undergradCount}</p>
+            <p className="mt-0.5 text-[11px] text-[#64748B]">مواد مرحلة رقمية (1–10)</p>
+          </div>
+          <div className="rounded-2xl border border-[#A5B4FC]/90 bg-white/90 px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold text-[#3730A3]">الدراسات العليا (الإجمالي)</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#4338CA]">{tierStats.postgradTotal}</p>
+            <p className="mt-0.5 text-[11px] text-[#64748B]">دبلوم + ماجستير + دكتوراه</p>
+          </div>
+          <div className="rounded-2xl border border-[#FDE68A] bg-[#FFFBEB] px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold text-[#B45309]">عليا — دبلوم</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#D97706]">{tierStats.diploma}</p>
+          </div>
+          <div className="rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold text-[#1E40AF]">عليا — ماجستير</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#2563EB]">{tierStats.master}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-[#FAF5FF] px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold text-[#6B21A8]">عليا — دكتوراه</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#7C3AED]">{tierStats.doctor}</p>
+          </div>
+        </div>
+
         <table className="w-full border-collapse text-right">
           <thead className="bg-[#F1F5F9]">
             <tr className="border-b border-[#E2E8F0]">
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المادة الدراسية</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">القسم/الفرع</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">اسم التدريسي</th>
+              <th className="px-4 py-3 text-sm font-bold text-[#334155]">المستوى الدراسي</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">نوع الدراسة</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المرحلة الدراسية</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">تاريخ الإضافة</th>
@@ -497,7 +648,7 @@ export function StudySubjectsPanel({
           <tbody className="divide-y divide-[#E2E8F0] bg-white">
             {pagedRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={7}>
+                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={9}>
                   لا توجد مواد دراسية بعد.
                 </td>
               </tr>
@@ -509,8 +660,22 @@ export function StudySubjectsPanel({
                   <td className="px-4 py-3 text-sm text-[#334155]">
                     {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
                   </td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">{row.instructor_name.trim() ? row.instructor_name : "—"}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                        isPostgraduateStudyStageLevel(row.study_stage_level)
+                          ? "bg-[#EEF2FF] text-[#4338CA] ring-1 ring-[#A5B4FC]/60"
+                          : "bg-[#F0FDFA] text-[#0F766E] ring-1 ring-[#99F6E4]/80"
+                      }`}
+                    >
+                      {formatCollegeStudyLevelTierLabel(row.study_stage_level)}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-sm text-[#334155]">{STUDY_TYPE_LABEL[row.study_type]}</td>
-                  <td className="px-4 py-3 text-sm text-[#334155]">المرحلة {row.study_stage_level}</td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">
+                    {formatCollegeStudyStageLabel(row.study_stage_level)}
+                  </td>
                   <td className="px-4 py-3 text-sm text-[#64748B]">
                     {new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(
                       new Date(row.created_at)

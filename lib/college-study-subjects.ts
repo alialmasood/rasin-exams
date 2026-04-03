@@ -1,3 +1,8 @@
+import {
+  POSTGRAD_STUDY_STAGE_DIPLOMA,
+  POSTGRAD_STUDY_STAGE_DOCTOR,
+  POSTGRAD_STUDY_STAGE_MASTER,
+} from "@/lib/college-study-stage-display";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
@@ -10,6 +15,8 @@ export type CollegeStudySubjectRow = {
   linked_branch_name: string;
   linked_branch_type: "DEPARTMENT" | "BRANCH";
   subject_name: string;
+  /** اسم التدريسي المعتمد للمادة (قد يكون فارغًا) */
+  instructor_name: string;
   study_type: StudyType;
   study_stage_level: number;
   created_at: Date;
@@ -24,9 +31,17 @@ function normalizeStudyType(value: string): StudyType {
   return "ANNUAL";
 }
 
+function normalizeInstructorName(raw: string): string {
+  const t = raw.trim();
+  if (t.length <= 200) return t;
+  return t.slice(0, 200);
+}
+
 function normalizeStudyStageLevel(value: string): number {
   const n = Number.parseInt(value.trim(), 10);
-  if (!Number.isFinite(n) || n < 1 || n > 6) return 1;
+  if (!Number.isFinite(n) || n < 1) return 1;
+  if (n >= POSTGRAD_STUDY_STAGE_DIPLOMA && n <= POSTGRAD_STUDY_STAGE_DOCTOR) return n;
+  if (n > 10) return 1;
   return n;
 }
 
@@ -41,6 +56,7 @@ export async function listCollegeStudySubjectsByOwner(ownerUserId: string): Prom
     linked_branch_name: string;
     linked_branch_type: string;
     subject_name: string;
+    instructor_name: string | null;
     study_type: string;
     study_stage_level: number | string | null;
     created_at: Date;
@@ -50,6 +66,7 @@ export async function listCollegeStudySubjectsByOwner(ownerUserId: string): Prom
             c.branch_name AS linked_branch_name,
             COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
             s.subject_name,
+            COALESCE(s.instructor_name, '') AS instructor_name,
             COALESCE(s.study_type, 'ANNUAL') AS study_type,
             COALESCE(s.study_stage_level, 1) AS study_stage_level,
             s.created_at, s.updated_at
@@ -66,6 +83,7 @@ export async function listCollegeStudySubjectsByOwner(ownerUserId: string): Prom
     linked_branch_name: row.linked_branch_name,
     linked_branch_type: row.linked_branch_type === "BRANCH" ? "BRANCH" : "DEPARTMENT",
     subject_name: row.subject_name,
+    instructor_name: normalizeInstructorName(row.instructor_name ?? ""),
     study_type: normalizeStudyType(row.study_type),
     study_stage_level: normalizeStudyStageLevel(String(row.study_stage_level ?? 1)),
     created_at: row.created_at,
@@ -77,6 +95,7 @@ export async function createCollegeStudySubject(input: {
   ownerUserId: string;
   collegeSubjectId: string;
   subjectName: string;
+  instructorName: string;
   studyType: string;
   studyStageLevel: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -95,6 +114,7 @@ export async function createCollegeStudySubject(input: {
   if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
 
   const stageLevel = normalizeStudyStageLevel(input.studyStageLevel);
+  const instructorName = normalizeInstructorName(input.instructorName);
 
   const dup = await pool.query(
     `SELECT 1
@@ -110,12 +130,13 @@ export async function createCollegeStudySubject(input: {
 
   await pool.query(
     `INSERT INTO college_study_subjects
-      (owner_user_id, college_subject_id, subject_name, study_type, study_stage_level, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+      (owner_user_id, college_subject_id, subject_name, instructor_name, study_type, study_stage_level, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
     [
       input.ownerUserId,
       input.collegeSubjectId.trim(),
       subjectName,
+      instructorName,
       normalizeStudyType(input.studyType),
       stageLevel,
     ]
@@ -128,6 +149,7 @@ export async function updateCollegeStudySubject(input: {
   ownerUserId: string;
   collegeSubjectId: string;
   subjectName: string;
+  instructorName: string;
   studyType: string;
   studyStageLevel: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -145,6 +167,7 @@ export async function updateCollegeStudySubject(input: {
   if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
 
   const stageLevel = normalizeStudyStageLevel(input.studyStageLevel);
+  const instructorName = normalizeInstructorName(input.instructorName);
 
   const dup = await pool.query(
     `SELECT 1
@@ -161,11 +184,12 @@ export async function updateCollegeStudySubject(input: {
 
   const r = await pool.query(
     `UPDATE college_study_subjects
-     SET college_subject_id = $1, subject_name = $2, study_type = $3, study_stage_level = $4, updated_at = NOW()
-     WHERE id = $5 AND owner_user_id = $6`,
+     SET college_subject_id = $1, subject_name = $2, instructor_name = $3, study_type = $4, study_stage_level = $5, updated_at = NOW()
+     WHERE id = $6 AND owner_user_id = $7`,
     [
       input.collegeSubjectId.trim(),
       subjectName,
+      instructorName,
       normalizeStudyType(input.studyType),
       stageLevel,
       input.id.trim(),

@@ -147,7 +147,7 @@ function CreateAccountPlusIcon() {
 }
 
 function accountKindLabel(row: CollegeAccountRow) {
-  return row.account_kind === "FOLLOWUP" ? "حساب متابعة" : "حساب تشكيل";
+  return row.account_kind === "FOLLOWUP" ? "متابعة مركزية" : "حساب تشكيل";
 }
 
 function formationOrHolderCell(row: CollegeAccountRow) {
@@ -271,7 +271,12 @@ function CreateCollegeAccountDialogForm({
                 onChange={() => setAccountType("followup")}
                 className="size-4 shrink-0 accent-blue-600"
               />
-              <span className="text-sm font-semibold text-[#0F172A]">حساب متابعة</span>
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-semibold text-[#0F172A]">متابعة مركزية</span>
+                <span className="mt-0.5 block text-xs font-normal text-[#64748B]">
+                  رئاسة الجامعة / المساعد العلمي — بوابة /tracking
+                </span>
+              </div>
             </label>
           </div>
         </fieldset>
@@ -596,7 +601,7 @@ function CollegeAccountsStatsSection({ rows }: { rows: CollegeAccountRow[] }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <StatCard label="إجمالي الحسابات" value={s.total} hint="كل سجلات الكلية في القائمة" />
         <StatCard label="حسابات تشكيل" value={s.formation} accentClass="text-[#1D4ED8]" />
-        <StatCard label="حسابات متابعة" value={s.followup} accentClass="text-[#6366F1]" />
+        <StatCard label="متابعة مركزية" value={s.followup} accentClass="text-[#6366F1]" />
         <StatCard label="نشط" value={s.active} accentClass="text-emerald-700" hint="يمكن تسجيل الدخول" />
         <StatCard label="معطل" value={s.disabled} accentClass="text-slate-600" />
         <StatCard label="مقفل" value={s.locked} accentClass="text-amber-800" />
@@ -864,7 +869,7 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
                   >
                     <td className="px-5 py-3.5 font-semibold text-[#0F172A]">
                       {row.account_kind === "FOLLOWUP" ? (
-                        <span className="font-medium text-[#64748B]">حساب متابعة</span>
+                        <span className="font-medium text-[#64748B]">متابعة مركزية</span>
                       ) : (
                         row.formation_name ?? "—"
                       )}

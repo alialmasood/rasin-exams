@@ -1,4 +1,5 @@
 import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
+import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
 
@@ -317,7 +318,7 @@ export function buildExamSituationReportHtml(
       <table class="table">
         ${row2("اسم المادة الامتحانية", `<strong>${e(detail.subject_name)}</strong>`)}
         ${row2("معرّف المادة الدراسية في النظام", `<span class="muted">${e(detail.study_subject_id)}</span>`)}
-        ${row2("المرحلة الدراسية", `المرحلة ${detail.stage_level}`)}
+        ${row2("المرحلة الدراسية", formatCollegeStudyStageLabel(detail.stage_level))}
         ${row2("النظام الدراسي", e(STUDY_TYPE_AR[detail.study_type] ?? detail.study_type))}
         ${row2("نوع الجدول", e(SCHEDULE_TYPE_AR[detail.schedule_type]))}
         ${row2("العام الدراسي", e(detail.academic_year?.trim() ? detail.academic_year : "—"))}
@@ -506,7 +507,7 @@ export function buildExamSituationBundleReportHtml(
   <header class="hdr">
     <h1>تقرير الموقف الامتحاني — مادة موزّعة على عدة قاعات</h1>
     <div class="meta"><strong>الكلية:</strong> ${e(collegeLabel)} — <strong>عميد الكلية (المسجّل):</strong> ${e(deanName.trim() || "—")}</div>
-    <div class="meta"><strong>المادة:</strong> ${e(head.subject_name)} — <strong>المرحلة:</strong> ${head.stage_level} — <strong>القسم:</strong> ${e(head.branch_name)}</div>
+    <div class="meta"><strong>المادة:</strong> ${e(head.subject_name)} — <strong>المرحلة:</strong> ${e(formatCollegeStudyStageLabel(head.stage_level))} — <strong>القسم:</strong> ${e(head.branch_name)}</div>
     <div class="meta"><strong>التاريخ:</strong> ${e(head.exam_date)} — <strong>الوقت:</strong> ${e(head.start_time)} — ${e(head.end_time)} — <strong>أُنشئ:</strong> ${e(generatedLabel)}</div>
   </header>
   <table class="table">
@@ -624,7 +625,7 @@ export function buildDailyExamSituationsFinalReportHtml(
     for (const group of groups) {
       const head = group[0]!;
       const timeRange = `${e(head.start_time)} — ${e(head.end_time)} (${e(formatDurationAr(head.duration_minutes))})`;
-      const subjectCell = `<strong>${e(head.subject_name)}</strong><div class="muted" style="font-size:11px;margin-top:2px">المرحلة ${head.stage_level} — ${e(head.branch_name)}</div>`;
+      const subjectCell = `<strong>${e(head.subject_name)}</strong><div class="muted" style="font-size:11px;margin-top:2px">${e(formatCollegeStudyStageLabel(head.stage_level))} — ${e(head.branch_name)}</div>`;
       if (group.length === 1) {
         const d = head;
         rowChunks.push(`<tr>

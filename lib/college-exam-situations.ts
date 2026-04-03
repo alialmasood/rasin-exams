@@ -259,6 +259,282 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
   });
 }
 
+/** صف واحد لغرفة القيادة — جداول معتمدة ليوم محدد عبر كليات التشكيل. */
+export type CentralTrackingExamRow = {
+  scheduleId: string;
+  ownerUserId: string;
+  collegeName: string;
+  department: string;
+  subject: string;
+  instructor: string;
+  stageLevel: number;
+  studyStageLabel: string;
+  studentsCount: number;
+  absencesCount: number;
+  roomsCount: number;
+  reportStatus: "SUBMITTED" | "PENDING" | "NOT_SUBMITTED";
+  examDate: string;
+  examType: "FINAL" | "SEMESTER";
+  /**
+   * الفصل الدراسي من `college_exam_schedules.term_label` — نفس القيمة المُختارة في بوابة الكلية ضمن
+   * «البيانات العامة للجدول» (حقل الفصل الدراسي: الأول / الثاني) في `/dashboard/college/exam-schedules`.
+   */
+  termLabel: string | null;
+  studyTypeKey: StudyType;
+  studyTypeLabelAr: string;
+  academicYear: string | null;
+  absenceDetails: string;
+  /** سعة الدوام الصباحي في القاعة (لتقرير المتابعة المركزية) */
+  capacityMorning: number;
+  /** سعة الدوام المسائي في القاعة */
+  capacityEvening: number;
+  absencesMorning: number;
+  absencesEvening: number;
+  attendanceMorning: number;
+  attendanceEvening: number;
+  /** إجمالي الحضور المسجّل للجلسة (من القاعة) */
+  attendanceCount: number;
+  absenceNamesMorning: string | null;
+  absenceNamesEvening: string | null;
+  startTime: string;
+  endTime: string;
+  roomName: string;
+  deanStatus: DeanSituationStatus;
+  headSubmittedAtIso: string | null;
+};
+
+function studyTypeLabelAr(t: StudyType): string {
+  switch (t) {
+    case "SEMESTER":
+      return "فصلي";
+    case "COURSES":
+      return "بالمقررات";
+    case "BOLOGNA":
+      return "بولونيا";
+    default:
+      return "سنوي";
+  }
+}
+
+function centralReportStatus(uploaded: boolean, dean: DeanSituationStatus): CentralTrackingExamRow["reportStatus"] {
+  if (!uploaded) return "NOT_SUBMITTED";
+  if (dean === "APPROVED") return "SUBMITTED";
+  return "PENDING";
+}
+
+/**
+ * جلسات امتحان معتمدة لتاريخ محدد — حسابات التشكيل فقط (للوحة المتابعة المركزية).
+ */
+export async function listCentralTrackingExamRowsForDate(examDate: string): Promise<CentralTrackingExamRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const d = examDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return [];
+  const pool = getDbPool();
+  const r = await pool.query<{
+    schedule_id: string | number;
+    owner_user_id: string | number;
+    college_subject_id: string;
+    study_subject_id: string;
+    exam_date: string;
+    start_time: string;
+    end_time: string;
+    duration_minutes: number;
+    schedule_type: string;
+    workflow_status: string;
+    room_id: string | number;
+    room_name: string;
+    capacity_total: number;
+    capacity_morning: number;
+    capacity_evening: number;
+    attendance_count: number;
+    absence_count: number;
+    attendance_morning: number;
+    absence_morning: number;
+    attendance_evening: number;
+    absence_evening: number;
+    absence_names: string | null;
+    absence_names_morning: string | null;
+    absence_names_evening: string | null;
+    subject_name: string;
+    study_type: string;
+    branch_name: string;
+    academic_year: string | null;
+    stage_level: number;
+    head_submitted_at: Date | null;
+    dean_status: string | null;
+    dean_reviewed_at: Date | null;
+    formation_label: string;
+    notes: string | null;
+    term_label: string | null;
+  }>(
+    `SELECT e.id AS schedule_id, e.owner_user_id,
+            e.college_subject_id::text AS college_subject_id, e.study_subject_id::text AS study_subject_id,
+            e.exam_date::text, e.start_time::text, e.end_time::text, e.duration_minutes,
+            e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
+            r.id AS room_id, r.room_name,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.capacity_total
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.capacity_total_2, 0)
+              ELSE r.capacity_total
+            END AS capacity_total,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.capacity_morning
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.capacity_morning_2, 0)
+              ELSE r.capacity_morning
+            END AS capacity_morning,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.capacity_evening
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.capacity_evening_2, 0)
+              ELSE r.capacity_evening
+            END AS capacity_evening,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.attendance_count
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.attendance_count_2, 0)
+              ELSE r.attendance_count
+            END AS attendance_count,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_count
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.absence_count_2, 0)
+              ELSE r.absence_count
+            END AS absence_count,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_names
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN r.absence_names_2
+              ELSE r.absence_names
+            END AS absence_names,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.attendance_morning
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.attendance_morning_2, 0)
+              ELSE r.attendance_morning
+            END AS attendance_morning,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_morning
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.absence_morning_2, 0)
+              ELSE r.absence_morning
+            END AS absence_morning,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.attendance_evening
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.attendance_evening_2, 0)
+              ELSE r.attendance_evening
+            END AS attendance_evening,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_evening
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.absence_evening_2, 0)
+              ELSE r.absence_evening
+            END AS absence_evening,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_names_morning
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN r.absence_names_morning_2
+              ELSE r.absence_names_morning
+            END AS absence_names_morning,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN r.absence_names_evening
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN r.absence_names_evening_2
+              ELSE r.absence_names_evening
+            END AS absence_names_evening,
+            s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
+            c.branch_name, e.academic_year,
+            e.term_label,
+            e.stage_level,
+            rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
+            e.notes,
+            COALESCE(
+              NULLIF(TRIM(
+                CASE
+                  WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                    THEN COALESCE(p.holder_name, '')
+                  ELSE COALESCE(p.formation_name, '')
+                END
+              ), ''),
+              u.username::text
+            ) AS formation_label
+     FROM college_exam_schedules e
+     INNER JOIN college_subjects c ON c.id = e.college_subject_id AND c.owner_user_id = e.owner_user_id
+     INNER JOIN college_study_subjects s ON s.id = e.study_subject_id AND s.owner_user_id = e.owner_user_id
+     INNER JOIN college_exam_rooms r ON r.id = e.room_id AND r.owner_user_id = e.owner_user_id
+     INNER JOIN users u ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
+     LEFT JOIN college_exam_situation_reports rep
+            ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+     WHERE e.exam_date = $1::date
+       AND COALESCE(e.workflow_status, 'DRAFT') = 'APPROVED'
+       AND COALESCE(UPPER(p.account_kind::text), 'FORMATION') = 'FORMATION'
+     ORDER BY formation_label ASC, c.branch_name ASC, s.subject_name ASC, e.start_time ASC, e.created_at ASC`,
+    [d]
+  );
+
+  return r.rows.map((row) => {
+    const dean = normalizeDean(row.dean_status);
+    const cap = Number(row.capacity_total ?? 0);
+    const capM = Number(row.capacity_morning ?? 0);
+    const capE = Number(row.capacity_evening ?? 0);
+    const abs = Number(row.absence_count ?? 0);
+    const absM = Number(row.absence_morning ?? 0);
+    const absE = Number(row.absence_evening ?? 0);
+    const attM = Number(row.attendance_morning ?? 0);
+    const attE = Number(row.attendance_evening ?? 0);
+    const attTotal = Number(row.attendance_count ?? 0);
+    const uploaded = Boolean(row.head_submitted_at);
+    const useShift = capM > 0 || capE > 0;
+    const st = normalizeStudyTypeDb(row.study_type);
+    const namesM = row.absence_names_morning?.trim() ?? "";
+    const namesE = row.absence_names_evening?.trim() ?? "";
+    const absenceDetails = useShift
+      ? mergeAbsenceNamesByShift(namesM, namesE).trim() || row.absence_names?.trim() || "—"
+      : row.absence_names?.trim() || "—";
+    const instructor = String(row.notes ?? "").trim() || "—";
+    const stageN = Number(row.stage_level ?? 1);
+    return {
+      scheduleId: String(row.schedule_id),
+      ownerUserId: String(row.owner_user_id),
+      collegeName: row.formation_label?.trim() || "—",
+      department: row.branch_name ?? "—",
+      subject: row.subject_name ?? "—",
+      instructor,
+      stageLevel: stageN,
+      studyStageLabel: `المرحلة ${stageN}`,
+      studentsCount: cap,
+      absencesCount: abs,
+      roomsCount: 1,
+      reportStatus: centralReportStatus(uploaded, dean),
+      examDate: row.exam_date,
+      examType: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
+      termLabel: row.term_label?.trim() ? row.term_label.trim() : null,
+      studyTypeKey: st,
+      studyTypeLabelAr: studyTypeLabelAr(st),
+      academicYear: row.academic_year,
+      absenceDetails,
+      capacityMorning: capM,
+      capacityEvening: capE,
+      absencesMorning: absM,
+      absencesEvening: absE,
+      attendanceMorning: attM,
+      attendanceEvening: attE,
+      attendanceCount: attTotal,
+      absenceNamesMorning: namesM ? namesM : null,
+      absenceNamesEvening: namesE ? namesE : null,
+      startTime: row.start_time.slice(0, 5),
+      endTime: row.end_time.slice(0, 5),
+      roomName: row.room_name ?? "—",
+      deanStatus: dean,
+      headSubmittedAtIso: row.head_submitted_at?.toISOString() ?? null,
+    };
+  });
+}
+
 /** صف جدول المتابعة مرتبط بجلسة مجدولة + college_exam_situation_reports. */
 export type StatusFollowupScheduleRow = {
   kind: "schedule";

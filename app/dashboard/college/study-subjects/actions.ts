@@ -24,6 +24,7 @@ export async function createCollegeStudySubjectAction(
       ownerUserId: session.uid,
       collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
       subjectName: String(formData.get("subject_name") ?? ""),
+      instructorName: String(formData.get("instructor_name") ?? ""),
       studyType: String(formData.get("study_type") ?? ""),
       studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
@@ -49,6 +50,7 @@ export async function updateCollegeStudySubjectAction(
       ownerUserId: session.uid,
       collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
       subjectName: String(formData.get("subject_name") ?? ""),
+      instructorName: String(formData.get("instructor_name") ?? ""),
       studyType: String(formData.get("study_type") ?? ""),
       studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
