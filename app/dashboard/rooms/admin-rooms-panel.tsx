@@ -30,13 +30,24 @@ function truncate(s: string, max: number) {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** تنسيق زمني متسق بين خادم Next والمتصفح (تفادي اختلاف ICU لـ ar-IQ) */
 function formatTime(v: Date | string) {
   const d = typeof v === "string" ? new Date(v) : v;
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-IQ", {
-    dateStyle: "short",
-    timeStyle: "medium",
-  }).format(d);
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Baghdad",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    }).format(d);
+  } catch {
+    return "—";
+  }
 }
 
 type FormationGroup = {
@@ -178,7 +189,8 @@ type Props = {
 
 export function AdminRoomsPanel({ initialRows }: Props) {
   const [rows, setRows] = useState<AdminCollegeExamRoomRow[]>(initialRows);
-  const [lastClientRefresh, setLastClientRefresh] = useState<Date>(() => new Date());
+  /** null حتى أول mount على العميل — يتطابق الخادم والعميل ويمنع أخطاء الترطيب */
+  const [lastClientRefresh, setLastClientRefresh] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [openOwners, setOpenOwners] = useState<Set<string>>(() => new Set());
@@ -195,6 +207,10 @@ export function AdminRoomsPanel({ initialRows }: Props) {
       setRows(res.rows);
       setLastClientRefresh(new Date());
     });
+  }, []);
+
+  useEffect(() => {
+    setLastClientRefresh(new Date());
   }, []);
 
   useEffect(() => {
@@ -311,7 +327,7 @@ export function AdminRoomsPanel({ initialRows }: Props) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-[#64748B]">
-            آخر جلب: {formatTime(lastClientRefresh)}
+            آخر جلب: {lastClientRefresh ? formatTime(lastClientRefresh) : "—"}
             {pending ? " — جاري التحديث…" : ""}
           </span>
           <button

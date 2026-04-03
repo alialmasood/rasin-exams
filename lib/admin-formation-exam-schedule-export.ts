@@ -1,5 +1,10 @@
 import type { AdminCollegeExamScheduleRow } from "@/lib/college-exam-schedules";
+import {
+  formatExamScheduleStudyLevelSummary,
+  formatExamScheduleStudyLevelTierStageOnly,
+} from "@/lib/college-study-stage-display";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
+import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 
 const SCHEDULE_TYPE_SHORT: Record<AdminCollegeExamScheduleRow["schedule_type"], string> = {
   FINAL: "نهائي",
@@ -53,6 +58,23 @@ function weekdayAr(dateIso: string): string {
 
 function timeRangeLabel(start: string, end: string): string {
   return `${start || "--:--"} – ${end || "--:--"}`;
+}
+
+/** خلية PDF: عنوان وقيمة لكل من المستوى ونوع الدراسة في كتل منفصلة */
+function examScheduleStudyLevelCellHtml(r: AdminCollegeExamScheduleRow): string {
+  const e = escapeHtml;
+  const levelVal = formatExamScheduleStudyLevelTierStageOnly(r.stage_level);
+  const studyVal = STUDY_TYPE_LABEL_AR[r.study_type];
+  return `<div class="lvl-stack">
+    <div class="lvl-block">
+      <span class="lvl-lbl">${e("المستوى الدراسي")}</span>
+      <span class="lvl-val">${e(levelVal)}</span>
+    </div>
+    <div class="lvl-block lvl-block-sep">
+      <span class="lvl-lbl">${e("نوع الدراسة")}</span>
+      <span class="lvl-val">${e(studyVal)}</span>
+    </div>
+  </div>`;
 }
 
 function roomsLabel(sess: AdminCollegeExamScheduleRow[]): string {
@@ -115,7 +137,7 @@ export function buildFormationExamSchedulePrintHtml(
             <td class="num">${seq}</td>
             <td>${e(SCHEDULE_TYPE_SHORT[r.schedule_type])}</td>
             <td>${e(r.study_subject_name)}${multi ? ` <span class="tag">${sess.length} قاعات</span>` : ""}</td>
-            <td class="num">${r.stage_level}</td>
+            <td>${examScheduleStudyLevelCellHtml(r)}</td>
             <td class="num">${e(r.exam_date)}</td>
             <td>${e(formatExamMealSlotLabel(r.meal_slot))}</td>
             <td>${e(weekdayAr(r.exam_date))}</td>
@@ -137,7 +159,7 @@ export function buildFormationExamSchedulePrintHtml(
               <th>#</th>
               <th>نوع الجدول</th>
               <th>المادة</th>
-              <th>مرحلة</th>
+              <th>المستوى الدراسي</th>
               <th>التاريخ</th>
               <th>الوجبة</th>
               <th>اليوم</th>
@@ -181,6 +203,11 @@ export function buildFormationExamSchedulePrintHtml(
     td.num { text-align: center; font-variant-numeric: tabular-nums; }
     .muted { color: #64748b; text-align: center; }
     .tag { display: inline-block; margin-right: 4px; padding: 1px 5px; border-radius: 4px; background: #e0e7ff; color: #3730a3; font-size: 7.5pt; font-weight: 700; }
+    .lvl-stack { line-height: 1.35; }
+    .lvl-block { display: block; }
+    .lvl-block-sep { margin-top: 4px; padding-top: 4px; border-top: 1px solid #e2e8f0; }
+    .lvl-lbl { display: block; font-size: 7.5pt; font-weight: 700; color: #64748b; margin-bottom: 2px; }
+    .lvl-val { display: block; font-size: 8.3pt; font-weight: 600; color: #0f172a; }
     .footer { margin-top: 5mm; padding-top: 3mm; border-top: 1px solid #e2e8f0; font-size: 8pt; color: #64748b; text-align: center; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
@@ -248,7 +275,7 @@ export async function exportFormationExamScheduleExcel(
         "#": seq,
         "نوع الجدول": SCHEDULE_TYPE_SHORT[r.schedule_type],
         المادة: r.study_subject_name,
-        مرحلة: r.stage_level,
+        "المستوى الدراسي": formatExamScheduleStudyLevelSummary(r.stage_level, r.study_type),
         التاريخ: r.exam_date,
         الوجبة: formatExamMealSlotLabel(r.meal_slot),
         اليوم: weekdayAr(r.exam_date),

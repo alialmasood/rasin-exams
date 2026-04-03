@@ -10,6 +10,13 @@ import { getSession } from "@/lib/session";
 
 export type CollegeSubjectsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
 
+function revalidateCollegeSubjectsSurfaces() {
+  revalidatePath("/dashboard/college/subjects");
+  revalidatePath("/dashboard/college");
+  /** شجرة `/dashboard` كاملة (لوحة الإدمن `/dashboard` وجميع الصفلات الفرعية) */
+  revalidatePath("/dashboard", "layout");
+}
+
 export async function createCollegeSubjectAction(
   _prev: CollegeSubjectsActionState,
   formData: FormData
@@ -26,7 +33,7 @@ export async function createCollegeSubjectAction(
       branchHeadName: String(formData.get("branch_head_name") ?? ""),
     });
     if (!result.ok) return result;
-    revalidatePath("/dashboard/college/subjects");
+    revalidateCollegeSubjectsSurfaces();
     return { ok: true, message: "تمت إضافة القسم/الفرع بنجاح." };
   } catch {
     return { ok: false, message: "حدث خطأ أثناء إضافة القسم/الفرع." };
@@ -52,7 +59,7 @@ export async function updateCollegeSubjectAction(
       branchHeadName: String(formData.get("branch_head_name") ?? ""),
     });
     if (!result.ok) return result;
-    revalidatePath("/dashboard/college/subjects");
+    revalidateCollegeSubjectsSurfaces();
     return { ok: true, message: "تم تحديث القسم/الفرع بنجاح." };
   } catch {
     return { ok: false, message: "حدث خطأ أثناء تحديث القسم/الفرع." };
@@ -75,7 +82,7 @@ export async function deleteCollegeSubjectAction(
       ownerUserId: session.uid,
     });
     if (!result.ok) return result;
-    revalidatePath("/dashboard/college/subjects");
+    revalidateCollegeSubjectsSurfaces();
     return { ok: true, message: "تم حذف القسم/الفرع بنجاح." };
   } catch {
     return { ok: false, message: "حدث خطأ أثناء حذف القسم/الفرع." };

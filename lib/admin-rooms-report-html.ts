@@ -42,6 +42,13 @@ function subjectsCellText(row: AdminCollegeExamRoomRow): string {
   return a;
 }
 
+function instructorsCellText(row: AdminCollegeExamRoomRow): string {
+  const ins1 = String(row.study_subject_instructor_name ?? "").trim() || "—";
+  if (!row.study_subject_id_2) return ins1;
+  const ins2 = String(row.study_subject_instructor_name_2 ?? "").trim() || "—";
+  return `${ins1} | ${ins2}`;
+}
+
 function sortAdminRoomRows(rows: AdminCollegeExamRoomRow[]): AdminCollegeExamRoomRow[] {
   return [...rows].sort((a, b) => {
     const fa = a.formation_label.localeCompare(b.formation_label, "ar");
@@ -126,6 +133,7 @@ export function buildAdminRoomsReportHtml(input: AdminRoomsReportInput): string 
         <td><strong>${e(row.room_name)}</strong></td>
         <td>${e(row.supervisor_name)}</td>
         <td style="font-size:8.8pt">${e(subjectsCellText(row))}</td>
+        <td style="font-size:8.8pt">${e(instructorsCellText(row))}</td>
         <td>${e(mode)}</td>
         <td style="font-size:8.5pt">${e(cap1)}${dual ? `<br/>${e(cap2)}` : ""}</td>
         <td class="num">${e(att)}</td>
@@ -136,7 +144,7 @@ export function buildAdminRoomsReportHtml(input: AdminRoomsReportInput): string 
     })
     .join("");
 
-  const emptyColspan = isSingle ? 11 : 13;
+  const emptyColspan = isSingle ? 12 : 14;
   const emptyRow = `<tr><td colspan="${emptyColspan}" style="text-align:center;color:#64748b;padding:10mm">لا توجد قاعات في النطاق المحدد.</td></tr>`;
 
   const headFormationCols = isSingle
@@ -220,6 +228,7 @@ export function buildAdminRoomsReportHtml(input: AdminRoomsReportInput): string 
         <th>اسم القاعة</th>
         <th>مشرف القاعة</th>
         <th>المادتان / المرحلة</th>
+        <th>التدريسي (المادة)</th>
         <th>الوضع</th>
         <th>السعة (ص+م)</th>
         <th>الحضور</th>
@@ -286,8 +295,10 @@ export function adminRoomsRowsToExcelRecords(rows: AdminCollegeExamRoomRow[]): R
       "اسم القاعة": r.room_name,
       "مشرف القاعة": r.supervisor_name,
       "المادة الامتحانية 1": r.study_subject_name,
+      "التدريسي (مادة 1)": String(r.study_subject_instructor_name ?? "").trim(),
       "المرحلة 1": r.stage_level,
       "المادة الامتحانية 2": r.study_subject_name_2 ?? "",
+      "التدريسي (مادة 2)": dual ? String(r.study_subject_instructor_name_2 ?? "").trim() : "",
       "المرحلة 2": r.stage_level_2 ?? "",
       "نوع القاعة": dual ? "امتحانان (مادتان)" : "امتحان واحد",
       "سعة إجمالية 1": r.capacity_total,

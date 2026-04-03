@@ -12,7 +12,9 @@ import { assertExamDateNotInPast, todayCalendarDateLocal } from "@/lib/exam-sche
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import {
+  formatCollegeStudyLevelTierLabel,
   formatCollegeStudyStageLabel,
+  formatExamScheduleStudyLevelSummary,
   isPostgraduateStudyStageLevel,
   POSTGRAD_STUDY_STAGE_DIPLOMA,
   POSTGRAD_STUDY_STAGE_DOCTOR,
@@ -116,8 +118,23 @@ function weekdayAr(dateIso: string) {
   return new Intl.DateTimeFormat("ar-IQ", { weekday: "long" }).format(new Date(dateIso));
 }
 
+/** يحوّل وقتًا بصيغة 24 ساعة (مثل 09:30 أو 14:05 من الخادم) إلى عرض 12 ساعة مع ص / م */
+function formatClockTo12hAr(hhmm: string): string {
+  const raw = String(hhmm ?? "").trim();
+  if (!raw) return "—";
+  const m = /^(\d{1,2}):(\d{2})/.exec(raw);
+  if (!m) return raw;
+  const h24 = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h24) || !Number.isFinite(min) || min < 0 || min > 59 || h24 < 0 || h24 > 23) return raw;
+  const isPm = h24 >= 12;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const mm = String(min).padStart(2, "0");
+  return `${h12}:${mm}\u00a0${isPm ? "م" : "ص"}`;
+}
+
 function timeRangeLabel(start: string, end: string) {
-  return `${start || "--:--"} - ${end || "--:--"}`;
+  return `${formatClockTo12hAr(start)} – ${formatClockTo12hAr(end)}`;
 }
 
 function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel: string) {
@@ -133,7 +150,7 @@ function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel
       "العام الدراسي": r.academic_year || "—",
       "الفصل الدراسي": r.term_label || "—",
       "المادة الدراسية": r.study_subject_name,
-      "المرحلة": formatCollegeStudyStageLabel(Number(r.stage_level)),
+      "المستوى الدراسي": formatExamScheduleStudyLevelSummary(r.stage_level, r.study_type),
       "اليوم": weekdayAr(r.exam_date),
       "التاريخ": r.exam_date,
       "رقم الوجبة": formatExamMealSlotLabel(r.meal_slot),
@@ -345,9 +362,11 @@ export function ExamSchedulesPanel({
 
   const availableStudySubjects = useMemo(() => {
     if (!form.collegeSubjectId) return [];
+    const deptId = String(form.collegeSubjectId);
     return studySubjects.filter((x) => {
-      if (x.college_subject_id !== form.collegeSubjectId) return false;
-      const pg = isPostgraduateStudyStageLevel(x.study_stage_level);
+      if (String(x.college_subject_id) !== deptId) return false;
+      const lv = Number(x.study_stage_level);
+      const pg = isPostgraduateStudyStageLevel(lv);
       return form.studyTier === "POSTGRAD" ? pg : !pg;
     });
   }, [studySubjects, form.collegeSubjectId, form.studyTier]);
@@ -799,7 +818,20 @@ export function ExamSchedulesPanel({
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القسم / الفرع</label>
-              <select value={form.collegeSubjectId} disabled={generalLocked} onChange={(e) => setForm((f) => ({ ...f, collegeSubjectId: e.target.value, studySubjectId: "" }))} className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60">
+              <select
+                value={form.collegeSubjectId}
+                disabled={generalLocked}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    collegeSubjectId: e.target.value,
+                    studySubjectId: "",
+                    stageLevel: "",
+                    roomIds: [],
+                  }))
+                }
+                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
+              >
                 <option value="">اختر القسم/الفرع</option>
                 {subjects.map((s) => <option key={s.id} value={s.id}>{s.branch_name} ({s.branch_type === "BRANCH" ? "فرع" : "قسم"})</option>)}
               </select>
@@ -914,10 +946,17 @@ export function ExamSchedulesPanel({
                   <option value="">{form.collegeSubjectId ? "اختر المادة الدراسية" : "اختر القسم/الفرع أولًا"}</option>
                   {availableStudySubjects.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.subject_name}
+                      {s.subject_name} — {formatCollegeStudyLevelTierLabel(Number(s.study_stage_level))}
                     </option>
                   ))}
                 </select>
+                {form.collegeSubjectId ? (
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+                    {form.studyTier === "POSTGRAD"
+                      ? "تُعرض فقط المواد المعرّفة كدراسات عليا (دبلوم عالي / ماجستير / دكتوراه) ضمن القسم المختار."
+                      : "تُعرض فقط المواد المعرّفة للدراسة الأولية ضمن القسم المختار."}
+                  </p>
+                ) : null}
                 {form.collegeSubjectId && availableStudySubjects.length === 0 ? (
                   <p className="mt-1.5 text-xs font-medium text-amber-900">
                     {form.studyTier === "POSTGRAD"

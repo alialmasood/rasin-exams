@@ -72,17 +72,71 @@ function row2(label: string, value: string): string {
   return `<tr><td>${z(label)}</td><td>${value}</td></tr>`;
 }
 
+/** تاريخ ويوم كامل (توقيت بغداد) — بدون عرض الساعة في السطر */
+export function formatSituationReportDateDayLabel(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      timeZone: "Asia/Baghdad",
+      dateStyle: "full",
+    }).format(d);
+  } catch {
+    return String(d);
+  }
+}
+
+/** الساعة بتوقيت بغداد */
+export function formatSituationReportTimeLabel(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      timeZone: "Asia/Baghdad",
+      timeStyle: "medium",
+    }).format(d);
+  } catch {
+    return String(d);
+  }
+}
+
+function formatSituationReportGeneratedFullLabel(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      timeZone: "Asia/Baghdad",
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(d);
+  } catch {
+    return d.toISOString();
+  }
+}
+
 /**
  * طباعة / PDF — A4، تقرير حكومي، صفحتان (1: كلية+مادة، 2: موعد+حضور+اعتماد).
  * جميع البيانات محفوظة؛ التنسيق فقط.
  */
+/** شعار جامعة البصرة — `public/uob-logo.png` */
+const UNIVERSITY_LOGO_PATH = "/uob-logo.png";
+
+function absoluteLogoSrc(assetsBaseUrl: string | undefined): string {
+  const base = (assetsBaseUrl ?? "").trim().replace(/\/$/, "");
+  return base ? `${base}${UNIVERSITY_LOGO_PATH}` : "";
+}
+
 export function buildExamSituationReportHtml(
   detail: ExamSituationDetail,
   collegeLabel: string,
   deanName: string,
-  generatedLabel: string
+  /** وقت إنشاء/طباعة التقرير — يُشتق منه التاريخ واليوم والساعة والتذييل */
+  generatedAt: Date,
+  /** أصل الموقع (مثل http://localhost:3000) لمسار مطلق للشعار؛ نافذة الطباعة قد تكون about:blank */
+  assetsBaseUrl?: string
 ): string {
   const e = escapeHtml;
+  const generatedLabel = formatSituationReportGeneratedFullLabel(generatedAt);
+  const dateDayLabel = formatSituationReportDateDayLabel(generatedAt);
+  const timeLabel = formatSituationReportTimeLabel(generatedAt);
+  const logoSrc = absoluteLogoSrc(assetsBaseUrl);
+  const logoHtml = logoSrc
+    ? `<img src="${e(logoSrc)}" alt="شعار جامعة البصرة" class="report-logo" width="72" height="72" />`
+    : "";
   const invList = splitLines(detail.invigilators).map((n) => `<li>${e(n)}</li>`).join("");
   const absenceNamesForList = mergeAbsenceNamesByShift(
     detail.absence_names_morning ?? "",
@@ -169,27 +223,59 @@ export function buildExamSituationReportHtml(
     }
 
     .report-header {
-      display: table;
       width: 100%;
       border-bottom: 2px solid #1e3a8a;
-      padding: 6px 0 10px;
+      padding: 8px 0 12px;
       margin-bottom: 10px;
     }
-    .report-header-row { display: table-row; }
-    .report-header-cell { display: table-cell; vertical-align: middle; padding: 4px 6px; font-size: 13px; }
-    .hdr-right { width: 32%; text-align: right; font-weight: 700; line-height: 1.45; }
-    .hdr-right .uni { font-size: 14px; color: #1e3a8a; }
-    .hdr-right .college { font-weight: 600; color: #374151; margin-top: 2px; }
-    .hdr-center {
-      width: 36%;
+    /* صف علوي: يسار الصفحة = تاريخ، الوسط = شعار، يمين الصفحة = جامعة+كلية (اتجاه ltr للشبكة فقط) */
+    .report-header-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: start;
+      gap: 14px 18px;
+      direction: ltr;
+    }
+    .report-header-side--meta {
+      text-align: start;
+      direction: rtl;
+      font-size: 13px;
+      color: #374151;
+      line-height: 1.55;
+      justify-self: start;
+      max-width: 100%;
+    }
+    .report-header-logo {
+      justify-self: center;
       text-align: center;
+    }
+    .report-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      display: block;
+      margin-inline: auto;
+    }
+    @media print { .report-logo { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    .report-header-side--names {
+      text-align: end;
+      direction: rtl;
+      font-weight: 700;
+      line-height: 1.45;
+      justify-self: end;
+      max-width: 100%;
+    }
+    .report-header-side--names .uni { font-size: 15px; color: #1e3a8a; }
+    .report-header-side--names .college { font-weight: 600; color: #374151; margin-top: 4px; font-size: 14px; }
+    .report-header-side .meta-line { margin: 2px 0; }
+    .report-header-tagline {
+      text-align: center;
+      margin-top: 12px;
       font-size: 18px;
       font-weight: 800;
       color: #1e3a8a;
-      padding-inline: 6px;
+      letter-spacing: 0.02em;
     }
-    .hdr-left { width: 32%; text-align: left; direction: rtl; font-size: 13px; color: #374151; line-height: 1.55; }
-    .hdr-left .meta-line { margin: 1px 0; }
 
     .page { page-break-after: always; }
     .page:last-child { page-break-after: auto; }
@@ -291,17 +377,18 @@ export function buildExamSituationReportHtml(
   <div class="doc-root">
 
   <header class="report-header">
-    <div class="report-header-row">
-      <div class="report-header-cell hdr-right">
+    <div class="report-header-top">
+      <div class="report-header-side report-header-side--meta">
+        <div class="meta-line"><strong>التاريخ واليوم:</strong> ${e(dateDayLabel)}</div>
+        <div class="meta-line"><strong>الساعة:</strong> ${e(timeLabel)}</div>
+      </div>
+      <div class="report-header-logo">${logoHtml}</div>
+      <div class="report-header-side report-header-side--names">
         <div class="uni">جامعة البصرة</div>
         <div class="college">${e(collegeLabel)}</div>
       </div>
-      <div class="report-header-cell hdr-center">تقرير رسمي — الموقف الامتحاني</div>
-      <div class="report-header-cell hdr-left">
-        <div class="meta-line"><strong>التاريخ:</strong> ${e(generatedLabel)}</div>
-        <div class="meta-line"><strong>رقم التقرير:</strong> ${e(detail.schedule_id)}</div>
-      </div>
     </div>
+    <div class="report-header-tagline">الموقف الامتحاني الرسمي</div>
   </header>
 
   <div class="page">
@@ -318,7 +405,6 @@ export function buildExamSituationReportHtml(
       <h2 class="section-title">2. بيانات المادة والامتحان</h2>
       <table class="table">
         ${row2("اسم المادة الامتحانية", `<strong>${e(detail.subject_name)}</strong>`)}
-        ${row2("معرّف المادة الدراسية في النظام", `<span class="muted">${e(detail.study_subject_id)}</span>`)}
         ${row2("المرحلة الدراسية", formatCollegeStudyStageLabel(detail.stage_level))}
         ${row2("النظام الدراسي", e(STUDY_TYPE_AR[detail.study_type] ?? detail.study_type))}
         ${row2("نوع الجدول", e(SCHEDULE_TYPE_AR[detail.schedule_type]))}
@@ -434,13 +520,19 @@ export function buildExamSituationBundleReportHtml(
   sessions: ExamSituationDetail[],
   collegeLabel: string,
   deanName: string,
-  generatedLabel: string
+  generatedAt: Date,
+  assetsBaseUrl?: string
 ): string {
   if (sessions.length === 0) return "";
   if (sessions.length === 1) {
-    return buildExamSituationReportHtml(sessions[0]!, collegeLabel, deanName, generatedLabel);
+    return buildExamSituationReportHtml(sessions[0]!, collegeLabel, deanName, generatedAt, assetsBaseUrl);
   }
   const e = escapeHtml;
+  const generatedLabel = formatSituationReportGeneratedFullLabel(generatedAt);
+  const logoSrc = absoluteLogoSrc(assetsBaseUrl);
+  const bundleLogoHtml = logoSrc
+    ? `<img src="${e(logoSrc)}" alt="شعار جامعة البصرة" class="bundle-report-logo" width="48" height="48" />`
+    : "";
   const head = sessions[0]!;
   let capTot = 0;
   let attTot = 0;
@@ -500,7 +592,10 @@ export function buildExamSituationBundleReportHtml(
     @page { size: A4; margin: 18mm; }
     @media print { body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     .hdr { border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 14px; }
-    .hdr h1 { margin: 0; font-size: 18px; color: #1e3a8a; }
+    .hdr-top { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+    .bundle-report-logo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
+    @media print { .bundle-report-logo { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    .hdr h1 { margin: 0; font-size: 18px; color: #1e3a8a; text-align: right; }
     .meta { margin-top: 6px; font-size: 12px; color: #374151; }
     .table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
     .table th, .table td { border: 1px solid #ccc; padding: 8px; vertical-align: top; text-align: right; }
@@ -512,7 +607,10 @@ export function buildExamSituationBundleReportHtml(
 </head>
 <body>
   <header class="hdr">
-    <h1>تقرير الموقف الامتحاني — مادة موزّعة على عدة قاعات</h1>
+    <div class="hdr-top">
+      ${bundleLogoHtml}
+      <h1 style="flex:1;min-width:12rem">تقرير الموقف الامتحاني — مادة موزّعة على عدة قاعات</h1>
+    </div>
     <div class="meta"><strong>الكلية:</strong> ${e(collegeLabel)} — <strong>عميد الكلية (المسجّل):</strong> ${e(deanName.trim() || "—")}</div>
     <div class="meta"><strong>المادة:</strong> ${e(head.subject_name)} — <strong>المرحلة:</strong> ${e(formatCollegeStudyStageLabel(head.stage_level))} — <strong>القسم:</strong> ${e(head.branch_name)}</div>
     <div class="meta"><strong>التاريخ:</strong> ${e(head.exam_date)} — <strong>الوقت:</strong> ${e(head.start_time)} — ${e(head.end_time)} — <strong>أُنشئ:</strong> ${e(generatedLabel)}</div>

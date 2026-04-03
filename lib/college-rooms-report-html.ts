@@ -23,6 +23,16 @@ function formatDateTimeAr(value: Date | string): string {
   }
 }
 
+function instructorCell(row: CollegeExamRoomRow, slot: 1 | 2, escape: (s: string) => string): string {
+  if (slot === 1) {
+    const t = String(row.study_subject_instructor_name ?? "").trim();
+    return t ? escape(t) : "—";
+  }
+  if (!row.study_subject_id_2) return "—";
+  const t = String(row.study_subject_instructor_name_2 ?? "").trim();
+  return t ? escape(t) : "—";
+}
+
 function shiftCapacityLabel(row: CollegeExamRoomRow, slot: 1 | 2): string {
   if (slot === 1) {
     return `${row.capacity_total} (ص ${row.capacity_morning} + م ${row.capacity_evening})`;
@@ -78,8 +88,10 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
         <td>${e(row.supervisor_name)}</td>
         <td>${e(row.invigilators || "—")}</td>
         <td>${e(row.study_subject_name)}</td>
+        <td class="small">${instructorCell(row, 1, e)}</td>
         <td class="num">${row.stage_level ?? 1}</td>
         <td>${e(row.study_subject_name_2 || "—")}</td>
+        <td class="small">${instructorCell(row, 2, e)}</td>
         <td class="num">${row.stage_level_2 != null ? row.stage_level_2 : "—"}</td>
         <td>${e(mode)}</td>
         <td class="small">${e(shiftCapacityLabel(row, 1))}</td>
@@ -97,7 +109,7 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
 
   const emptyRow =
     sorted.length === 0
-      ? `<tr><td colspan="19" style="text-align:center;color:#64748b;padding:8mm">لا توجد قاعات مسجّلة.</td></tr>`
+      ? `<tr><td colspan="21" style="text-align:center;color:#64748b;padding:8mm">لا توجد قاعات مسجّلة.</td></tr>`
       : "";
 
   return `<!DOCTYPE html>
@@ -112,7 +124,6 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
     @page { size: A4 landscape; margin: 10mm; }
     h1 { font-size: 16pt; text-align: center; margin: 0 0 3mm; border-bottom: 2px solid #274092; padding-bottom: 3mm; color: #274092; }
     .sub { text-align: center; font-size: 10pt; color: #475569; margin-bottom: 1mm; }
-    .desc { text-align: center; font-size: 9.5pt; color: #64748b; margin: 0 0 6mm; max-width: 100%; line-height: 1.55; }
     h2 { font-size: 11.5pt; color: #274092; margin: 5mm 0 2mm; border-right: 4px solid #274092; padding-right: 8px; page-break-after: avoid; }
     table.data { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 7.5pt; }
     th, td { border: 1px solid #cbd5e1; padding: 3px 5px; text-align: right; vertical-align: top; }
@@ -133,7 +144,6 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
   <h1>تقرير رسمي — جدول القاعات الامتحانية والسعات والحضور</h1>
   <p class="sub">جامعة البصرة — نظام رصين لإدارة الامتحانات</p>
   <p class="sub muted">${e(collegeLabel)}</p>
-  <p class="desc">وثيقة مولَّدة آلياً تجمع بيانات القاعات الامتحانية وربطها بالمواد والمراحل والسعات الصباحية والمسائية، والحضور والغياب، ومواعيد الجداول المسجّلة في النظام لكل قاعة، وفق السجلات وقت الإصدار. مخصصة للطباعة على ورق <strong>A4</strong> (عرضي للجدول التفصيلي).</p>
   <p class="sub muted" style="margin-bottom:5mm">تاريخ ووقت إصدار التقرير: ${e(generatedLabel)}</p>
 
   <h2>1. ملخص إحصائي</h2>
@@ -166,8 +176,10 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
         <th>مشرف القاعة</th>
         <th>المراقبون</th>
         <th>المادة 1</th>
+        <th>التدريسي (مادة 1)</th>
         <th>مرحلة 1</th>
         <th>المادة 2</th>
+        <th>التدريسي (مادة 2)</th>
         <th>مرحلة 2</th>
         <th>الوضع</th>
         <th>سعة 1</th>

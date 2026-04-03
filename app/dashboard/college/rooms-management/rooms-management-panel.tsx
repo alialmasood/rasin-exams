@@ -25,6 +25,7 @@ import {
   updateCollegeExamRoomAction,
 } from "./actions";
 import { RoomReportModal } from "./room-report-modal";
+import { StudySubjectExamSelect } from "./study-subject-exam-select";
 
 /** نفس فواصل التخزيم في lib/college-rooms (مراقبون / أسماء غياب) */
 function splitNameList(raw: string): string[] {
@@ -222,10 +223,66 @@ function RoomFields({
       : String(POSTGRAD_STUDY_STAGE_DIPLOMA)
   );
 
+  const [exam1SubjectId, setExam1SubjectId] = useState(() => d.study_subject_id ?? "");
+  const [exam2SubjectId, setExam2SubjectId] = useState(() => d.study_subject_id_2 ?? "");
+
+  useEffect(() => {
+    setExam1SubjectId(d.study_subject_id ?? "");
+    setExam2SubjectId(d.study_subject_id_2 ?? "");
+  }, [d.study_subject_id, d.study_subject_id_2]);
+
+  useEffect(() => {
+    if (!exam1SubjectId) return;
+    const sub = subjects.find((s) => s.id === exam1SubjectId);
+    if (!sub) return;
+    const lv = Number(sub.study_stage_level);
+    if (isPostgraduateStudyStageLevel(lv)) {
+      setTier1("POSTGRAD");
+      setPostgradStage1(String(lv));
+    } else {
+      setTier1("UNDERGRAD");
+      setUndergradStage1(undergradStageOptions.includes(lv) ? String(lv) : String(firstUndergrad));
+    }
+  }, [exam1SubjectId, subjects, firstUndergrad, undergradStageOptions]);
+
   const invigilatorsFieldId = useId();
   const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
 
-  const id2 = d.study_subject_id_2 ?? "";
+  useEffect(() => {
+    if (!dualExam || !exam2SubjectId) return;
+    const sub = subjects.find((s) => s.id === exam2SubjectId);
+    if (!sub) return;
+    const lv = Number(sub.study_stage_level);
+    if (isPostgraduateStudyStageLevel(lv)) {
+      setTier2("POSTGRAD");
+      setPostgradStage2(String(lv));
+    } else {
+      setTier2("UNDERGRAD");
+      setUndergradStage2(undergradStageOptions.includes(lv) ? String(lv) : String(firstUndergrad));
+    }
+  }, [dualExam, exam2SubjectId, subjects, firstUndergrad, undergradStageOptions]);
+
+  const selectedSubject1 = useMemo(
+    () => (exam1SubjectId ? subjects.find((s) => s.id === exam1SubjectId) : undefined),
+    [exam1SubjectId, subjects],
+  );
+  const selectedSubject2 = useMemo(
+    () => (exam2SubjectId ? subjects.find((s) => s.id === exam2SubjectId) : undefined),
+    [exam2SubjectId, subjects],
+  );
+  const disableUndergradTier1 = Boolean(
+    selectedSubject1 && isPostgraduateStudyStageLevel(Number(selectedSubject1.study_stage_level)),
+  );
+  const disablePostgradTier1 = Boolean(
+    selectedSubject1 && !isPostgraduateStudyStageLevel(Number(selectedSubject1.study_stage_level)),
+  );
+  const disableUndergradTier2 = Boolean(
+    selectedSubject2 && isPostgraduateStudyStageLevel(Number(selectedSubject2.study_stage_level)),
+  );
+  const disablePostgradTier2 = Boolean(
+    selectedSubject2 && !isPostgraduateStudyStageLevel(Number(selectedSubject2.study_stage_level)),
+  );
+
   const hiddenStage1 = tier1 === "POSTGRAD" ? postgradStage1 : undergradStage1;
   const hiddenStage2 = tier2 === "POSTGRAD" ? postgradStage2 : undergradStage2;
 
@@ -329,31 +386,28 @@ function RoomFields({
 
         <div className="min-w-0">
           <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية</label>
-          <select
+          <StudySubjectExamSelect
             name="study_subject_id"
-            required
+            subjects={subjects}
             defaultValue={d.study_subject_id ?? ""}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          >
-            <option value="" disabled>
-              اختر المادة الدراسية
-            </option>
-            {subjects.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.subject_name}
-              </option>
-            ))}
-          </select>
+            onValueChange={setExam1SubjectId}
+            required
+            triggerClassName="bg-[#F8FAFC]"
+            placeholder="اختر المادة الدراسية"
+          />
         </div>
 
         <fieldset className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
           <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة (الامتحان الأول)</legend>
           <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+            <label
+              className={`flex items-center gap-2 text-sm text-[#0F172A] ${disableUndergradTier1 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            >
               <input
                 type="radio"
-                className="size-4 accent-[#1E3A8A]"
+                className="size-4 accent-[#1E3A8A] disabled:opacity-50"
                 checked={tier1 === "UNDERGRAD"}
+                disabled={disableUndergradTier1}
                 onChange={() => {
                   setTier1("UNDERGRAD");
                   setUndergradStage1((prev) =>
@@ -363,11 +417,14 @@ function RoomFields({
               />
               الدراسة الأولية
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+            <label
+              className={`flex items-center gap-2 text-sm text-[#0F172A] ${disablePostgradTier1 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            >
               <input
                 type="radio"
-                className="size-4 accent-[#1E3A8A]"
+                className="size-4 accent-[#1E3A8A] disabled:opacity-50"
                 checked={tier1 === "POSTGRAD"}
+                disabled={disablePostgradTier1}
                 onChange={() => setTier1("POSTGRAD")}
               />
               الدراسات العليا
@@ -516,31 +573,28 @@ function RoomFields({
 
           <div className="min-w-0">
             <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية الثانية</label>
-            <select
+            <StudySubjectExamSelect
               name="study_subject_id_2"
+              subjects={subjects}
+              defaultValue={d.study_subject_id_2 ?? ""}
+              onValueChange={setExam2SubjectId}
               required
-              defaultValue={id2}
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
-            >
-              <option value="" disabled>
-                اختر المادة الثانية
-              </option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.subject_name}
-                </option>
-              ))}
-            </select>
+              triggerClassName="bg-white"
+              placeholder="اختر المادة الثانية"
+            />
           </div>
 
           <fieldset className="rounded-lg border border-[#BFDBFE] bg-white/90 px-3 py-3 sm:px-4">
             <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة (الامتحان الثاني)</legend>
             <div className="mt-1 flex flex-wrap gap-4 sm:gap-6">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
+              <label
+                className={`flex items-center gap-2 text-sm text-[#0F172A] ${disableUndergradTier2 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              >
                 <input
                   type="radio"
-                  className="size-4 accent-[#1E3A8A]"
+                  className="size-4 accent-[#1E3A8A] disabled:opacity-50"
                   checked={tier2 === "UNDERGRAD"}
+                  disabled={disableUndergradTier2}
                   onChange={() => {
                     setTier2("UNDERGRAD");
                     setUndergradStage2((prev) =>
@@ -550,8 +604,16 @@ function RoomFields({
                 />
                 الدراسة الأولية
               </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#0F172A]">
-                <input type="radio" className="size-4 accent-[#1E3A8A]" checked={tier2 === "POSTGRAD"} onChange={() => setTier2("POSTGRAD")} />
+              <label
+                className={`flex items-center gap-2 text-sm text-[#0F172A] ${disablePostgradTier2 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  className="size-4 accent-[#1E3A8A] disabled:opacity-50"
+                  checked={tier2 === "POSTGRAD"}
+                  disabled={disablePostgradTier2}
+                  onChange={() => setTier2("POSTGRAD")}
+                />
                 الدراسات العليا
               </label>
             </div>
@@ -897,6 +959,12 @@ function RowDetailHint({
   const dual = Boolean(row.study_subject_id_2);
   const idx1 = aggregateSlot1 ? roomIndexInSubjectDistribution(aggregateSlot1, row.id) : 0;
   const idx2 = aggregateSlot2 ? roomIndexInSubjectDistribution(aggregateSlot2, row.id) : 0;
+  const invigilatorsRaw = String(row.invigilators ?? "").trim()
+    ? row.invigilators
+    : String(row.invigilators_2 ?? "").trim()
+      ? (row.invigilators_2 ?? "")
+      : "";
+  const invigilatorsNames = splitNameList(invigilatorsRaw);
 
   return (
     <div className="space-y-3 text-sm leading-6 text-[#334155]">
@@ -922,6 +990,12 @@ function RowDetailHint({
             : `${formatCollegeStudyLevelTierLabel(row.stage_level ?? 1)}، ${formatCollegeStudyStageLabel(row.stage_level ?? 1)}`}{" "}
           — سعة {shiftCapacityLabel(row, 1)}
           {row.supervisor_name ? ` — مشرف: ${row.supervisor_name}` : null}
+          <span className="ms-1 text-[11px] text-[#475569]">
+            — التدريسي:{" "}
+            <span className="font-semibold text-[#334155]">
+              {row.study_subject_instructor_name.trim() ? row.study_subject_instructor_name.trim() : "—"}
+            </span>
+          </span>
         </li>
         {dual && row.study_subject_name_2 ? (
           <li>
@@ -932,8 +1006,22 @@ function RowDetailHint({
               : `${formatCollegeStudyLevelTierLabel(row.stage_level_2 ?? 1)}، ${formatCollegeStudyStageLabel(row.stage_level_2 ?? 1)}`}{" "}
             — سعة {shiftCapacityLabel(row, 2)}
             {row.supervisor_name ? ` — مشرف: ${row.supervisor_name}` : null}
+            <span className="ms-1 text-[11px] text-[#475569]">
+              — التدريسي:{" "}
+              <span className="font-semibold text-[#334155]">
+                {row.study_subject_instructor_name_2?.trim() ? row.study_subject_instructor_name_2.trim() : "—"}
+              </span>
+            </span>
           </li>
         ) : null}
+        <li>
+          المراقبون:{" "}
+          {invigilatorsNames.length > 0 ? (
+            <span className="font-semibold text-[#334155]">{invigilatorsNames.join("، ")}</span>
+          ) : (
+            <span className="text-[#94A3B8]">—</span>
+          )}
+        </li>
       </ul>
       {aggregateSlot2 ? (
         <p className="rounded-lg border border-[#C4B5FD] bg-[#F5F3FF] px-3 py-2 text-xs leading-relaxed text-[#4C1D95]">

@@ -9,18 +9,6 @@ function durationMinutes(start: string, end: string): number {
   return Math.max(0, b - a);
 }
 
-function situationReportGeneratedAtLabel(): string {
-  try {
-    return new Date().toLocaleString("ar-IQ", {
-      timeZone: "Asia/Baghdad",
-      dateStyle: "full",
-      timeStyle: "short",
-    });
-  } catch {
-    return new Date().toISOString();
-  }
-}
-
 /** يبني كائن تقرير الموقف الرسمي من صف المتابعة المركزية (معرّفات النظام الداخلية قد تكون «—»). */
 export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExamRow): ExamSituationDetail {
   const uploaded = row.reportStatus !== "NOT_SUBMITTED";
@@ -104,11 +92,13 @@ function openSituationPrintWindow(html: string): boolean {
 /** طباعة / حفظ PDF لتقرير الموقف الرسمي لجلسة واحدة (نفس قالب تقرير الكلية). */
 export function printCentralTrackingSingleSituation(row: CentralTrackingExamRow): boolean {
   const detail = centralTrackingRowToExamSituationDetail(row);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   const html = buildExamSituationReportHtml(
     detail,
     row.collegeName.trim() || "—",
     "—",
-    situationReportGeneratedAtLabel()
+    new Date(),
+    origin
   );
   return openSituationPrintWindow(html);
 }

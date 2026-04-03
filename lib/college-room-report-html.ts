@@ -1,5 +1,10 @@
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+} from "@/lib/college-study-stage-display";
 
 function escapeHtml(s: string): string {
   return s
@@ -16,6 +21,19 @@ function splitLines(names: string): string[] {
     .filter(Boolean);
 }
 
+function instructorCellHtml(name: string | null | undefined, escape: (s: string) => string): string {
+  const t = String(name ?? "").trim();
+  return t ? escape(t) : `<span class="muted">—</span>`;
+}
+
+/** نص عرض للمرحلة الدراسية (أولية / عليا) كما في لوحة القاعات */
+function roomReportStageLabelText(level: number | null | undefined): string {
+  const lv = Number(level ?? 1);
+  if (!Number.isFinite(lv)) return "—";
+  if (isPostgraduateStudyStageLevel(lv)) return formatCollegeStudyLevelTierLabel(lv);
+  return `${formatCollegeStudyLevelTierLabel(lv)} — ${formatCollegeStudyStageLabel(lv)}`;
+}
+
 /** مستند HTML كامل (A4) للطباعة أو الحفظ كـ PDF من نافذة المتصفح */
 export function buildCollegeRoomReportHtml(
   row: CollegeExamRoomRow,
@@ -23,6 +41,7 @@ export function buildCollegeRoomReportHtml(
   generatedLabel: string
 ): string {
   const e = escapeHtml;
+  const instr = (n: string | null | undefined) => instructorCellHtml(n, e);
   const dual = Boolean(row.study_subject_id_2);
 
   const inv1 = splitLines(row.invigilators).map((n) => `<li>${e(n)}</li>`).join("");
@@ -81,8 +100,9 @@ export function buildCollegeRoomReportHtml(
 
   <h2>2. الامتحان الأول والطلبة المسجَّلين</h2>
   <table class="data">
-    <tr><th>المادة الامتحانية</th><td>${e(row.study_subject_name)} <span class="muted">(معرّف ${e(row.study_subject_id)})</span></td></tr>
-    <tr><th>المرحلة الدراسية</th><td>المرحلة ${row.stage_level ?? 1}</td></tr>
+    <tr><th>المادة الامتحانية</th><td>${e(row.study_subject_name)}</td></tr>
+    <tr><th>اسم التدريسي</th><td>${instr(row.study_subject_instructor_name)}</td></tr>
+    <tr><th>المرحلة الدراسية</th><td>${e(roomReportStageLabelText(row.stage_level))}</td></tr>
     <tr><th>المشرف</th><td>${e(row.supervisor_name)}</td></tr>
     <tr><th>المراقبون</th><td>${
       inv1 ? `<ul class="compact">${inv1}</ul>` : "—"
@@ -101,8 +121,9 @@ export function buildCollegeRoomReportHtml(
     dual && row.study_subject_name_2
       ? `<h2>3. الامتحان الثاني والطلبة المسجَّلين</h2>
   <table class="data">
-    <tr><th>المادة الامتحانية</th><td>${e(row.study_subject_name_2)} <span class="muted">(معرّف ${e(row.study_subject_id_2 ?? "")})</span></td></tr>
-    <tr><th>المرحلة الدراسية</th><td>المرحلة ${row.stage_level_2 ?? row.stage_level ?? 1}</td></tr>
+    <tr><th>المادة الامتحانية</th><td>${e(row.study_subject_name_2)}</td></tr>
+    <tr><th>اسم التدريسي</th><td>${instr(row.study_subject_instructor_name_2)}</td></tr>
+    <tr><th>المرحلة الدراسية</th><td>${e(roomReportStageLabelText(row.stage_level_2 ?? row.stage_level))}</td></tr>
     <tr><th>المشرف</th><td>${e(row.supervisor_name)} <span class="muted">(مشرف القاعة — مشترك)</span></td></tr>
     <tr><th>المراقبون</th><td>${
       inv1 ? `<ul class="compact">${inv1}</ul>` : "—"
@@ -124,12 +145,6 @@ export function buildCollegeRoomReportHtml(
   <table class="data">
     <thead><tr><th>التاريخ</th><th>من</th><th>إلى</th><th>المادة</th></tr></thead>
     <tbody>${scheduleRows}</tbody>
-  </table>
-
-  <h2>${dual ? "5" : "4"}. بيانات تقنية للسجل</h2>
-  <table class="data">
-    <tr><th>معرّف القاعة</th><td>${e(row.id)}</td></tr>
-    <tr><th>آخر تحديث</th><td>${e(row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at))}</td></tr>
   </table>
 
   <div class="footer">

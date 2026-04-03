@@ -9,6 +9,7 @@ import {
   buildCollegeSubjectsReportHtml,
   printCollegeSubjectsReportHtml,
 } from "@/lib/college-subjects-report-html";
+import { notifyUniversityDashboardStale } from "@/lib/university-dashboard-live-sync";
 import {
   createCollegeSubjectAction,
   deleteCollegeSubjectAction,
@@ -56,6 +57,7 @@ function AddBranchDialog({ open, onClose }: { open: boolean; onClose: () => void
     successHandledRef.current = true;
     onClose();
     router.refresh();
+    notifyUniversityDashboardStale();
   }, [state, onClose, router]);
 
   if (!mounted) return null;
@@ -139,6 +141,7 @@ function EditBranchDialog({
     successHandledRef.current = true;
     onClose();
     router.refresh();
+    notifyUniversityDashboardStale();
   }, [state, onClose, router]);
 
   if (!mounted) return null;
@@ -199,7 +202,21 @@ function EditBranchDialog({
 }
 
 function DeleteBranchForm({ id }: { id: string }) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(deleteCollegeSubjectAction, null);
+  const successHandledRef = useRef(false);
+
+  useEffect(() => {
+    successHandledRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (!state?.ok || successHandledRef.current) return;
+    successHandledRef.current = true;
+    router.refresh();
+    notifyUniversityDashboardStale();
+  }, [state, router]);
+
   return (
     <form action={formAction}>
       <input type="hidden" name="id" value={id} />

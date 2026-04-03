@@ -1,7 +1,16 @@
+import type { StudyType } from "@/lib/college-study-subjects";
 import { assertExamDateNotInPast } from "@/lib/exam-schedule-date";
 import { type ExamMealSlot, normalizeExamMealSlot, formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
+
+function normalizeScheduleStudyTypeDb(v: string | null | undefined): StudyType {
+  const t = v?.trim().toUpperCase();
+  if (t === "SEMESTER") return "SEMESTER";
+  if (t === "COURSES") return "COURSES";
+  if (t === "BOLOGNA") return "BOLOGNA";
+  return "ANNUAL";
+}
 
 export type ScheduleType = "FINAL" | "SEMESTER";
 
@@ -18,6 +27,8 @@ export type CollegeExamScheduleRow = {
   room_id: string;
   room_name: string;
   stage_level: number;
+  /** نوع الدراسة للمادة (من `college_study_subjects`) */
+  study_type: StudyType;
   schedule_type: ScheduleType;
   workflow_status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   term_label: string | null;
@@ -298,6 +309,7 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     room_id: string | number;
     room_name: string;
     stage_level: number;
+    study_type: string;
     schedule_type: string;
     workflow_status: string;
     term_label: string | null;
@@ -313,6 +325,7 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
+            COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
             e.start_time::text, e.end_time::text,
@@ -335,6 +348,7 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
     room_id: String(x.room_id),
     room_name: x.room_name,
     stage_level: Number(x.stage_level ?? 1),
+    study_type: normalizeScheduleStudyTypeDb(x.study_type),
     schedule_type: x.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
     workflow_status:
       x.workflow_status === "APPROVED"
@@ -379,6 +393,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     room_id: string | number;
     room_name: string;
     stage_level: number;
+    study_type: string;
     schedule_type: string;
     workflow_status: string;
     term_label: string | null;
@@ -396,6 +411,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
+            COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
             e.start_time::text, e.end_time::text,
@@ -433,6 +449,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     room_id: String(x.room_id),
     room_name: x.room_name,
     stage_level: Number(x.stage_level ?? 1),
+    study_type: normalizeScheduleStudyTypeDb(x.study_type),
     schedule_type: x.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
     workflow_status:
       x.workflow_status === "APPROVED"

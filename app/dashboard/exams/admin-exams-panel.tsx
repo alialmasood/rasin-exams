@@ -9,7 +9,15 @@ import {
   type FormationScheduleExportInput,
 } from "@/lib/admin-formation-exam-schedule-export";
 import type { AdminCollegeExamScheduleRow } from "@/lib/college-exam-schedules";
+import type { StudyType } from "@/lib/college-study-subjects";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  formatExamScheduleStudyLevelSummary,
+  isPostgraduateStudyStageLevel,
+} from "@/lib/college-study-stage-display";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
+import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { fetchAdminExamSchedulesAction } from "./actions";
 
@@ -54,6 +62,35 @@ function workflowBadgeClass(st: AdminCollegeExamScheduleRow["workflow_status"]) 
   if (st === "APPROVED" || st === "SUBMITTED") return "bg-emerald-100 text-emerald-900 ring-emerald-200";
   if (st === "REJECTED") return "bg-red-100 text-red-900 ring-red-200";
   return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function SessionStudyLevelCell({ stageLevel, studyType }: { stageLevel: number; studyType: StudyType }) {
+  const lv = Number(stageLevel);
+  return (
+    <div className="min-w-0 space-y-2 text-right">
+      <div>
+        <p className="text-[9px] font-bold text-[#64748B]">المستوى الدراسي</p>
+        <div className="mt-1 space-y-0.5">
+          <span
+            className={`inline-flex max-w-full rounded-full px-2 py-0.5 text-[9px] font-bold break-words ${
+              isPostgraduateStudyStageLevel(lv)
+                ? "bg-[#EEF2FF] text-[#4338CA] ring-1 ring-[#A5B4FC]/50"
+                : "bg-[#F0FDFA] text-[#0F766E] ring-1 ring-[#99F6E4]/70"
+            }`}
+          >
+            {formatCollegeStudyLevelTierLabel(lv)}
+          </span>
+          {!isPostgraduateStudyStageLevel(lv) ? (
+            <div className="text-[10px] font-semibold text-[#64748B]">{formatCollegeStudyStageLabel(lv)}</div>
+          ) : null}
+        </div>
+      </div>
+      <div className="border-t border-[#E2E8F0] pt-2">
+        <p className="text-[9px] font-bold text-[#64748B]">نوع الدراسة</p>
+        <p className="mt-1 text-[10px] font-semibold text-[#334155]">{STUDY_TYPE_LABEL_AR[studyType]}</p>
+      </div>
+    </div>
+  );
 }
 
 type DeptBlock = {
@@ -162,13 +199,13 @@ function SessionsTable({ sessions }: { sessions: AdminCollegeExamScheduleRow[][]
   let seq = 0;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] table-fixed border-collapse text-right">
+      <table className="w-full min-w-[940px] table-fixed border-collapse text-right">
         <thead className="bg-[#F1F5F9]">
           <tr className="border-b border-[#E2E8F0]">
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">#</th>
             <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">نوع الجدول</th>
             <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">المادة</th>
-            <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">مرحلة</th>
+            <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">المستوى الدراسي</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">التاريخ</th>
             <th className="px-2 py-2 text-center text-xs font-bold text-[#334155] sm:text-sm">الوجبة</th>
             <th className="px-2 py-2 text-xs font-bold text-[#334155] sm:text-sm">اليوم</th>
@@ -197,7 +234,9 @@ function SessionsTable({ sessions }: { sessions: AdminCollegeExamScheduleRow[][]
                     </span>
                   ) : null}
                 </td>
-                <td className="px-2 py-2 text-center text-[11px] tabular-nums text-[#334155]">{r.stage_level}</td>
+                <td className="align-top px-2 py-2">
+                  <SessionStudyLevelCell stageLevel={r.stage_level} studyType={r.study_type} />
+                </td>
                 <td className="px-2 py-2 text-center text-[11px] tabular-nums text-[#334155]">{r.exam_date}</td>
                 <td className="px-2 py-2 text-center text-[10px] font-semibold text-[#475569]">
                   {formatExamMealSlotLabel(r.meal_slot)}
@@ -282,6 +321,7 @@ export function AdminExamsPanel({ initialRows }: Props) {
         r.exam_date,
         r.academic_year ?? "",
         r.term_label ?? "",
+        formatExamScheduleStudyLevelSummary(r.stage_level, r.study_type),
       ]
         .join(" ")
         .toLowerCase();

@@ -3,6 +3,11 @@ import { jsPDF } from "jspdf";
 import type { CollegeExamScheduleRow, ScheduleType } from "@/lib/college-exam-schedules";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+} from "@/lib/college-study-stage-display";
 
 const SCHEDULE_SHORT: Record<ScheduleType, string> = {
   FINAL: "نهائي",
@@ -29,6 +34,14 @@ function formatDuration(minutes: number) {
   if (h > 0 && m > 0) return `${h} ساعة و${m} دقيقة`;
   if (h > 0) return h === 1 ? "ساعة واحدة" : `${h} ساعات`;
   return `${m} دقيقة`;
+}
+
+/** مستوى دراسي + مرحلة (نص موحّد مع لوحات الكلية والتقارير) */
+function schedulePdfStageLabel(level: number): string {
+  const lv = Number(level);
+  if (!Number.isFinite(lv)) return "—";
+  if (isPostgraduateStudyStageLevel(lv)) return formatCollegeStudyLevelTierLabel(lv);
+  return `${formatCollegeStudyLevelTierLabel(lv)} — ${formatCollegeStudyStageLabel(lv)}`;
 }
 
 function sortRows(rows: CollegeExamScheduleRow[]) {
@@ -94,7 +107,7 @@ function buildScheduleGroupDocumentHtml(args: {
       return `<tr>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${i + 1}</td>
         <td style="padding:7px 8px;border:1px solid #94a3b8;text-align:right;vertical-align:middle;font-weight:600;color:#0f172a;word-wrap:break-word;overflow-wrap:break-word">${escHtml(r.study_subject_name)}</td>
-        <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${r.stage_level}</td>
+        <td style="padding:7px 6px;border:1px solid #94a3b8;text-align:right;vertical-align:middle;line-height:1.35;font-size:8.5px">${escHtml(schedulePdfStageLabel(Number(r.stage_level)))}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${escHtml(type)}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;white-space:nowrap;direction:ltr;font-variant-numeric:tabular-nums">${escHtml(r.exam_date)}</td>
         <td style="padding:7px 6px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;font-weight:600">${escHtml(formatExamMealSlotLabel(r.meal_slot))}</td>
@@ -127,8 +140,8 @@ function buildScheduleGroupDocumentHtml(args: {
         <table style="width:100%;border-collapse:collapse;font-size:9.5px;table-layout:fixed;">
           <colgroup>
             <col style="width:4%">
-            <col style="width:20%">
-            <col style="width:6%">
+            <col style="width:18%">
+            <col style="width:12%">
             <col style="width:7%">
             <col style="width:8%">
             <col style="width:8%">
@@ -141,7 +154,7 @@ function buildScheduleGroupDocumentHtml(args: {
             <tr style="background:#e2e8f0;color:#0f172a;">
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">ت</th>
               <th style="padding:9px 8px;border:1px solid #64748b;font-weight:800;text-align:right">المادة الامتحانية</th>
-              <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">المرحلة</th>
+              <th style="padding:9px 6px;border:1px solid #64748b;font-weight:800;text-align:right">المستوى والمرحلة</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">النوع</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">التاريخ</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">الوجبة</th>

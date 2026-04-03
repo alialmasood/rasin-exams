@@ -10,6 +10,11 @@ import type {
 import type { FormationActivityItem } from "@/lib/formation-activity-feed";
 import { fetchFormationActivityFeedAction } from "./actions";
 import type { StudyType } from "@/lib/college-study-subjects";
+import {
+  formatCollegeStudyLevelTierLabel,
+  formatCollegeStudyStageLabel,
+  isPostgraduateStudyStageLevel,
+} from "@/lib/college-study-stage-display";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 
@@ -87,18 +92,122 @@ function workflowBadgeClass(st: FormationExamScheduleDetailRow["workflow_status"
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function FormationScheduleStudyLevelCell({
+  stageLevel,
+  studyType,
+}: {
+  stageLevel: number;
+  studyType: StudyType;
+}) {
+  const lv = Number(stageLevel);
+  return (
+    <div className="min-w-0 space-y-2 text-right">
+      <div>
+        <p className="text-[9px] font-bold text-[#64748B]">المستوى الدراسي</p>
+        <div className="mt-1 space-y-0.5">
+          <span
+            className={`inline-flex max-w-full rounded-full px-2 py-0.5 text-[9px] font-bold break-words ${
+              isPostgraduateStudyStageLevel(lv)
+                ? "bg-[#EEF2FF] text-[#4338CA] ring-1 ring-[#A5B4FC]/50"
+                : "bg-[#F0FDFA] text-[#0F766E] ring-1 ring-[#99F6E4]/70"
+            }`}
+          >
+            {formatCollegeStudyLevelTierLabel(lv)}
+          </span>
+          {!isPostgraduateStudyStageLevel(lv) ? (
+            <div className="text-[10px] font-semibold text-[#64748B]">{formatCollegeStudyStageLabel(lv)}</div>
+          ) : null}
+        </div>
+      </div>
+      <div className="border-t border-[#E2E8F0] pt-2">
+        <p className="text-[9px] font-bold text-[#64748B]">نوع الدراسة</p>
+        <p className="mt-1 text-[10px] font-semibold text-[#334155]">{STUDY_TYPE_LABEL_AR[studyType]}</p>
+      </div>
+    </div>
+  );
+}
+
+/** أرقام عربية شرقية — يُركَّب النص يدويًا بعد قراءة تقسيمات ثابتة لتطابق الخادم والمتصفح. */
+const EASTERN_ARABIC_DIGITS = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"] as const;
+
+function toEasternArabicDigits(westernNumericString: string): string {
+  return westernNumericString.replace(/\d/g, (d) => EASTERN_ARABIC_DIGITS[Number(d)] ?? d);
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+const MONTH_NAME_AR = [
+  "يناير",
+  "فبراير",
+  "مارس",
+  "أبريل",
+  "مايو",
+  "يونيو",
+  "يوليو",
+  "أغسطس",
+  "سبتمبر",
+  "أكتوبر",
+  "نوفمبر",
+  "ديسمبر",
+] as const;
+
+/** توقيت بغداد عبر formatToParts + en-CA — أرقام وتقسيمات متسقة بين Node والمتصفح لنفس اللحظة. */
+function readInstantInBaghdad(iso: string): {
+  y: number;
+  m: number;
+  day: number;
+  h12: number;
+  min: number;
+  isAm: boolean;
+} 
+  | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Baghdad",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  let y = 0;
+  let m = 0;
+  let day = 0;
+  let h12 = 0;
+  let min = 0;
+  let dayPeriod = "AM";
+  for (const p of f.formatToParts(d)) {
+    if (p.type === "year") y = Number(p.value);
+    if (p.type === "month") m = Number(p.value);
+    if (p.type === "day") day = Number(p.value);
+    if (p.type === "hour") h12 = Number(p.value);
+    if (p.type === "minute") min = Number(p.value);
+    if (p.type === "dayPeriod") dayPeriod = p.value.toUpperCase();
+  }
+  if (!Number.isFinite(y) || !Number.isFinite(day) || m < 1 || m > 12) return null;
+  const isAm = dayPeriod === "AM";
+  return { y, m, day, h12, min, isAm };
+}
+
 function formatExamDate(iso: string): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium" }).format(d);
+  const t = readInstantInBaghdad(iso);
+  if (!t) return iso;
+  const western = `${t.day} ${MONTH_NAME_AR[t.m - 1]!} ${t.y}`;
+  return toEasternArabicDigits(western);
 }
 
 function formatActivityAt(iso: string): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat("ar-IQ", { dateStyle: "short", timeStyle: "short" }).format(d);
+  const t = readInstantInBaghdad(iso);
+  if (!t) return iso;
+  const suffix = t.isAm ? "ص" : "م";
+  const western = `${t.day}/${t.m}/${t.y}، ${t.h12}:${pad2(t.min)} ${suffix}`;
+  return toEasternArabicDigits(western);
 }
 
 /**
@@ -311,7 +420,7 @@ function FormationExamScheduleDetailBlock({
           <p className="py-6 text-center text-sm text-[#64748B]">لا جلسات بهذه الحالة.</p>
         ) : (
           <div className="max-h-[min(70vh,26rem)] overflow-auto rounded-xl ring-1 ring-[#E2E8F0]">
-            <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-right text-[11px]">
+            <table className="w-full min-w-[1020px] border-separate border-spacing-0 text-right text-[11px]">
               <thead>
                 <tr className="sticky top-0 z-[1] border-b border-[#E2E8F0] bg-[#EFF6FF]">
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">التاريخ</th>
@@ -320,11 +429,10 @@ function FormationExamScheduleDetailBlock({
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">المادة</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">القسم</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">القاعة</th>
-                  <th className="px-2 py-2.5 font-extrabold text-[#475569]">مرحلة</th>
-                  <th className="px-2 py-2.5 font-extrabold text-[#475569]">النوع</th>
+                  <th className="min-w-[8.5rem] px-2 py-2.5 font-extrabold text-[#475569]">المستوى الدراسي</th>
+                  <th className="px-2 py-2.5 font-extrabold text-[#475569]">نوع الجدول</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">الحالة</th>
                   <th className="px-2 py-2.5 font-extrabold text-[#475569]">سنة / فصل</th>
-                  <th className="px-2 py-2.5 font-extrabold text-[#475569]">ملاحظات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E2E8F0] bg-white">
@@ -340,7 +448,9 @@ function FormationExamScheduleDetailBlock({
                     <td className="max-w-[140px] px-2 py-2 font-semibold text-[#0F172A]">{r.study_subject_name}</td>
                     <td className="max-w-[120px] px-2 py-2 text-[#475569]">{r.college_subject_name}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{r.room_name}</td>
-                    <td className="px-2 py-2 text-center tabular-nums font-semibold text-[#334155]">{formatNum(r.stage_level)}</td>
+                    <td className="align-top px-2 py-2">
+                      <FormationScheduleStudyLevelCell stageLevel={r.stage_level} studyType={r.study_type} />
+                    </td>
                     <td className="whitespace-nowrap px-2 py-2 text-[#64748B]">{SCHEDULE_TYPE_AR[r.schedule_type]}</td>
                     <td className="px-2 py-2">
                       <span
@@ -352,7 +462,6 @@ function FormationExamScheduleDetailBlock({
                     <td className="max-w-[100px] px-2 py-2 text-[10px] leading-snug text-[#64748B]">
                       {[r.academic_year, r.term_label].filter(Boolean).join(" · ") || "—"}
                     </td>
-                    <td className="max-w-[160px] px-2 py-2 text-[10px] text-[#64748B]">{r.notes?.trim() || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -370,6 +479,8 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
   const activeStudyTypes = studyTypes.filter((t) => (f.study_subjects_by_type[t] ?? 0) > 0);
   const supShow = f.supervisors_unique.slice(0, 12);
   const supMore = Math.max(0, f.supervisors_unique.length - supShow.length);
+  const invShow = f.invigilators_unique.slice(0, 18);
+  const invMore = Math.max(0, f.invigilators_unique.length - invShow.length);
 
   return (
     <details className="group rounded-2xl border border-[#E2E8F0] bg-white shadow-sm open:shadow-md open:ring-1 open:ring-[#2563EB]/10">
@@ -450,15 +561,53 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
           </Section>
         </div>
 
-        <Section title="المواد الدراسية — آخر التحديثات (عيّنة)">
+        {f.postgrad_subjects_total > 0 || f.postgrad_exam_sessions_total > 0 ? (
+          <Section title="الدراسات العليا">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {f.postgrad_subjects_total > 0 ? (
+                <div className="rounded-xl border border-violet-200/90 bg-gradient-to-br from-violet-50/95 to-white px-3 py-2 shadow-sm">
+                  <p className="text-[10px] font-bold text-violet-900/75">مواد دراسات عليا</p>
+                  <p className="text-xl font-bold tabular-nums text-violet-950">{formatNum(f.postgrad_subjects_total)}</p>
+                </div>
+              ) : null}
+              {f.postgrad_subjects_diploma > 0 ? (
+                <div className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2">
+                  <p className="text-[10px] font-bold text-[#64748B]">دبلوم عالي</p>
+                  <p className="text-lg font-bold tabular-nums text-[#0F172A]">{formatNum(f.postgrad_subjects_diploma)}</p>
+                </div>
+              ) : null}
+              {f.postgrad_subjects_master > 0 ? (
+                <div className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2">
+                  <p className="text-[10px] font-bold text-[#64748B]">ماجستير</p>
+                  <p className="text-lg font-bold tabular-nums text-[#0F172A]">{formatNum(f.postgrad_subjects_master)}</p>
+                </div>
+              ) : null}
+              {f.postgrad_subjects_doctor > 0 ? (
+                <div className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2">
+                  <p className="text-[10px] font-bold text-[#64748B]">دكتوراه</p>
+                  <p className="text-lg font-bold tabular-nums text-[#0F172A]">{formatNum(f.postgrad_subjects_doctor)}</p>
+                </div>
+              ) : null}
+              {f.postgrad_exam_sessions_total > 0 ? (
+                <div className="rounded-xl border border-sky-200/90 bg-sky-50/80 px-3 py-2 sm:col-span-2 lg:col-span-1">
+                  <p className="text-[10px] font-bold text-sky-900/80">جلسات جدول (مرحلة عليا)</p>
+                  <p className="text-xl font-bold tabular-nums text-sky-950">{formatNum(f.postgrad_exam_sessions_total)}</p>
+                </div>
+              ) : null}
+            </div>
+          </Section>
+        ) : null}
+
+        <Section title="المواد الدراسية — آخر التحديثات">
           {f.study_subjects_recent.length === 0 ? (
             <p className="text-sm text-[#64748B]">لا توجد مواد.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-right text-xs">
+              <table className="w-full min-w-[680px] text-right text-xs">
                 <thead>
                   <tr className="border-b border-[#E2E8F0] text-[10px] font-extrabold uppercase text-[#64748B]">
                     <th className="pb-2">المادة</th>
+                    <th className="pb-2">التدريسي</th>
                     <th className="pb-2">المرحلة</th>
                     <th className="pb-2">القسم / الفرع</th>
                     <th className="pb-2">النوع</th>
@@ -468,7 +617,14 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
                   {f.study_subjects_recent.map((r) => (
                     <tr key={r.id}>
                       <td className="py-2 font-semibold text-[#0F172A]">{r.subject_name}</td>
-                      <td className="py-2 tabular-nums text-[#475569]">{formatNum(r.study_stage_level)}</td>
+                      <td className="max-w-[200px] py-2 text-[#475569]">
+                        {r.instructor_name.trim() ? r.instructor_name : "—"}
+                      </td>
+                      <td className="py-2 text-[#475569]">
+                        {isPostgraduateStudyStageLevel(r.study_stage_level)
+                          ? formatCollegeStudyStageLabel(r.study_stage_level)
+                          : formatNum(r.study_stage_level)}
+                      </td>
                       <td className="py-2 text-[#475569]">{r.linked_branch_name}</td>
                       <td className="py-2 text-[#64748B]">{STUDY_TYPE_LABEL_AR[r.study_type]}</td>
                     </tr>
@@ -498,30 +654,73 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
               <p className="text-xl font-bold tabular-nums text-[#1E3A8A]">{formatNum(f.capacity_total_sum)}</p>
             </div>
           </div>
-          <div className="mt-4 space-y-2">
-            <p className="text-xs font-bold text-[#64748B]">
-              مشرفون مميّزون ({formatNum(f.supervisors_unique.length)}) — قاعات بأسماء مراقبين:{" "}
-              {formatNum(f.rooms_with_invigilators)}
-            </p>
-            {f.supervisors_unique.length === 0 ? (
-              <p className="text-sm text-[#94A3B8]">لا توجد أسماء مشرفين مسجّلة في القاعات.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {supShow.map((name) => (
-                  <span
-                    key={name}
-                    className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-[#334155] ring-1 ring-[#E2E8F0]"
-                  >
-                    {name}
-                  </span>
-                ))}
-                {supMore > 0 ? (
-                  <span className="rounded-lg bg-[#F1F5F9] px-2 py-1 text-[11px] font-bold text-[#64748B]">
-                    +{formatNum(supMore)}
-                  </span>
-                ) : null}
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-3 py-2">
+              <p className="text-[10px] font-bold text-indigo-900/70">أسماء مشرفين مميّزة</p>
+              <p className="text-xl font-bold tabular-nums text-indigo-950">{formatNum(f.supervisors_unique.length)}</p>
+            </div>
+            <div className="rounded-xl border border-teal-100 bg-teal-50/80 px-3 py-2">
+              <p className="text-[10px] font-bold text-teal-900/70">أسماء مراقبين مميّزة</p>
+              <p className="text-xl font-bold tabular-nums text-teal-950">{formatNum(f.invigilators_unique.length)}</p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2">
+              <p className="text-[10px] font-bold text-amber-900/70">قاعات بمراقبين مسجّلين</p>
+              <p className="text-xl font-bold tabular-nums text-amber-950">{formatNum(f.rooms_with_invigilators)}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
+            <div className="flex min-h-0 min-w-0 flex-col gap-2">
+              <p className="shrink-0 text-xs font-bold leading-tight text-[#475569]">
+                أسماء المشرفين (مجمّعة من قاعات التشكيل)
+              </p>
+              <div className="min-w-0">
+                {f.supervisors_unique.length === 0 ? (
+                  <p className="text-sm text-[#94A3B8]">لا توجد أسماء مشرفين مسجّلة في القاعات.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {supShow.map((name) => (
+                      <span
+                        key={name}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-[#334155] ring-1 ring-[#E2E8F0]"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                    {supMore > 0 ? (
+                      <span className="rounded-lg bg-[#F1F5F9] px-2 py-1 text-[11px] font-bold text-[#64748B]">
+                        +{formatNum(supMore)}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-col gap-2">
+              <p className="shrink-0 text-xs font-bold leading-tight text-[#475569]">
+                أسماء المراقبين (مجمّعة من قاعات التشكيل)
+              </p>
+              <div className="min-w-0">
+                {f.invigilators_unique.length === 0 ? (
+                  <p className="text-sm text-[#94A3B8]">لا توجد أسماء مراقبين مسجّلة في حقول القاعات.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {invShow.map((name) => (
+                      <span
+                        key={name}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-[#0F766E] ring-1 ring-teal-200/90"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                    {invMore > 0 ? (
+                      <span className="rounded-lg bg-teal-50 px-2 py-1 text-[11px] font-bold text-[#0F766E]">
+                        +{formatNum(invMore)}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </Section>
 
@@ -574,14 +773,20 @@ export function FormationsDepartmentsPanel({
       const schedBlob = f.exam_schedules_detail
         .map(
           (r) =>
-            `${r.study_subject_name} ${r.college_subject_name} ${r.room_name} ${r.exam_date} ${r.workflow_status} ${r.notes ?? ""}`
+            `${r.study_subject_name} ${r.college_subject_name} ${r.room_name} ${r.exam_date} ${r.workflow_status} ${STUDY_TYPE_LABEL_AR[r.study_type]} ${formatCollegeStudyStageLabel(r.stage_level)} ${formatCollegeStudyLevelTierLabel(r.stage_level)}`
         )
+        .join(" ");
+      const recentBlob = f.study_subjects_recent
+        .map((r) => `${r.subject_name} ${r.instructor_name} ${r.linked_branch_name}`)
         .join(" ");
       const blob = [
         f.formation_name ?? "",
         f.owner_username,
         f.departments.map((d) => `${d.branch_name} ${d.branch_head_name}`).join(" "),
         f.branches.map((b) => `${b.branch_name} ${b.branch_head_name}`).join(" "),
+        f.supervisors_unique.join(" "),
+        f.invigilators_unique.join(" "),
+        recentBlob,
         schedBlob,
       ]
         .join(" ")

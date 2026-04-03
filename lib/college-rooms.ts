@@ -24,9 +24,12 @@ export type CollegeExamRoomRow = {
   owner_user_id: string;
   study_subject_id: string;
   study_subject_name: string;
+  /** من college_study_subjects.instructor_name للمادة الأولى */
+  study_subject_instructor_name: string;
   /** مادة امتحانية ثانية في نفس القاعة ونفس نافذة الزمن (عند الجدولة). */
   study_subject_id_2: string | null;
   study_subject_name_2: string | null;
+  study_subject_instructor_name_2: string | null;
   serial_no: number;
   room_name: string;
   supervisor_name: string;
@@ -142,8 +145,10 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     owner_user_id: string | number;
     study_subject_id: string | number;
     study_subject_name: string;
+    study_subject_instructor_name: string | null;
     study_subject_id_2: string | number | null;
     study_subject_name_2: string | null;
+    study_subject_instructor_name_2: string | null;
     serial_no: number;
     room_name: string;
     supervisor_name: string;
@@ -181,8 +186,10 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
   }>(
     `SELECT r.id, r.owner_user_id, r.study_subject_id,
             s.subject_name AS study_subject_name,
+            TRIM(COALESCE(s.instructor_name::text, '')) AS study_subject_instructor_name,
             r.study_subject_id_2,
             s2.subject_name AS study_subject_name_2,
+            TRIM(COALESCE(s2.instructor_name::text, '')) AS study_subject_instructor_name_2,
             r.serial_no, r.room_name, r.supervisor_name,
             r.invigilators,
             r.supervisor_name_2, r.invigilators_2,
@@ -197,8 +204,10 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
             r.absence_names_morning_2, r.absence_names_evening_2,
             r.created_at, r.updated_at
      FROM college_exam_rooms r
-     INNER JOIN college_study_subjects s ON s.id = r.study_subject_id
-     LEFT JOIN college_study_subjects s2 ON s2.id = r.study_subject_id_2
+     INNER JOIN college_study_subjects s
+       ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
+     LEFT JOIN college_study_subjects s2
+       ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
      WHERE r.owner_user_id = $1
      ORDER BY r.serial_no ASC, r.created_at DESC`,
     [ownerUserId]
@@ -208,8 +217,11 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     owner_user_id: String(row.owner_user_id),
     study_subject_id: String(row.study_subject_id),
     study_subject_name: row.study_subject_name,
+    study_subject_instructor_name: String(row.study_subject_instructor_name ?? "").trim(),
     study_subject_id_2: row.study_subject_id_2 != null ? String(row.study_subject_id_2) : null,
     study_subject_name_2: row.study_subject_name_2 ?? null,
+    study_subject_instructor_name_2:
+      row.study_subject_id_2 != null ? String(row.study_subject_instructor_name_2 ?? "").trim() : null,
     serial_no: row.serial_no,
     room_name: row.room_name,
     supervisor_name: row.supervisor_name,
@@ -265,8 +277,10 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     owner_user_id: string | number;
     study_subject_id: string | number;
     study_subject_name: string;
+    study_subject_instructor_name: string | null;
     study_subject_id_2: string | number | null;
     study_subject_name_2: string | null;
+    study_subject_instructor_name_2: string | null;
     serial_no: number;
     room_name: string;
     supervisor_name: string;
@@ -306,8 +320,10 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
   }>(
     `SELECT r.id, r.owner_user_id, r.study_subject_id,
             s.subject_name AS study_subject_name,
+            TRIM(COALESCE(s.instructor_name::text, '')) AS study_subject_instructor_name,
             r.study_subject_id_2,
             s2.subject_name AS study_subject_name_2,
+            TRIM(COALESCE(s2.instructor_name::text, '')) AS study_subject_instructor_name_2,
             r.serial_no, r.room_name, r.supervisor_name,
             r.invigilators,
             r.supervisor_name_2, r.invigilators_2,
@@ -347,8 +363,11 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     owner_user_id: String(row.owner_user_id),
     study_subject_id: String(row.study_subject_id),
     study_subject_name: row.study_subject_name,
+    study_subject_instructor_name: String(row.study_subject_instructor_name ?? "").trim(),
     study_subject_id_2: row.study_subject_id_2 != null ? String(row.study_subject_id_2) : null,
     study_subject_name_2: row.study_subject_name_2 ?? null,
+    study_subject_instructor_name_2:
+      row.study_subject_id_2 != null ? String(row.study_subject_instructor_name_2 ?? "").trim() : null,
     serial_no: row.serial_no,
     room_name: row.room_name,
     supervisor_name: row.supervisor_name,

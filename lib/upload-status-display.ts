@@ -1,4 +1,5 @@
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
+import { calendarDateInTimeZone, EXAM_SITUATION_TZ, isExamSituationUploadWindowNotYetOpen } from "@/lib/exam-situation-window";
 
 export type DeanSituationStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED";
 
@@ -51,6 +52,7 @@ export type UploadStatusListItem =
       absence_sum: number;
       subject_name: string;
       stage_level: number;
+      study_type: UploadStatusTableRow["study_type"];
       branch_name: string;
       academic_year: string | null;
       workflow_status: UploadStatusWorkflow;
@@ -118,6 +120,7 @@ export function buildUploadStatusListItems(rows: UploadStatusTableRow[]): Upload
       absence_sum: g.reduce((a, x) => a + x.absence_count, 0),
       subject_name: head.subject_name,
       stage_level: head.stage_level,
+      study_type: head.study_type,
       branch_name: head.branch_name,
       academic_year: head.academic_year,
       workflow_status,
@@ -141,4 +144,76 @@ export function buildUploadStatusListItems(rows: UploadStatusTableRow[]): Upload
     return ta.localeCompare(tb);
   });
   return out;
+}
+
+export type UploadStatusDashboardStats = {
+  /** مواقف بانتظار الرفع: النافذة لم تفتح بعد (غير مُعدَّة متأخرة) */
+  pendingWindowNotOpen: number;
+  /** مواقف بانتظار الرفع: النافذة مفتوحة اليوم أو انقضى موعد الامتحان */
+  pendingWindowOpenOrLate: number;
+  /** مواقف مؤكَّد رفعها اليوم (بتوقيت بغداد) — بعد دمج القاعات كما في الجدول */
+  uploadedTodayLogical: number;
+  /** إجمالي المواقف المؤكَّد رفعها — بعد دمج القاعات */
+  uploadedTotalLogical: number;
+};
+
+function uploadStatusListItemExamFields(item: UploadStatusListItem): {
+  exam_date: string;
+  start_time: string;
+  end_time: string;
+} {
+  if (item.kind === "single") {
+    return {
+      exam_date: item.row.exam_date,
+      start_time: item.row.start_time,
+      end_time: item.row.end_time,
+    };
+  }
+  return {
+    exam_date: item.exam_date,
+    start_time: item.start_time,
+    end_time: item.end_time,
+  };
+}
+
+/** إحصاءات بطاقات لوحة «رفع الموقف» — نفس منطق دمج الجلسات متعددة القاعات */
+export function computeUploadStatusDashboardStats(
+  allRows: UploadStatusTableRow[],
+  now: Date = new Date()
+): UploadStatusDashboardStats {
+  const today = calendarDateInTimeZone(now, EXAM_SITUATION_TZ);
+  const pendingRows = allRows.filter((r) => !r.is_uploaded);
+  const pendingItems = buildUploadStatusListItems(pendingRows);
+  let pendingWindowNotOpen = 0;
+  let pendingWindowOpenOrLate = 0;
+  for (const item of pendingItems) {
+    const { exam_date, start_time, end_time } = uploadStatusListItemExamFields(item);
+    if (isExamSituationUploadWindowNotYetOpen(exam_date, start_time, end_time, now)) pendingWindowNotOpen++;
+    else pendingWindowOpenOrLate++;
+  }
+
+  const uploadedRows = allRows.filter((r) => r.is_uploaded);
+  const uploadedItems = buildUploadStatusListItems(uploadedRows);
+  const byId = new Map(allRows.map((r) => [r.schedule_id, r]));
+  let uploadedTodayLogical = 0;
+  for (const item of uploadedItems) {
+    if (item.kind === "single") {
+      const d = item.row.head_submitted_at;
+      if (d && calendarDateInTimeZone(d, EXAM_SITUATION_TZ) === today) uploadedTodayLogical++;
+    } else {
+      const anyToday = item.schedule_ids.some((id) => {
+        const r = byId.get(id);
+        const d = r?.head_submitted_at;
+        return d != null && calendarDateInTimeZone(d, EXAM_SITUATION_TZ) === today;
+      });
+      if (anyToday) uploadedTodayLogical++;
+    }
+  }
+
+  return {
+    pendingWindowNotOpen,
+    pendingWindowOpenOrLate,
+    uploadedTodayLogical,
+    uploadedTotalLogical: uploadedItems.length,
+  };
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { subscribeUniversityDashboardStale } from "@/lib/university-dashboard-live-sync";
 import {
   UPCOMING_EXAMS_DASHBOARD_PREVIEW_LIMIT,
   type DashboardUpcomingExamSessionRow,
@@ -553,6 +555,13 @@ type DashboardOverviewProps = {
 };
 
 export function DashboardOverview({ universityStats }: DashboardOverviewProps) {
+  const router = useRouter();
+  useEffect(() => {
+    return subscribeUniversityDashboardStale(() => {
+      router.refresh();
+    });
+  }, [router]);
+
   const formationAttendanceRows = useMemo(
     () => universityStats.formationAttendanceIndicators,
     [universityStats.formationAttendanceIndicators]

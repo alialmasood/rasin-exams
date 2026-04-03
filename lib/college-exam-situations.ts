@@ -550,6 +550,7 @@ export type StatusFollowupScheduleRow = {
   exam_date: string;
   subject_name: string;
   stage_level: number;
+  study_type: UploadStatusTableRow["study_type"];
   branch_name: string;
   workflow_status: CollegeExamScheduleRow["workflow_status"];
   dean_status: DeanSituationStatus;
@@ -588,6 +589,7 @@ export async function listUploadedExamSituationsForFollowup(
       exam_date: r.exam_date,
       subject_name: r.subject_name,
       stage_level: r.stage_level,
+      study_type: r.study_type,
       branch_name: r.branch_name,
       workflow_status: r.workflow_status,
       dean_status: r.dean_status,
@@ -1051,7 +1053,8 @@ export async function submitHeadExamSituation(input: {
   if (!canUploadSituationInExamWindow(ex.exam_date, st, en)) {
     return {
       ok: false,
-      message: "لا يُسمح برفع الموقف إلا خلال نافذة الامتحان (من 30 دقيقة بعد البداية حتى النهاية، بتوقيت بغداد).",
+      message:
+        "لا يُسمح بتأكيد رفع الموقف قبل يوم الامتحان، أو قبل مضي 30 دقيقة من بداية الجلسة (توقيت بغداد).",
     };
   }
   const deanChk = await pool.query<{ dean_status: string | null }>(

@@ -1,4 +1,9 @@
 import type { StudyType } from "@/lib/college-study-subjects";
+import {
+  POSTGRAD_STUDY_STAGE_DIPLOMA,
+  POSTGRAD_STUDY_STAGE_DOCTOR,
+  POSTGRAD_STUDY_STAGE_MASTER,
+} from "@/lib/college-study-stage-display";
 import { normalizeExamMealSlot } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
@@ -20,6 +25,7 @@ export type FormationBranchRow = {
 export type FormationStudyRecentRow = {
   id: string;
   subject_name: string;
+  instructor_name: string;
   study_stage_level: number;
   linked_branch_name: string;
   study_type: StudyType;
@@ -32,6 +38,8 @@ export type FormationExamScheduleDetailRow = {
   study_subject_name: string;
   room_name: string;
   stage_level: number;
+  /** نوع الدراسة للمادة (سنوي/فصلي/…)، من `college_study_subjects` */
+  study_type: StudyType;
   schedule_type: "FINAL" | "SEMESTER";
   workflow_status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   term_label: string | null;
@@ -42,7 +50,6 @@ export type FormationExamScheduleDetailRow = {
   start_time: string;
   end_time: string;
   duration_minutes: number;
-  notes: string | null;
 };
 
 /** لقطة مراقبة لتشكيل واحد */
@@ -65,6 +72,8 @@ export type FormationControlSnapshot = {
   capacity_evening_sum: number;
   capacity_total_sum: number;
   supervisors_unique: string[];
+  /** أسماء مراقبين فريدة (مستخرجة من حقول القاعة، بعد تقسيم الفواصل) */
+  invigilators_unique: string[];
   rooms_with_invigilators: number;
 
   schedules_total: number;
@@ -75,6 +84,14 @@ export type FormationControlSnapshot = {
 
   situation_head_submitted: number;
   situation_pending_after_schedule: number;
+
+  /** مواد مسجّلة بمراحل الدراسات العليا (11–13) كما في صفحة المواد الدراسية */
+  postgrad_subjects_total: number;
+  postgrad_subjects_diploma: number;
+  postgrad_subjects_master: number;
+  postgrad_subjects_doctor: number;
+  /** جلسات جدول امتحاني بمرحلة عليا (11–13) */
+  postgrad_exam_sessions_total: number;
 
   /** كل جلسات الجدول الامتحاني مرتبة بالتاريخ (نفس منطق صفحة متابعة الامتحانات للإدمن) */
   exam_schedules_detail: FormationExamScheduleDetailRow[];
@@ -97,6 +114,13 @@ function pushUnique(list: string[], seen: Set<string>, raw: string | null | unde
   if (seen.has(k)) return;
   seen.add(k);
   list.push(t);
+}
+
+function invigilatorNamesFromRaw(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(/[,،;|\n\r]+/u)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 function emptyByType(): Record<StudyType, number> {
@@ -148,6 +172,7 @@ function emptySnapshot(meta: {
     capacity_evening_sum: 0,
     capacity_total_sum: 0,
     supervisors_unique: [],
+    invigilators_unique: [],
     rooms_with_invigilators: 0,
     schedules_total: 0,
     schedules_draft: 0,
@@ -156,6 +181,11 @@ function emptySnapshot(meta: {
     schedules_rejected: 0,
     situation_head_submitted: 0,
     situation_pending_after_schedule: 0,
+    postgrad_subjects_total: 0,
+    postgrad_subjects_diploma: 0,
+    postgrad_subjects_master: 0,
+    postgrad_subjects_doctor: 0,
+    postgrad_exam_sessions_total: 0,
     exam_schedules_detail: [],
   };
 }
@@ -166,6 +196,7 @@ function normalizeScheduleDetailRow(x: {
   study_subject_name: string;
   room_name: string;
   stage_level: number;
+  study_type: string;
   schedule_type: string;
   workflow_status: string;
   term_label: string | null;
@@ -175,7 +206,6 @@ function normalizeScheduleDetailRow(x: {
   start_time: string;
   end_time: string;
   duration_minutes: number;
-  notes: string | null;
 }): FormationExamScheduleDetailRow {
   const wf = String(x.workflow_status ?? "DRAFT").toUpperCase();
   const workflow_status: FormationExamScheduleDetailRow["workflow_status"] =
@@ -192,6 +222,7 @@ function normalizeScheduleDetailRow(x: {
     study_subject_name: x.study_subject_name,
     room_name: x.room_name,
     stage_level: Number(x.stage_level ?? 1),
+    study_type: normalizeStudyTypeDb(x.study_type),
     schedule_type: String(x.schedule_type).toUpperCase() === "SEMESTER" ? "SEMESTER" : "FINAL",
     workflow_status,
     term_label: x.term_label,
@@ -201,7 +232,6 @@ function normalizeScheduleDetailRow(x: {
     start_time: String(x.start_time).slice(0, 5),
     end_time: String(x.end_time).slice(0, 5),
     duration_minutes: Number(x.duration_minutes ?? 0),
-    notes: x.notes,
   };
 }
 
@@ -259,6 +289,8 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
     sitDoneR,
     sitPendingR,
     schedulesDetailR,
+    postgradSubjectsR,
+    postgradSchedR,
   ] = await Promise.all([
     pool.query<{
       id: string;
@@ -287,6 +319,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
       id: string;
       owner_user_id: string;
       subject_name: string;
+      instructor_name: string | null;
       study_stage_level: number;
       linked_branch_name: string;
       study_type: string;
@@ -295,6 +328,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
          SELECT s.id::text,
                 s.owner_user_id::text,
                 s.subject_name,
+                TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
                 COALESCE(s.study_stage_level, 1)::int AS study_stage_level,
                 c.branch_name AS linked_branch_name,
                 COALESCE(s.study_type, 'ANNUAL')::text AS study_type,
@@ -375,6 +409,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
       study_subject_name: string;
       room_name: string;
       stage_level: number;
+      study_type: string;
       schedule_type: string;
       workflow_status: string;
       term_label: string | null;
@@ -384,7 +419,6 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
       start_time: string;
       end_time: string;
       duration_minutes: number;
-      notes: string | null;
     }>(
       `SELECT e.id,
               e.owner_user_id::text,
@@ -392,6 +426,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
               s.subject_name AS study_subject_name,
               rm.room_name,
               e.stage_level,
+              COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
               e.schedule_type,
               COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
               e.term_label,
@@ -400,8 +435,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
               COALESCE(e.meal_slot, 1) AS meal_slot,
               e.start_time::text,
               e.end_time::text,
-              e.duration_minutes,
-              e.notes
+              e.duration_minutes
        FROM college_exam_schedules e
        INNER JOIN college_subjects c
          ON c.id = e.college_subject_id AND c.owner_user_id = e.owner_user_id
@@ -412,6 +446,24 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
        WHERE e.owner_user_id = ${ownerAnySql}
        ORDER BY e.owner_user_id, e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC, e.id ASC`,
       ownerAnyParams
+    ),
+    pool.query<{ owner_user_id: string; lvl: number; c: string }>(
+      `SELECT owner_user_id::text,
+              COALESCE(study_stage_level, 1)::int AS lvl,
+              COUNT(*)::text AS c
+       FROM college_study_subjects
+       WHERE owner_user_id = ${ownerAnySql}
+         AND COALESCE(study_stage_level, 1) BETWEEN $${ownerAnyParams.length + 1} AND $${ownerAnyParams.length + 2}
+       GROUP BY owner_user_id, COALESCE(study_stage_level, 1)`,
+      [...ownerAnyParams, POSTGRAD_STUDY_STAGE_DIPLOMA, POSTGRAD_STUDY_STAGE_DOCTOR]
+    ),
+    pool.query<{ owner_user_id: string; c: string }>(
+      `SELECT owner_user_id::text, COUNT(*)::text AS c
+       FROM college_exam_schedules
+       WHERE owner_user_id = ${ownerAnySql}
+         AND COALESCE(stage_level, 1) BETWEEN $${ownerAnyParams.length + 1} AND $${ownerAnyParams.length + 2}
+       GROUP BY owner_user_id`,
+      [...ownerAnyParams, POSTGRAD_STUDY_STAGE_DIPLOMA, POSTGRAD_STUDY_STAGE_DOCTOR]
     ),
   ]);
 
@@ -450,6 +502,7 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
     arr.push({
       id: row.id,
       subject_name: row.subject_name,
+      instructor_name: String(row.instructor_name ?? "").trim(),
       study_stage_level: row.study_stage_level,
       linked_branch_name: row.linked_branch_name,
       study_type: normalizeStudyTypeDb(row.study_type),
@@ -470,16 +523,26 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
     });
   }
 
-  const supervisorsByOwner = new Map<string, { names: string[]; invRooms: number }>();
+  const roomStaffByOwner = new Map<
+    string,
+    { supervisorNames: string[]; invigilatorNames: string[]; invRooms: number }
+  >();
   for (const row of roomsPeopleR.rows) {
     const oid = row.owner_user_id;
-    if (!supervisorsByOwner.has(oid)) {
-      supervisorsByOwner.set(oid, { names: [], invRooms: 0 });
+    if (!roomStaffByOwner.has(oid)) {
+      roomStaffByOwner.set(oid, { supervisorNames: [], invigilatorNames: [], invRooms: 0 });
     }
-    const pack = supervisorsByOwner.get(oid)!;
-    const seen = new Set(pack.names.map(normKey));
-    pushUnique(pack.names, seen, row.supervisor_name);
-    pushUnique(pack.names, seen, row.supervisor_name_2);
+    const pack = roomStaffByOwner.get(oid)!;
+    const supSeen = new Set(pack.supervisorNames.map(normKey));
+    pushUnique(pack.supervisorNames, supSeen, row.supervisor_name);
+    pushUnique(pack.supervisorNames, supSeen, row.supervisor_name_2);
+    const invSeen = new Set(pack.invigilatorNames.map(normKey));
+    for (const n of invigilatorNamesFromRaw(row.invigilators)) {
+      pushUnique(pack.invigilatorNames, invSeen, n);
+    }
+    for (const n of invigilatorNamesFromRaw(row.invigilators_2)) {
+      pushUnique(pack.invigilatorNames, invSeen, n);
+    }
     const inv1 = String(row.invigilators ?? "").trim();
     const inv2 = String(row.invigilators_2 ?? "").trim();
     if (inv1.length > 0 || inv2.length > 0) pack.invRooms += 1;
@@ -522,6 +585,29 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
     schedulesDetailByOwner.set(oid, arr);
   }
 
+  const postgradSubjectsByOwner = new Map<
+    string,
+    { diploma: number; master: number; doctor: number; total: number }
+  >();
+  for (const row of postgradSubjectsR.rows) {
+    const oid = row.owner_user_id;
+    const c = Number(row.c) || 0;
+    const lvl = Number(row.lvl);
+    if (!postgradSubjectsByOwner.has(oid)) {
+      postgradSubjectsByOwner.set(oid, { diploma: 0, master: 0, doctor: 0, total: 0 });
+    }
+    const p = postgradSubjectsByOwner.get(oid)!;
+    p.total += c;
+    if (lvl === POSTGRAD_STUDY_STAGE_DIPLOMA) p.diploma += c;
+    else if (lvl === POSTGRAD_STUDY_STAGE_MASTER) p.master += c;
+    else if (lvl === POSTGRAD_STUDY_STAGE_DOCTOR) p.doctor += c;
+  }
+
+  const postgradSchedByOwner = new Map<string, number>();
+  for (const row of postgradSchedR.rows) {
+    postgradSchedByOwner.set(row.owner_user_id, Number(row.c) || 0);
+  }
+
   const formations: FormationControlSnapshot[] = formationsMeta.map((meta) => {
     const id = meta.owner_user_id;
     const snap = emptySnapshot(meta);
@@ -537,9 +623,10 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
       snap.capacity_evening_sum = ra.cap_e;
       snap.capacity_total_sum = ra.cap_t;
     }
-    const people = supervisorsByOwner.get(id);
+    const people = roomStaffByOwner.get(id);
     if (people) {
-      snap.supervisors_unique = people.names;
+      snap.supervisors_unique = people.supervisorNames;
+      snap.invigilators_unique = people.invigilatorNames;
       snap.rooms_with_invigilators = people.invRooms;
     }
     const sm = schedMap.get(id);
@@ -553,6 +640,12 @@ export async function getAdminFormationControlRoomData(): Promise<AdminFormation
     snap.situation_head_submitted = sitDoneMap.get(id) ?? 0;
     snap.situation_pending_after_schedule = sitPendingMap.get(id) ?? 0;
     snap.exam_schedules_detail = schedulesDetailByOwner.get(id) ?? [];
+    const pgSub = postgradSubjectsByOwner.get(id);
+    snap.postgrad_subjects_total = pgSub?.total ?? 0;
+    snap.postgrad_subjects_diploma = pgSub?.diploma ?? 0;
+    snap.postgrad_subjects_master = pgSub?.master ?? 0;
+    snap.postgrad_subjects_doctor = pgSub?.doctor ?? 0;
+    snap.postgrad_exam_sessions_total = postgradSchedByOwner.get(id) ?? 0;
     return snap;
   });
 

@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { ExamDayUploadSummary, StatusFollowupRow } from "@/lib/college-exam-situations";
+import type { StudyType } from "@/lib/college-study-subjects";
+import { formatExamScheduleStudyLevelTierStageOnly } from "@/lib/college-study-stage-display";
+import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import {
   deleteSituationFormSubmissionAction,
   deleteUploadedExamSituationAction,
@@ -49,6 +52,23 @@ function formatExamDateAr(isoDate: string): string {
   } catch {
     return isoDate;
   }
+}
+
+function FollowupScheduleStudyLevelCell({ stageLevel, studyType }: { stageLevel: number; studyType: StudyType }) {
+  return (
+    <div className="min-w-[7.5rem] space-y-2 text-right">
+      <div>
+        <p className="text-[9px] font-bold text-[#64748B]">المستوى الدراسي</p>
+        <p className="mt-1 text-[11px] font-semibold leading-snug text-[#0F172A]">
+          {formatExamScheduleStudyLevelTierStageOnly(stageLevel)}
+        </p>
+      </div>
+      <div className="border-t border-[#E2E8F0] pt-2">
+        <p className="text-[9px] font-bold text-[#64748B]">نوع الدراسة</p>
+        <p className="mt-1 text-[11px] font-semibold text-[#334155]">{STUDY_TYPE_LABEL_AR[studyType]}</p>
+      </div>
+    </div>
+  );
 }
 
 export function StatusFollowupPanel({
@@ -181,12 +201,13 @@ export function StatusFollowupPanel({
           المواقف الامتحانية المرفوعة
         </h2>
         <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
-          <table className="w-full min-w-[640px] border-collapse text-right">
+          <table className="w-full min-w-[880px] border-collapse text-right">
             <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
               <tr className="border-b border-[#E2E8F0]">
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">التسلسل</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">القسم</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">المادة الامتحانية</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">المستوى الدراسي</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">التاريخ</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">إجراءات</th>
               </tr>
@@ -194,7 +215,7 @@ export function StatusFollowupPanel({
             <tbody className="divide-y divide-[#E2E8F0]">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-14 text-center text-sm text-[#64748B]">
+                  <td colSpan={6} className="px-4 py-14 text-center text-sm text-[#64748B]">
                     لا توجد مواقف مرفوعة بعد. تظهر هنا بعد إرسال نموذج «رفع الموقف الامتحاني» أو بعد تأكيد رفع موقف جلسة
                     مجدولة من صفحة الجلسة.
                   </td>
@@ -202,8 +223,6 @@ export function StatusFollowupPanel({
               ) : (
                 rows.map((r, index) => {
                   const rowKey = r.kind === "schedule" ? `s-${r.schedule_id}` : `f-${r.form_submission_id}`;
-                  const stageLine =
-                    r.kind === "schedule" ? `المرحلة ${r.stage_level}` : `المرحلة ${r.stage_display}`;
                   const label = `${r.subject_name} — ${r.branch_name} — ${r.exam_date}`;
                   return (
                     <tr key={rowKey} className="bg-white transition-colors hover:bg-[#F8FAFC]">
@@ -214,9 +233,18 @@ export function StatusFollowupPanel({
                           <span className="mt-0.5 block text-[10px] font-bold text-sky-700">نموذج</span>
                         ) : null}
                       </td>
-                      <td className="px-3 py-3 text-sm text-[#0F172A] sm:px-4">
-                        {r.subject_name}
-                        <span className="mt-0.5 block text-xs text-[#64748B]">{stageLine}</span>
+                      <td className="px-3 py-3 text-sm text-[#0F172A] sm:px-4">{r.subject_name}</td>
+                      <td className="max-w-[14rem] align-top px-3 py-3 sm:px-4">
+                        {r.kind === "schedule" ? (
+                          <FollowupScheduleStudyLevelCell stageLevel={r.stage_level} studyType={r.study_type} />
+                        ) : (
+                          <div className="min-w-0 text-right">
+                            <p className="text-[9px] font-bold text-[#64748B]">من نموذج رفع الموقف</p>
+                            <p className="mt-1 text-[11px] font-semibold leading-snug text-[#334155]">
+                              {r.stage_display?.trim() || "—"}
+                            </p>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-sm text-[#334155] sm:px-4">{formatExamDateAr(r.exam_date)}</td>
                       <td className="px-3 py-3 sm:px-4">
