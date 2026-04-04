@@ -33,6 +33,7 @@ import {
 import type { SessionPayload } from "@/lib/session";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /** دلالات ألوان غرفة القيادة: طبيعي | جيد | تنبيه | خطر */
@@ -939,7 +940,7 @@ export function CentralTrackingDashboard({
                   طباعة / PDF رسمي
                 </button>
                 {loading ? (
-                  <span className="text-[10px] font-medium text-stone-500 sm:text-xs">جاري تحديث التشكيلات والتقارير…</span>
+                  <span className="text-[10px] font-medium text-stone-500 sm:text-xs">جاري تحديث التقويم الامتحاني…</span>
                 ) : (
                   <span className="text-[10px] text-stone-500 sm:text-xs">تحديث تلقائي كل ٣٠ ثانية</span>
                 )}
@@ -1018,13 +1019,12 @@ export function CentralTrackingDashboard({
               </select>
             </label>
             <div className="flex items-end">
-              <button
-                type="button"
-                onClick={() => void loadDate(examDate)}
-                className="w-full rounded border border-[#1a3052] bg-[#1e4976] px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 sm:py-2"
+              <Link
+                href="/tracking/exam-calendar"
+                className="flex w-full items-center justify-center rounded border border-[#1a3052] bg-[#1e4976] px-3 py-1.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 sm:py-2"
               >
-                التشكيلات والتقارير
-              </button>
+                التقويم الامتحاني
+              </Link>
             </div>
           </div>
         </section>
@@ -1198,12 +1198,12 @@ export function CentralTrackingDashboard({
           <div className="min-w-0 flex-1 space-y-5">
             <section
               className="overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm shadow-stone-200/30"
-              aria-label="ملخص التشكيلات ليوم الامتحان"
+              aria-label="ملخص التشكيلات لليوم الحالي"
             >
               <div className="border-b border-[#1a3052]/15 bg-gradient-to-l from-sky-50/85 to-amber-50/25 px-3 py-2.5 sm:px-4 sm:py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 gap-y-1">
                   <h2 className="text-xs font-extrabold text-[#1a3052] sm:text-sm">
-                    التشكيلات التي لها امتحان في يوم العرض
+                    التشكيلات التي لها امتحان في اليوم الحالي
                   </h2>
                   <p className="text-[11px] font-bold text-stone-700 sm:text-xs" suppressHydrationWarning>
                     <span className="text-stone-500">التاريخ:</span> {examDateLongAr(examDate)}

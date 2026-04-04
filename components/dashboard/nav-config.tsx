@@ -131,6 +131,18 @@ function IconDocument() {
   );
 }
 
+function IconActivityLog() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+      />
+    </svg>
+  );
+}
+
 function IconCog() {
   return (
     <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -195,7 +207,7 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
     title: "المؤشرات والتقارير",
     items: [
       { href: "/dashboard/college/statistics", label: "الإحصائيات والتقارير", icon: <IconChartBar /> },
-      { href: "/dashboard/college/reports", label: "التقارير", icon: <IconDocument /> },
+      { href: "/dashboard/college/reports", label: "سجل الأحداث", icon: <IconActivityLog /> },
     ],
   },
 ];

@@ -6,6 +6,7 @@ import {
   deleteCollegeStudySubject,
   updateCollegeStudySubject,
 } from "@/lib/college-study-subjects";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 
 export type CollegeStudySubjectsActionState =
@@ -29,6 +30,12 @@ export async function createCollegeStudySubjectAction(
       studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
     if (!result.ok) return result;
+    void recordCollegeActivityEvent({
+      ownerUserId: session.uid,
+      action: "create",
+      resource: "study_subject",
+      summary: `إضافة مادة دراسية: ${String(formData.get("subject_name") ?? "").trim() || "—"}.`,
+    });
     revalidatePath("/dashboard/college/study-subjects");
     return { ok: true, message: "تمت إضافة المادة الدراسية بنجاح." };
   } catch {
@@ -55,6 +62,13 @@ export async function updateCollegeStudySubjectAction(
       studyStageLevel: String(formData.get("study_stage_level") ?? "1"),
     });
     if (!result.ok) return result;
+    void recordCollegeActivityEvent({
+      ownerUserId: session.uid,
+      action: "update",
+      resource: "study_subject",
+      summary: `تحديث مادة دراسية (المعرّف ${id}): ${String(formData.get("subject_name") ?? "").trim() || "—"}.`,
+      details: { studySubjectId: id },
+    });
     revalidatePath("/dashboard/college/study-subjects");
     return { ok: true, message: "تم تحديث المادة الدراسية بنجاح." };
   } catch {
@@ -76,6 +90,13 @@ export async function deleteCollegeStudySubjectAction(
       ownerUserId: session.uid,
     });
     if (!result.ok) return result;
+    void recordCollegeActivityEvent({
+      ownerUserId: session.uid,
+      action: "delete",
+      resource: "study_subject",
+      summary: `حذف مادة دراسية (المعرّف ${id}).`,
+      details: { studySubjectId: id },
+    });
     revalidatePath("/dashboard/college/study-subjects");
     return { ok: true, message: "تم حذف المادة الدراسية بنجاح." };
   } catch {

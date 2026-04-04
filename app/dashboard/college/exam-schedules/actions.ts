@@ -9,6 +9,7 @@ import {
 import { createCollegeHoliday, deleteCollegeHoliday } from "@/lib/college-holidays";
 import type { UserRole } from "@/lib/authz";
 import { isAdminRole } from "@/lib/authz";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 
 export type ExamScheduleActionResult<T = unknown> =
@@ -46,6 +47,17 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
   });
   if (!result.ok) return result;
   const n = result.rows.length;
+  const examDate = String(formData.get("exam_date") ?? "").trim();
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "create",
+    resource: "exam_schedule",
+    summary:
+      n > 1
+        ? `إضافة جلسة امتحانية في ${n} قاعة لتاريخ ${examDate || "—"}.`
+        : `إضافة جلسة امتحانية لتاريخ ${examDate || "—"}.`,
+    details: { scheduleIds: result.rows.map((r) => String(r.id)), examDate },
+  });
   return {
     ok: true,
     message:
@@ -78,6 +90,13 @@ export async function updateExamScheduleAction(formData: FormData): Promise<Exam
     notes: String(formData.get("notes") ?? ""),
   });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "update",
+    resource: "exam_schedule",
+    summary: `تحديث جدول امتحاني (المعرّف ${id}).`,
+    details: { scheduleId: id },
+  });
   return { ok: true, message: "تم حفظ التعديلات بنجاح", data: result.row };
 }
 
@@ -88,6 +107,13 @@ export async function deleteExamScheduleAction(formData: FormData): Promise<Exam
   if (!id) return { ok: false, message: "معرّف الإدخال غير صالح." };
   const result = await deleteCollegeExamSchedule({ id, ownerUserId: session.uid });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "delete",
+    resource: "exam_schedule",
+    summary: `حذف جلسة من الجدول الامتحاني (المعرّف ${id}).`,
+    details: { scheduleId: id },
+  });
   return { ok: true, message: "تم حذف الإدخال", data: { id } };
 }
 
@@ -100,6 +126,12 @@ export async function createHolidayAction(formData: FormData): Promise<ExamSched
     holidayName: String(formData.get("holiday_name") ?? ""),
   });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "create",
+    resource: "holiday",
+    summary: `إضافة عطلة: ${String(formData.get("holiday_name") ?? "").trim() || "—"} (${String(formData.get("holiday_date") ?? "").trim() || "—"}).`,
+  });
   return { ok: true, message: "تمت إضافة العطلة بنجاح.", data: result.row };
 }
 
@@ -110,6 +142,13 @@ export async function deleteHolidayAction(formData: FormData): Promise<ExamSched
   if (!id) return { ok: false, message: "معرّف العطلة غير صالح." };
   const result = await deleteCollegeHoliday({ id, ownerUserId: session.uid });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "delete",
+    resource: "holiday",
+    summary: `حذف عطلة (المعرّف ${id}).`,
+    details: { holidayId: id },
+  });
   return { ok: true, message: "تم حذف العطلة.", data: { id } };
 }
 
@@ -127,6 +166,16 @@ export async function approveExamScheduleContextAction(formData: FormData): Prom
     reviewNote: String(formData.get("review_note") ?? ""),
   });
   if (!result.ok) return result;
+  const ownerUserId = String(formData.get("owner_user_id") ?? "").trim();
+  if (ownerUserId) {
+    void recordCollegeActivityEvent({
+      ownerUserId,
+      action: "approve",
+      resource: "exam_schedule_context",
+      summary: "اعتماد إداري لسياق جدول امتحاني (موافقة من الإدارة).",
+      details: { reviewerUserId: session.uid },
+    });
+  }
   return { ok: true, message: "تم اعتماد الجدول بنجاح." };
 }
 
@@ -144,5 +193,15 @@ export async function rejectExamScheduleContextAction(formData: FormData): Promi
     reviewNote: String(formData.get("review_note") ?? ""),
   });
   if (!result.ok) return result;
+  const ownerUserId = String(formData.get("owner_user_id") ?? "").trim();
+  if (ownerUserId) {
+    void recordCollegeActivityEvent({
+      ownerUserId,
+      action: "reject",
+      resource: "exam_schedule_context",
+      summary: "رفض إداري لسياق جدول امتحاني وإعادته للمراجعة.",
+      details: { reviewerUserId: session.uid },
+    });
+  }
   return { ok: true, message: "تم رفض الجدول وإعادته للمراجعة." };
 }

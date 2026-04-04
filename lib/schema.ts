@@ -262,6 +262,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeExamSituationReportsTable(pool);
   await ensureCollegeSituationFormSubmissionsTable(pool);
   await ensureCollegeFollowupSavedDayReportsTable(pool);
+  await ensureCollegeActivityLogTable(pool);
 
   await createIndexSafe(
     pool,
@@ -1006,6 +1007,39 @@ async function ensureCollegeFollowupSavedDayReportsTable(pool: Pool) {
     pool,
     "idx_followup_saved_day_owner_exam",
     "CREATE INDEX IF NOT EXISTS idx_followup_saved_day_owner_exam ON college_followup_saved_day_reports (owner_user_id, exam_date DESC)"
+  );
+}
+
+/** سجل أحداث بوابة الكلية (تدقيق أمني) — إضافة/تعديل/حذف/رفع/اعتماد وغيرها. */
+async function ensureCollegeActivityLogTable(pool: Pool) {
+  const userIdType = await getUsersIdSqlType(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS college_activity_log (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id ${userIdType} NOT NULL,
+      action VARCHAR(40) NOT NULL,
+      resource VARCHAR(80) NOT NULL,
+      summary TEXT NOT NULL,
+      details JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  if (!(await constraintExists(pool, "college_activity_log_owner_user_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_activity_log
+        ADD CONSTRAINT college_activity_log_owner_user_id_fkey
+        FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+  await createIndexSafe(
+    pool,
+    "idx_college_activity_owner_created",
+    "CREATE INDEX IF NOT EXISTS idx_college_activity_owner_created ON college_activity_log (owner_user_id, created_at DESC)"
   );
 }
 

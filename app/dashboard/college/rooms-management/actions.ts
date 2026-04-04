@@ -8,6 +8,7 @@ import {
   updateCollegeExamRoom,
   type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 
 export type CollegeRoomsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
@@ -150,6 +151,12 @@ export async function createCollegeExamRoomAction(
     shift2Attendance: s2.shiftSplit,
   });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "create",
+    resource: "exam_room",
+    summary: `إضافة قاعة امتحانية: ${fdStr(formData, "room_name").trim() || "—"}.`,
+  });
   revalidatePath("/dashboard/college/rooms-management");
   return { ok: true, message: "تمت إضافة القاعة بنجاح." };
 }
@@ -191,6 +198,13 @@ export async function updateCollegeExamRoomAction(
     shift2Attendance: s2.shiftSplit,
   });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "update",
+    resource: "exam_room",
+    summary: `تحديث قاعة امتحانية (المعرّف ${id}): ${fdStr(formData, "room_name").trim() || "—"}.`,
+    details: { roomId: id },
+  });
   revalidatePath("/dashboard/college/rooms-management");
   return { ok: true, message: "تم تحديث القاعة بنجاح." };
 }
@@ -208,6 +222,13 @@ export async function deleteCollegeExamRoomAction(
     ownerUserId: session.uid,
   });
   if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "delete",
+    resource: "exam_room",
+    summary: `حذف قاعة امتحانية (المعرّف ${id}).`,
+    details: { roomId: id },
+  });
   revalidatePath("/dashboard/college/rooms-management");
   return { ok: true, message: "تم حذف القاعة بنجاح." };
 }

@@ -6,6 +6,7 @@ import {
   deleteCollegeSubject,
   updateCollegeSubject,
 } from "@/lib/college-subjects";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 
 export type CollegeSubjectsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
@@ -33,6 +34,12 @@ export async function createCollegeSubjectAction(
       branchHeadName: String(formData.get("branch_head_name") ?? ""),
     });
     if (!result.ok) return result;
+    void recordCollegeActivityEvent({
+      ownerUserId: session.uid,
+      action: "create",
+      resource: "college_subject",
+      summary: `إضافة قسم أو فرع: ${String(formData.get("branch_name") ?? "").trim() || "—"}.`,
+    });
     revalidateCollegeSubjectsSurfaces();
     return { ok: true, message: "تمت إضافة القسم/الفرع بنجاح." };
   } catch {
@@ -82,6 +89,13 @@ export async function deleteCollegeSubjectAction(
       ownerUserId: session.uid,
     });
     if (!result.ok) return result;
+    void recordCollegeActivityEvent({
+      ownerUserId: session.uid,
+      action: "delete",
+      resource: "college_subject",
+      summary: `حذف قسم/فرع (المعرّف ${id}).`,
+      details: { subjectId: id },
+    });
     revalidateCollegeSubjectsSurfaces();
     return { ok: true, message: "تم حذف القسم/الفرع بنجاح." };
   } catch {

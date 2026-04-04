@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 import { insertSituationFormSubmission } from "@/lib/college-situation-form-submissions";
 import { type SituationFormPayloadV1, validateSituationFormPayload } from "@/lib/situation-form-payload";
@@ -22,6 +23,13 @@ export async function submitSituationFormAction(
   });
   if (!ins.ok) return ins;
 
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "submit",
+    resource: "situation_form",
+    summary: `إرسال نموذج موقف امتحاني (المعرّف ${ins.id}).`,
+    details: { submissionId: ins.id },
+  });
   revalidatePath("/dashboard/college/status-followup");
   revalidatePath("/tracking");
   revalidatePath("/dashboard/college");

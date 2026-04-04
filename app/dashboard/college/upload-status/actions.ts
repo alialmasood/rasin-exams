@@ -7,6 +7,7 @@ import {
   getExamSituationDetailForOwner,
   submitHeadExamSituation,
 } from "@/lib/college-exam-situations";
+import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getSession } from "@/lib/session";
 
 export type SituationActionState = { ok: true; message: string } | { ok: false; message: string } | null;
@@ -49,6 +50,13 @@ export async function patchRoomAttendanceForSituationAction(
         };
   const res = await patchCollegeExamRoomAttendance(payload);
   if (!res.ok) return res;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "patch",
+    resource: "room_attendance",
+    summary: `تحديث بيانات الحضور/الغياب للقاعة المرتبطة بجدول ${scheduleId}.`,
+    details: { scheduleId, roomId: detail.room_id },
+  });
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
   revalidatePath("/dashboard/college/rooms-management");
@@ -85,6 +93,13 @@ export async function approveDeanSituationAction(
     deanNote,
   });
   if (!res.ok) return res;
+  void recordCollegeActivityEvent({
+    ownerUserId: session.uid,
+    action: "approve",
+    resource: "situation_report",
+    summary: `اعتماد الموقف الامتحاني من عميد/معاون (جدول ${scheduleId}).`,
+    details: { scheduleId },
+  });
   revalidatePath("/dashboard/college/upload-status");
   revalidatePath(`/dashboard/college/upload-status/${scheduleId}`);
   revalidatePath("/dashboard/college/status-followup");
