@@ -38,13 +38,13 @@ function WelcomeScreenShell({
   return (
     <main className={`welcome-screen ${stateClass}`}>
       <div className="welcome-hero-bg" aria-hidden="true">
-        <Image
+        {/* <img> بدل next/image للخلفية: أوبرا/سفاري وبعض WebViews (مثل QJY) أقل عرضة لمشاكل التموضع والتحسين */}
+        <img
           src="/residency.jpg"
           alt=""
-          fill
-          priority
-          sizes="100vw"
           className="welcome-hero-image"
+          decoding="async"
+          fetchPriority="high"
         />
       </div>
       <div className="welcome-hero-overlay" aria-hidden="true" />
@@ -67,7 +67,12 @@ function HomeContent() {
   useEffect(() => {
     if (loginOpen) return;
     const t = window.setTimeout(() => setIntroComplete(true), 2350);
-    return () => window.clearTimeout(t);
+    /* إن تعطّل المؤقت الأول (ترتيب غريب، WebView، إلخ) نكشف الواجهة بعد مهلة أطول */
+    const safety = window.setTimeout(() => setIntroComplete(true), 5200);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(safety);
+    };
   }, [loginOpen]);
 
   /** بعد فتح نموذج الدخول ننقل التركيز من زر «الدخول» (يُزال من DOM) لتفادي تحذير aria-hidden + focus في الكونسول */
@@ -114,8 +119,8 @@ function HomeContent() {
             type="button"
             className="enter-button"
             onClick={() => {
-              requestViewportFullscreen();
               setUserOpenedLogin(true);
+              requestAnimationFrame(() => requestViewportFullscreen());
             }}
           >
             <span className="enter-button-icon" aria-hidden="true">
@@ -128,9 +133,10 @@ function HomeContent() {
         <form
           className="login-form"
           aria-label="تسجيل الدخول"
+          aria-hidden={!loginOpen}
           action={loginAction}
           onSubmit={() => {
-            requestViewportFullscreen();
+            requestAnimationFrame(() => requestViewportFullscreen());
           }}
         >
           {errorMessage ? (
@@ -191,18 +197,42 @@ function HomeContent() {
   );
 }
 
+const homeNoScriptStyles = `
+  .welcome-screen.state-intro .title-block,
+  .welcome-screen.state-reveal .title-block {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .welcome-screen .enter-button {
+    display: none !important;
+  }
+  .welcome-screen .login-form {
+    display: grid !important;
+    opacity: 1 !important;
+    transform: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin-top: 1.25rem !important;
+  }
+`;
+
 export default function Home() {
   return (
-    <Suspense
-      fallback={
-        <WelcomeScreenShell stateClass="state-intro">
-          <section className="welcome-panel" aria-label="جاري التحميل">
-            <p className="system-description">جاري التحميل…</p>
-          </section>
-        </WelcomeScreenShell>
-      }
-    >
-      <HomeContent />
-    </Suspense>
+    <>
+      <noscript>
+        <style dangerouslySetInnerHTML={{ __html: homeNoScriptStyles }} />
+      </noscript>
+      <Suspense
+        fallback={
+          <WelcomeScreenShell stateClass="state-intro">
+            <section className="welcome-panel" aria-label="جاري التحميل">
+              <p className="system-description">جاري التحميل…</p>
+            </section>
+          </WelcomeScreenShell>
+        }
+      >
+        <HomeContent />
+      </Suspense>
+    </>
   );
 }

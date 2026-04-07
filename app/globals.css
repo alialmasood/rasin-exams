@@ -51,14 +51,18 @@
 }
 
 html {
+  min-height: 100vh;
   min-height: 100dvh;
+  overflow-x: hidden;
   overflow-x: clip;
 }
 
 body {
   margin: 0;
   min-height: 100%;
+  min-height: 100vh;
   min-height: 100dvh;
+  overflow-x: hidden;
   overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
@@ -66,8 +70,11 @@ body {
 }
 
 .welcome-screen {
+  height: 100vh;
   height: 100dvh;
+  min-height: 100vh;
   min-height: 100dvh;
+  max-height: 100vh;
   max-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -78,7 +85,9 @@ body {
   background-color: #0c1a2e;
   position: relative;
   isolation: isolate;
+  overflow-x: hidden;
   overflow-x: clip;
+  overflow-y: hidden;
   overflow-y: clip;
   overscroll-behavior: none;
 }
@@ -88,13 +97,20 @@ body {
   inset: 0;
   z-index: 0;
   overflow: hidden;
+  pointer-events: none;
 }
 
 .welcome-hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   object-position: center;
   filter: brightness(0.88) saturate(0.84) blur(1px);
-  transform: scale(1.02);
+  -webkit-transform: translateZ(0) scale(1.02);
+  transform: translateZ(0) scale(1.02);
+  pointer-events: none;
 }
 
 .welcome-hero-overlay {
@@ -139,7 +155,22 @@ body {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   overflow: hidden;
+  pointer-events: auto;
   animation: welcome-card-enter 0.88s var(--welcome-ease) both;
+}
+
+/*
+ * في WebKit (سفاري وغيره) طبقة backdrop-filter قد تلتقط النقرات قبل الأزرار والحقول.
+ * رفع المحتوى المباشر للوحة فوق تلك الطبقة.
+ */
+.welcome-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.welcome-panel .enter-button,
+.welcome-panel .login-form {
+  z-index: 3;
 }
 
 @keyframes welcome-card-enter {
@@ -204,7 +235,7 @@ body {
   font-family: "Alhurra", "Amiri", "Times New Roman", serif;
   line-height: 1.32;
   font-size: 1.9375rem;
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: 0.02em;
   color: #152d4d;
 }
@@ -213,7 +244,7 @@ body {
   margin: 0 0 1.375rem;
   font-family: "Alhurra", "Times New Roman", serif;
   font-size: 0.9375rem;
-  font-weight: 480;
+  font-weight: 500;
   color: #647897;
   letter-spacing: 0.03em;
 }
@@ -229,8 +260,7 @@ body {
 
 .state-intro .title-block,
 .state-intro .enter-button {
-  opacity: 0;
-  transform: translateY(8px);
+  animation: intro-fallback-reveal 2.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .state-reveal .title-block,
@@ -267,27 +297,34 @@ body {
   box-shadow: none;
 }
 
+.welcome-screen:not(.state-login) .login-form {
+  display: none;
+}
+
 .login-form {
   width: min(400px, 100%);
   display: grid;
   gap: 1rem;
   text-align: right;
   margin-top: 0;
-  opacity: 0;
-  transform: translateY(8px);
-  max-height: 0;
-  overflow: hidden;
-  transition:
-    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    max-height 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  box-sizing: border-box;
 }
 
-.state-login .login-form {
-  opacity: 1;
-  transform: translateY(0);
-  max-height: 480px;
+.welcome-screen.state-login .login-form {
+  display: grid;
   margin-top: 1.25rem;
+  animation: login-form-surface-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes login-form-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .state-login .login-form > * {
@@ -356,6 +393,7 @@ body {
 
 .field-input {
   width: 100%;
+  max-width: 100%;
   border: 1px solid rgba(27, 78, 143, 0.16);
   border-radius: 0.75rem;
   background: rgba(255, 255, 255, 0.55);
@@ -364,6 +402,8 @@ body {
   font-size: 0.9375rem;
   line-height: 1.45;
   outline: none;
+  -webkit-appearance: none;
+  appearance: none;
   transition:
     border-color 0.22s ease,
     box-shadow 0.22s ease,
@@ -511,9 +551,12 @@ body {
   background: linear-gradient(180deg, #305f95 0%, #214a78 45%, #1a3f66 100%);
   color: #ffffff;
   font-size: 0.9375rem;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   opacity: 1;
   transform: translateY(0);
   box-shadow:
@@ -572,6 +615,22 @@ body {
   }
 }
 
+/*
+ * كشف تدريجي دون الاعتماد فقط على setTimeout: WebKit (سفاري) وبعض WebViews
+ * (مثل سلاسل QJY/أجهزة مدمجة) قد تُخفق مع opacity ثابت أو انتقال max-height.
+ */
+@keyframes intro-fallback-reveal {
+  0%,
+  82.5% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .welcome-panel,
   .state-reveal .title-block,
@@ -591,10 +650,15 @@ body {
   .state-intro .enter-button {
     opacity: 1;
     transform: none;
+    animation: none !important;
+  }
+
+  .welcome-screen.state-login .login-form {
+    animation: none !important;
   }
 
   .login-form,
-  .state-login .login-form {
+  .welcome-screen.state-login .login-form {
     transition: none;
   }
 

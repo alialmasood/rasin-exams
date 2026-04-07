@@ -238,6 +238,8 @@ export async function ensureCoreSchema() {
     );
   `);
 
+  await ensureAppSettingsTable(pool);
+
   await createIndexSafe(pool, "idx_users_role", "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)");
   await createIndexSafe(pool, "idx_users_status", "CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)");
   await createIndexSafe(
@@ -326,6 +328,23 @@ export async function ensureCoreSchema() {
   );
 
   coreReady = true;
+}
+
+/** إعدادات عامة للنظام (مفتاح/قيمة نصية) — يُدار من لوحة الإعدادات للمدير. */
+async function ensureAppSettingsTable(pool: Pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key VARCHAR(128) PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by TEXT
+    );
+  `);
+  await pool.query(`
+    INSERT INTO app_settings (setting_key, setting_value)
+    VALUES ('show_college_exam_situation_upload_cta', 'true')
+    ON CONFLICT (setting_key) DO NOTHING
+  `);
 }
 
 /** نوع users.id في القاعدة الفعلية (قد يكون INTEGER قديماً بينما المخطط الجديد BIGSERIAL). */

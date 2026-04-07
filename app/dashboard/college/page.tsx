@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getShowCollegeExamSituationUploadCta } from "@/lib/app-settings";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { getCollegeDashboardSnapshot } from "@/lib/college-dashboard-stats";
 import { getSession } from "@/lib/session";
@@ -13,9 +14,10 @@ export default async function CollegePortalPage() {
     redirect("/dashboard");
   }
 
-  const [profile, snapshot] = await Promise.all([
+  const [profile, snapshot, showExamSituationUploadCta] = await Promise.all([
     getCollegeProfileByUserId(session.uid),
     getCollegeDashboardSnapshot(session.uid),
+    getShowCollegeExamSituationUploadCta(),
   ]);
 
   const collegeLabel =
@@ -24,6 +26,11 @@ export default async function CollegePortalPage() {
       : (profile?.formation_name ?? "—");
 
   return (
-    <CollegeDashboardOverview profile={profile} snapshot={snapshot} collegeLabel={collegeLabel} />
+    <CollegeDashboardOverview
+      profile={profile}
+      snapshot={snapshot}
+      collegeLabel={collegeLabel}
+      showExamSituationUploadCta={showExamSituationUploadCta}
+    />
   );
 }

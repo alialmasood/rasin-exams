@@ -179,10 +179,13 @@ export function CollegeDashboardOverview({
   profile,
   snapshot,
   collegeLabel,
+  showExamSituationUploadCta = true,
 }: {
   profile: CollegeProfileRow | null;
   snapshot: CollegeDashboardSnapshot;
   collegeLabel: string;
+  /** يُضبط من الإعدادات (مدير النظام) — إظهار الزر الأزرق «رفع الموقف الامتحاني» */
+  showExamSituationUploadCta?: boolean;
 }) {
   const isFollowup = profile?.account_kind === "FOLLOWUP";
   const deanOrHolder = isFollowup ? (profile?.holder_name ?? "").trim() : (profile?.dean_name ?? "").trim();
@@ -332,19 +335,21 @@ export function CollegeDashboardOverview({
         </aside>
       ) : null}
 
-      <Link
-        href="/dashboard/college/exam-situation-upload"
-        className="relative flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border border-[#BFDBFE] bg-gradient-to-l from-[#1E40AF] via-[#2563EB] to-[#3B82F6] px-4 py-3 text-center text-sm font-bold text-white shadow-[0_6px_20px_rgba(37,99,235,0.25)] transition hover:brightness-[1.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]"
-      >
-        <svg className="size-5 shrink-0 opacity-95" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
-          />
-        </svg>
-        رفع الموقف الامتحاني
-      </Link>
+      {showExamSituationUploadCta ? (
+        <Link
+          href="/dashboard/college/exam-situation-upload"
+          className="relative flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border border-[#BFDBFE] bg-gradient-to-l from-[#1E40AF] via-[#2563EB] to-[#3B82F6] px-4 py-3 text-center text-sm font-bold text-white shadow-[0_6px_20px_rgba(37,99,235,0.25)] transition hover:brightness-[1.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]"
+        >
+          <svg className="size-5 shrink-0 opacity-95" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+            />
+          </svg>
+          رفع الموقف الامتحاني
+        </Link>
+      ) : null}
 
       <section aria-labelledby="kpis-heading">
         <h2 id="kpis-heading" className="mb-4 text-sm font-bold text-[#334155]">
