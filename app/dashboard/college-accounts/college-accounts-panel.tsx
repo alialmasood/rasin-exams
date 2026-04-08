@@ -18,13 +18,17 @@ import {
   buildCollegeAccountsReportHtml,
   printCollegeAccountsReportHtml,
 } from "@/lib/college-accounts-report-html";
-import { COLLEGE_FORMATIONS } from "@/lib/college-formations";
+import { COLLEGE_FORMATIONS, getFixedCollegeDepartmentNamesForFormation } from "@/lib/college-formations";
 import {
   changeCollegeAccountPasswordAction,
   createCollegeAccountAction,
   deleteCollegeAccountAction,
+  fetchFormationSubjectsForCollegeAccountAction,
   toggleCollegeAccountDisabledAction,
+  type FormationSubjectOption,
 } from "./actions";
+
+type BranchSelectRow = FormationSubjectOption & { selectable: boolean };
 
 const modalFieldClass =
   "mt-2 h-11 w-full rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)]";
@@ -147,11 +151,19 @@ function CreateAccountPlusIcon() {
 }
 
 function accountKindLabel(row: CollegeAccountRow) {
-  return row.account_kind === "FOLLOWUP" ? "متابعة مركزية" : "حساب تشكيل";
+  if (row.account_kind === "FOLLOWUP") return "متابعة مركزية";
+  if (row.account_kind === "DEPARTMENT") return "قسم / فرع";
+  return "حساب تشكيل";
 }
 
 function formationOrHolderCell(row: CollegeAccountRow) {
-  return row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.formation_name ?? "—");
+  if (row.account_kind === "FOLLOWUP") return row.holder_name ?? "—";
+  if (row.account_kind === "DEPARTMENT") {
+    const f = row.formation_name ?? "—";
+    const b = row.branch_name ?? "—";
+    return `${f} — ${b}`;
+  }
+  return row.formation_name ?? "—";
 }
 
 function CreateAccountButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
@@ -201,7 +213,10 @@ function CreateCollegeAccountDialogForm({
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(createCollegeAccountAction, null);
-  const [accountType, setAccountType] = useState<"none" | "formation" | "followup">("none");
+  const [accountType, setAccountType] = useState<"none" | "formation" | "followup" | "department">("none");
+  const [formationForDept, setFormationForDept] = useState("");
+  const [deptSubjects, setDeptSubjects] = useState<FormationSubjectOption[]>([]);
+  const [subjectsPending, startSubjectsTransition] = useTransition();
 
   const locked = accountType === "none";
 
@@ -221,12 +236,81 @@ function CreateCollegeAccountDialogForm({
 
   const fieldReadOnly = locked;
 
+  useEffect(() => {
+    if (accountType !== "department") {
+      setDeptSubjects([]);
+      setFormationForDept("");
+      return;
+    }
+    const fn = formationForDept.trim();
+    if (!fn) {
+      setDeptSubjects([]);
+      return;
+    }
+    let cancelled = false;
+    startSubjectsTransition(() => {
+      void (async () => {
+        const rows = await fetchFormationSubjectsForCollegeAccountAction(fn);
+        if (!cancelled) setDeptSubjects(rows);
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountType, formationForDept]);
+
+  const formationTrimmed = formationForDept.trim();
+  const usesFixedDepartmentList =
+    getFixedCollegeDepartmentNamesForFormation(formationTrimmed) !== null;
+
+  const branchSelectRows: BranchSelectRow[] = useMemo(() => {
+    const form = formationForDept.trim();
+    if (!form) return [];
+    const fixed = getFixedCollegeDepartmentNamesForFormation(form);
+    if (fixed) {
+      return fixed.map((name) => {
+        const found = deptSubjects.find((s) => s.branch_name.trim() === name);
+        if (found) return { ...found, selectable: true };
+        return {
+          id: "",
+          branch_name: name,
+          branch_type: "DEPARTMENT" as const,
+          selectable: false,
+        };
+      });
+    }
+    return deptSubjects.map((s) => ({ ...s, selectable: true }));
+  }, [formationForDept, deptSubjects]);
+
+  const branchSelectDisabled =
+    !formationTrimmed ||
+    subjectsPending ||
+    (!usesFixedDepartmentList && deptSubjects.length === 0);
+
+  const branchPlaceholderLabel = subjectsPending
+    ? "جاري التحميل…"
+    : !formationTrimmed
+      ? "— اختر التشكيل أولًا —"
+      : !usesFixedDepartmentList && deptSubjects.length === 0
+        ? "— لا توجد أقسام مسجّلة لهذا التشكيل —"
+        : usesFixedDepartmentList && !branchSelectRows.some((r) => r.selectable)
+          ? "— لا يوجد قسم مسجّل؛ أضف الاسم من لوحة الأقسام والفروع لنفس التشكيل —"
+          : "— اختر القسم أو الفرع —";
+
   return (
     <form action={formAction} className="flex max-h-[min(90vh,720px)] min-h-0 flex-col">
       <input
         type="hidden"
         name="account_kind"
-        value={accountType === "formation" ? "FORMATION" : accountType === "followup" ? "FOLLOWUP" : ""}
+        value={
+          accountType === "formation"
+            ? "FORMATION"
+            : accountType === "followup"
+              ? "FOLLOWUP"
+              : accountType === "department"
+                ? "DEPARTMENT"
+                : ""
+        }
       />
       <div className="px-8 pb-0 pt-8">
         <h2 className="text-xl font-bold text-[#0F172A]">إنشاء حساب</h2>
@@ -240,7 +324,7 @@ function CreateCollegeAccountDialogForm({
           <legend className="mb-1 text-sm font-bold text-[#334155]">
             نوع الحساب <span className="text-red-500">*</span>
           </legend>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
             <label
               className={`flex cursor-pointer items-center gap-3 rounded-[10px] border px-4 py-3.5 transition ${
                 accountType === "formation"
@@ -256,6 +340,22 @@ function CreateCollegeAccountDialogForm({
                 className="size-4 shrink-0 accent-blue-600"
               />
               <span className="text-sm font-semibold text-[#0F172A]">حساب تشكيل</span>
+            </label>
+            <label
+              className={`flex cursor-pointer items-center gap-3 rounded-[10px] border px-4 py-3.5 transition ${
+                accountType === "department"
+                  ? "border-blue-500 bg-blue-50/50 shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
+                  : "border-[#E2E8F0] bg-[#F8FAFC] hover:border-gray-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name={`${formId}-account-type-ui`}
+                checked={accountType === "department"}
+                onChange={() => setAccountType("department")}
+                className="size-4 shrink-0 accent-blue-600"
+              />
+              <span className="text-sm font-semibold text-[#0F172A]">قسم أو فرع</span>
             </label>
             <label
               className={`flex cursor-pointer items-center gap-3 rounded-[10px] border px-4 py-3.5 transition ${
@@ -305,6 +405,81 @@ function CreateCollegeAccountDialogForm({
               </label>
               <input
                 id={`${formId}-dean`}
+                name="dean_name"
+                required
+                minLength={2}
+                maxLength={200}
+                autoComplete="name"
+                className={modalFieldClass}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {accountType === "department" ? (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:items-start sm:gap-4">
+              <div className="min-w-0">
+                <label htmlFor={`${formId}-formation-dept`} className="block text-sm font-bold text-[#334155]">
+                  التشكيل التابع له القسم
+                </label>
+                <select
+                  id={`${formId}-formation-dept`}
+                  name="formation"
+                  required
+                  value={formationForDept}
+                  onChange={(e) => setFormationForDept(e.target.value)}
+                  className={`${modalFieldClass} cursor-pointer`}
+                >
+                  <option value="" disabled>
+                    — اختر التشكيل —
+                  </option>
+                  {COLLEGE_FORMATIONS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-[#64748B]">
+                  يجب أن يوجد حساب تشكيل وأن تُسجَّل الأقسام من لوحة ذلك التشكيل أولًا.
+                </p>
+              </div>
+              <div className="min-w-0">
+                <label htmlFor={`${formId}-branch-dept`} className="block text-sm font-bold text-[#334155]">
+                  القسم أو الفرع
+                </label>
+                <select
+                  id={`${formId}-branch-dept`}
+                  name="college_subject_id"
+                  required
+                  disabled={branchSelectDisabled}
+                  className={`${modalFieldClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-55`}
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    {branchPlaceholderLabel}
+                  </option>
+                  {branchSelectRows.map((s) =>
+                    s.selectable ? (
+                      <option key={s.id} value={s.id}>
+                        {s.branch_name}
+                        {s.branch_type === "BRANCH" ? " (فرع)" : ""}
+                      </option>
+                    ) : (
+                      <option key={s.branch_name} value="" disabled>
+                        {s.branch_name} — غير مسجّل في النظام
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+            </div>
+            <div className="min-w-0">
+              <label htmlFor={`${formId}-head-dept`} className="block text-sm font-bold text-[#334155]">
+                اسم رئيس القسم أو الفرع
+              </label>
+              <input
+                id={`${formId}-head-dept`}
                 name="dean_name"
                 required
                 minLength={2}
@@ -512,6 +687,7 @@ function IconDotsVertical(props: { className?: string }) {
 
 function computeCollegeAccountStats(rows: CollegeAccountRow[]) {
   let formation = 0;
+  let department = 0;
   let followup = 0;
   let active = 0;
   let disabled = 0;
@@ -520,6 +696,7 @@ function computeCollegeAccountStats(rows: CollegeAccountRow[]) {
   let otherStatus = 0;
   for (const r of rows) {
     if (r.account_kind === "FOLLOWUP") followup += 1;
+    else if (r.account_kind === "DEPARTMENT") department += 1;
     else formation += 1;
     switch (r.status) {
       case "ACTIVE":
@@ -543,6 +720,7 @@ function computeCollegeAccountStats(rows: CollegeAccountRow[]) {
   return {
     total,
     formation,
+    department,
     followup,
     active,
     disabled,
@@ -596,6 +774,7 @@ function CollegeAccountsStatsSection({ rows }: { rows: CollegeAccountRow[] }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <StatCard label="إجمالي الحسابات" value={s.total} hint="كل سجلات الكلية في القائمة" />
         <StatCard label="حسابات تشكيل" value={s.formation} accentClass="text-[#1D4ED8]" />
+        <StatCard label="حسابات أقسام/فروع" value={s.department} accentClass="text-[#0F766E]" />
         <StatCard label="متابعة مركزية" value={s.followup} accentClass="text-[#6366F1]" />
         <StatCard label="نشط" value={s.active} accentClass="text-emerald-700" hint="يمكن تسجيل الدخول" />
         <StatCard label="معطل" value={s.disabled} accentClass="text-slate-600" />
@@ -770,8 +949,9 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
       const data = rows.map((row) => ({
         "نوع الحساب": accountKindLabel(row),
         "اسم التشكيل":
-          row.account_kind === "FORMATION" ? (row.formation_name ?? "—") : "— (حساب متابعة)",
-        "عميد الكلية / صاحب الحساب":
+          row.account_kind === "FOLLOWUP" ? "— (متابعة مركزية)" : (row.formation_name ?? "—"),
+        "القسم / الفرع": row.account_kind === "DEPARTMENT" ? (row.branch_name ?? "—") : "—",
+        "عميد الكلية / رئيس القسم / صاحب الحساب":
           row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.dean_name ?? "—"),
         "اسم المستخدم": row.username,
         الحالة: statusLabel(row.status),
@@ -865,14 +1045,19 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
                     <td className="px-5 py-3.5 font-semibold text-[#0F172A]">
                       {row.account_kind === "FOLLOWUP" ? (
                         <span className="font-medium text-[#64748B]">متابعة مركزية</span>
+                      ) : row.account_kind === "DEPARTMENT" ? (
+                        <span className="block min-w-[10rem]">
+                          <span className="block">{row.formation_name ?? "—"}</span>
+                          <span className="mt-0.5 block text-xs font-medium text-[#64748B]">
+                            {row.branch_name ?? "—"}
+                          </span>
+                        </span>
                       ) : (
                         row.formation_name ?? "—"
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-gray-700">
-                      {row.account_kind === "FOLLOWUP"
-                        ? (row.holder_name ?? "—")
-                        : (row.dean_name ?? "—")}
+                      {row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.dean_name ?? "—")}
                     </td>
                     <td className="px-5 py-3.5 font-mono text-sm text-[#1E3A8A]">{row.username}</td>
                     <td className="px-5 py-3.5">
@@ -959,9 +1144,17 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
                   {formationOrHolderCell(viewRow)}
                 </p>
                 <p>
-                  <span className="font-bold text-[#64748B]">عميد الكلية / صاحب الحساب: </span>
+                  <span className="font-bold text-[#64748B]">
+                    {viewRow.account_kind === "DEPARTMENT" ? "رئيس القسم أو الفرع: " : "عميد الكلية / صاحب الحساب: "}
+                  </span>
                   {viewRow.account_kind === "FOLLOWUP" ? (viewRow.holder_name ?? "—") : (viewRow.dean_name ?? "—")}
                 </p>
+                {viewRow.account_kind === "DEPARTMENT" ? (
+                  <p>
+                    <span className="font-bold text-[#64748B]">اسم القسم المسجّل: </span>
+                    {viewRow.branch_name ?? "—"}
+                  </p>
+                ) : null}
                 <p>
                   <span className="font-bold text-[#64748B]">اسم المستخدم: </span>
                   <span className="font-mono font-semibold text-[#1E3A8A]">{viewRow.username}</span>

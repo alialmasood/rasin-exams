@@ -6,7 +6,7 @@ import {
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
-export type StudyType = "ANNUAL" | "SEMESTER" | "COURSES" | "BOLOGNA";
+export type StudyType = "ANNUAL" | "SEMESTER" | "COURSES" | "BOLOGNA" | "INTEGRATIVE";
 
 export type CollegeStudySubjectRow = {
   id: string;
@@ -23,11 +23,12 @@ export type CollegeStudySubjectRow = {
   updated_at: Date;
 };
 
-function normalizeStudyType(value: string): StudyType {
+export function normalizeStudyType(value: string): StudyType {
   const v = value.trim().toUpperCase();
   if (v === "SEMESTER") return "SEMESTER";
   if (v === "COURSES") return "COURSES";
   if (v === "BOLOGNA") return "BOLOGNA";
+  if (v === "INTEGRATIVE") return "INTEGRATIVE";
   return "ANNUAL";
 }
 
@@ -45,10 +46,14 @@ function normalizeStudyStageLevel(value: string): number {
   return n;
 }
 
-export async function listCollegeStudySubjectsByOwner(ownerUserId: string): Promise<CollegeStudySubjectRow[]> {
+export async function listCollegeStudySubjectsByOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeStudySubjectRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
@@ -62,19 +67,32 @@ export async function listCollegeStudySubjectsByOwner(ownerUserId: string): Prom
     created_at: Date;
     updated_at: Date;
   }>(
-    `SELECT s.id, s.owner_user_id, s.college_subject_id,
-            c.branch_name AS linked_branch_name,
-            COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
-            s.subject_name,
-            COALESCE(s.instructor_name, '') AS instructor_name,
-            COALESCE(s.study_type, 'ANNUAL') AS study_type,
-            COALESCE(s.study_stage_level, 1) AS study_stage_level,
-            s.created_at, s.updated_at
-     FROM college_study_subjects s
-     INNER JOIN college_subjects c ON c.id = s.college_subject_id
-     WHERE s.owner_user_id = $1
-     ORDER BY s.created_at DESC`,
-    [ownerUserId]
+    rid
+      ? `SELECT s.id, s.owner_user_id, s.college_subject_id,
+              c.branch_name AS linked_branch_name,
+              COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
+              s.subject_name,
+              COALESCE(s.instructor_name, '') AS instructor_name,
+              COALESCE(s.study_type, 'ANNUAL') AS study_type,
+              COALESCE(s.study_stage_level, 1) AS study_stage_level,
+              s.created_at, s.updated_at
+       FROM college_study_subjects s
+       INNER JOIN college_subjects c ON c.id = s.college_subject_id
+       WHERE s.owner_user_id = $1 AND s.college_subject_id = $2::bigint
+       ORDER BY s.created_at DESC`
+      : `SELECT s.id, s.owner_user_id, s.college_subject_id,
+              c.branch_name AS linked_branch_name,
+              COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
+              s.subject_name,
+              COALESCE(s.instructor_name, '') AS instructor_name,
+              COALESCE(s.study_type, 'ANNUAL') AS study_type,
+              COALESCE(s.study_stage_level, 1) AS study_stage_level,
+              s.created_at, s.updated_at
+       FROM college_study_subjects s
+       INNER JOIN college_subjects c ON c.id = s.college_subject_id
+       WHERE s.owner_user_id = $1
+       ORDER BY s.created_at DESC`,
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     id: String(row.id),

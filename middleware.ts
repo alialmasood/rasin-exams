@@ -31,6 +31,20 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
+    /** بوابة القسم — خارج /dashboard */
+    if (pathname.startsWith("/department")) {
+      if (role !== "COLLEGE" || collegeKind !== "DEPARTMENT") {
+        if (role === "COLLEGE" && collegeKind === "FOLLOWUP") {
+          return NextResponse.redirect(new URL("/tracking", request.url));
+        }
+        if (role === "COLLEGE") {
+          return NextResponse.redirect(new URL("/dashboard/college", request.url));
+        }
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+      return NextResponse.next();
+    }
+
     if (!pathname.startsWith("/dashboard")) {
       return NextResponse.next();
     }
@@ -39,6 +53,10 @@ export async function middleware(request: NextRequest) {
     if (role === "COLLEGE" && collegeKind === "FOLLOWUP") {
       if (pathname.startsWith("/dashboard")) {
         return NextResponse.redirect(new URL("/tracking", request.url));
+      }
+    } else if (role === "COLLEGE" && collegeKind === "DEPARTMENT") {
+      if (pathname.startsWith("/dashboard")) {
+        return NextResponse.redirect(new URL("/department", request.url));
       }
     } else if (role === "COLLEGE") {
       const allowed =
@@ -55,5 +73,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/tracking"],
+  matcher: ["/dashboard/:path*", "/tracking", "/department", "/department/:path*"],
 };

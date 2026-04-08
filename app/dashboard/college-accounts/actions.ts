@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import {
   createCollegeAccount,
+  listCollegeSubjectsByFormationNameForAdmin,
   setCollegeAccountUserDisabled,
   deleteCollegeAccountPermanently,
   updateCollegeAccountUserPassword,
@@ -16,6 +17,19 @@ export type CreateCollegeAccountState = { ok: true } | { ok: false; message: str
 
 export type CollegeAccountMutationState = { ok: true } | { ok: false; message: string } | null;
 
+export type FormationSubjectOption = { id: string; branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" };
+
+/** لتحميل أقسام التشكيل في نموذج إنشاء حساب قسم (واجهة الإدارة فقط). */
+export async function fetchFormationSubjectsForCollegeAccountAction(
+  formationName: string
+): Promise<FormationSubjectOption[]> {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role as UserRole)) {
+    return [];
+  }
+  return listCollegeSubjectsByFormationNameForAdmin(formationName);
+}
+
 export async function createCollegeAccountAction(
   _prev: CreateCollegeAccountState,
   formData: FormData
@@ -26,9 +40,16 @@ export async function createCollegeAccountAction(
   }
 
   const kindRaw = String(formData.get("account_kind") ?? "").trim().toUpperCase();
-  const accountKind = kindRaw === "FOLLOWUP" ? "FOLLOWUP" : kindRaw === "FORMATION" ? "FORMATION" : null;
+  const accountKind =
+    kindRaw === "FOLLOWUP"
+      ? "FOLLOWUP"
+      : kindRaw === "FORMATION"
+        ? "FORMATION"
+        : kindRaw === "DEPARTMENT"
+          ? "DEPARTMENT"
+          : null;
   if (!accountKind) {
-    return { ok: false, message: "يرجى اختيار نوع الحساب (تشكيل أو متابعة)." };
+    return { ok: false, message: "يرجى اختيار نوع الحساب." };
   }
 
   let result: Awaited<ReturnType<typeof createCollegeAccount>>;
@@ -38,6 +59,7 @@ export async function createCollegeAccountAction(
       formationName: String(formData.get("formation") ?? ""),
       deanName: String(formData.get("dean_name") ?? ""),
       holderName: String(formData.get("holder_name") ?? ""),
+      collegeSubjectId: String(formData.get("college_subject_id") ?? "").trim() || undefined,
       username: String(formData.get("username") ?? ""),
       password: String(formData.get("password") ?? ""),
       confirmPassword: String(formData.get("confirm_password") ?? ""),

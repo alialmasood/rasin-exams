@@ -1,6 +1,9 @@
 import { buildExamSituationReportHtml } from "@/lib/college-exam-situation-report-html";
 import type { CentralTrackingExamRow, ExamSituationDetail } from "@/lib/college-exam-situations";
 import { parseTimeToMinutes } from "@/lib/exam-situation-window";
+import { EMPTY_EXTERNAL_ROOM_STAFF } from "@/lib/room-external-staff";
+import { EMPTY_SITUATION_CHEATING_CASES } from "@/lib/situation-cheating-cases";
+import { EMPTY_SITUATION_STAFF_ABSENCES } from "@/lib/situation-staff-absences";
 
 function durationMinutes(start: string, end: string): number {
   const a = parseTimeToMinutes(start);
@@ -45,6 +48,7 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     branch_head_name: "",
     supervisor_name: "",
     invigilators: "",
+    room_external_staff: { ...EMPTY_EXTERNAL_ROOM_STAFF, external_invigilators: [] },
     absence_names: row.absenceDetails.trim() && row.absenceDetails !== "—" ? row.absenceDetails : "",
     notes: notesTrim && notesTrim !== "—" ? notesTrim : null,
     term_label: row.termLabel?.trim() ? row.termLabel.trim() : null,
@@ -57,6 +61,8 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     absence_evening: row.absencesEvening,
     absence_names_morning: namesM,
     absence_names_evening: namesE,
+    situation_staff_absences: { ...EMPTY_SITUATION_STAFF_ABSENCES, invigilator_absences: [] },
+    situation_cheating_cases: { ...EMPTY_SITUATION_CHEATING_CASES, cases: [] },
   };
 }
 

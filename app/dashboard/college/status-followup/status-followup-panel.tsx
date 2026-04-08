@@ -1,5 +1,6 @@
 "use client";
 
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import { useRouter } from "next/navigation";
 import { useMemo, useTransition } from "react";
 import type { ExamDayUploadSummary, StatusFollowupRow } from "@/lib/college-exam-situations";
@@ -168,6 +169,7 @@ export function StatusFollowupPanel({
   /** تواريخ امتحان سبق حفظ موقفها (منع التكرار في الواجهة). */
   examDatesAlreadySaved: string[];
 }) {
+  const portalBase = useCollegePortalBasePath();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -577,8 +579,8 @@ export function StatusFollowupPanel({
                             onClick={() =>
                               router.push(
                                 r.kind === "schedule"
-                                  ? `/dashboard/college/upload-status/${r.schedule_id}`
-                                  : `/dashboard/college/exam-situation-form/${r.form_submission_id}`
+                                  ? `${portalBase}/upload-status/${r.schedule_id}`
+                                  : `${portalBase}/exam-situation-form/${r.form_submission_id}`
                               )
                             }
                             className="rounded-lg border border-[#1E3A8A] bg-white px-3 py-1.5 text-xs font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"

@@ -1,5 +1,6 @@
 "use client";
 
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { SituationFormA4Preview } from "@/components/situation-form/situation-form-a4-preview";
@@ -35,6 +36,7 @@ function minDateIsoInBaghdad(now = new Date()): string {
 }
 
 export function ExamSituationUploadClient({ collegeLabel }: { collegeLabel: string }) {
+  const portalBase = useCollegePortalBasePath();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const formId = useId();
@@ -173,7 +175,7 @@ export function ExamSituationUploadClient({ collegeLabel }: { collegeLabel: stri
         window.setTimeout(() => setNotice(null), 8000);
         return;
       }
-      router.push("/dashboard/college/status-followup");
+      router.push(`${portalBase}/status-followup`);
     });
   }
 

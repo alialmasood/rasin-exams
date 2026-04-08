@@ -11,10 +11,14 @@ export type CollegeSubjectRow = {
   updated_at: Date;
 };
 
-export async function listCollegeSubjectsByOwner(ownerUserId: string): Promise<CollegeSubjectRow[]> {
+export async function listCollegeSubjectsByOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeSubjectRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
@@ -24,12 +28,18 @@ export async function listCollegeSubjectsByOwner(ownerUserId: string): Promise<C
     created_at: Date;
     updated_at: Date;
   }>(
-    `SELECT id, owner_user_id, COALESCE(branch_type, 'DEPARTMENT') AS branch_type,
-            branch_name, branch_head_name, created_at, updated_at
-     FROM college_subjects
-     WHERE owner_user_id = $1
-     ORDER BY created_at DESC`,
-    [ownerUserId]
+    rid
+      ? `SELECT id, owner_user_id, COALESCE(branch_type, 'DEPARTMENT') AS branch_type,
+                branch_name, branch_head_name, created_at, updated_at
+         FROM college_subjects
+         WHERE owner_user_id = $1 AND id = $2::bigint
+         ORDER BY created_at DESC`
+      : `SELECT id, owner_user_id, COALESCE(branch_type, 'DEPARTMENT') AS branch_type,
+                branch_name, branch_head_name, created_at, updated_at
+         FROM college_subjects
+         WHERE owner_user_id = $1
+         ORDER BY created_at DESC`,
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     id: String(row.id),
@@ -133,34 +143,57 @@ export type CollegeSubjectUsageRow = {
   exam_schedules_count: number;
 };
 
-export async function listCollegeSubjectUsageByOwner(ownerUserId: string): Promise<CollegeSubjectUsageRow[]> {
+export async function listCollegeSubjectUsageByOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeSubjectUsageRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     college_subject_id: string | number;
     study_subjects_count: string | number;
     exam_schedules_count: string | number;
   }>(
-    `SELECT c.id AS college_subject_id,
-            COALESCE(ss.cnt, 0)::bigint AS study_subjects_count,
-            COALESCE(ex.cnt, 0)::bigint AS exam_schedules_count
-     FROM college_subjects c
-     LEFT JOIN (
-       SELECT college_subject_id, COUNT(*)::int AS cnt
-       FROM college_study_subjects
-       WHERE owner_user_id = $1
-       GROUP BY college_subject_id
-     ) ss ON ss.college_subject_id = c.id
-     LEFT JOIN (
-       SELECT college_subject_id, COUNT(*)::int AS cnt
-       FROM college_exam_schedules
-       WHERE owner_user_id = $1
-       GROUP BY college_subject_id
-     ) ex ON ex.college_subject_id = c.id
-     WHERE c.owner_user_id = $1
-     ORDER BY c.created_at DESC`,
-    [ownerUserId]
+    rid
+      ? `SELECT c.id AS college_subject_id,
+              COALESCE(ss.cnt, 0)::bigint AS study_subjects_count,
+              COALESCE(ex.cnt, 0)::bigint AS exam_schedules_count
+       FROM college_subjects c
+       LEFT JOIN (
+         SELECT college_subject_id, COUNT(*)::int AS cnt
+         FROM college_study_subjects
+         WHERE owner_user_id = $1 AND college_subject_id = $2::bigint
+         GROUP BY college_subject_id
+       ) ss ON ss.college_subject_id = c.id
+       LEFT JOIN (
+         SELECT college_subject_id, COUNT(*)::int AS cnt
+         FROM college_exam_schedules
+         WHERE owner_user_id = $1 AND college_subject_id = $2::bigint
+         GROUP BY college_subject_id
+       ) ex ON ex.college_subject_id = c.id
+       WHERE c.owner_user_id = $1 AND c.id = $2::bigint
+       ORDER BY c.created_at DESC`
+      : `SELECT c.id AS college_subject_id,
+              COALESCE(ss.cnt, 0)::bigint AS study_subjects_count,
+              COALESCE(ex.cnt, 0)::bigint AS exam_schedules_count
+       FROM college_subjects c
+       LEFT JOIN (
+         SELECT college_subject_id, COUNT(*)::int AS cnt
+         FROM college_study_subjects
+         WHERE owner_user_id = $1
+         GROUP BY college_subject_id
+       ) ss ON ss.college_subject_id = c.id
+       LEFT JOIN (
+         SELECT college_subject_id, COUNT(*)::int AS cnt
+         FROM college_exam_schedules
+         WHERE owner_user_id = $1
+         GROUP BY college_subject_id
+       ) ex ON ex.college_subject_id = c.id
+       WHERE c.owner_user_id = $1
+       ORDER BY c.created_at DESC`,
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     college_subject_id: String(row.college_subject_id),

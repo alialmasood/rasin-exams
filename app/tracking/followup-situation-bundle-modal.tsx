@@ -5,12 +5,18 @@ import { buildExamSituationBundleReportHtml } from "@/lib/college-exam-situation
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { formatExamClock12hAr } from "@/lib/exam-situation-window";
+import { parseExternalRoomStaffFromDb } from "@/lib/room-external-staff";
+import { parseSituationCheatingCasesFromDb } from "@/lib/situation-cheating-cases";
+import { parseSituationStaffAbsencesFromDb } from "@/lib/situation-staff-absences";
 
 function deserializeSession(s: FollowupExamSituationBundleJson["sessions"][0]): ExamSituationDetail {
   return {
     ...s,
     head_submitted_at: s.head_submitted_at ? new Date(s.head_submitted_at) : null,
     dean_reviewed_at: s.dean_reviewed_at ? new Date(s.dean_reviewed_at) : null,
+    situation_staff_absences: parseSituationStaffAbsencesFromDb(s.situation_staff_absences),
+    situation_cheating_cases: parseSituationCheatingCasesFromDb(s.situation_cheating_cases),
+    room_external_staff: parseExternalRoomStaffFromDb(s.room_external_staff),
   };
 }
 

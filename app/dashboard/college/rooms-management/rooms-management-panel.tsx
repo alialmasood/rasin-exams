@@ -16,6 +16,12 @@ import {
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import {
+  EMPTY_EXTERNAL_ROOM_STAFF,
+  MAX_EXTERNAL_INVIGILATORS,
+  formatExternalStaffPlainTextForExport,
+  type ExternalRoomStaffStored,
+} from "@/lib/room-external-staff";
+import {
   buildCollegeExamRoomsReportHtml,
   printCollegeExamRoomsReportHtml,
 } from "@/lib/college-rooms-report-html";
@@ -262,6 +268,14 @@ function RoomFields({
     }
   }, [dualExam, exam2SubjectId, subjects, firstUndergrad, undergradStageOptions]);
 
+  const extStaffSyncKey = JSON.stringify(d.external_room_staff ?? null);
+  const [extStaff, setExtStaff] = useState<ExternalRoomStaffStored>(
+    () => d.external_room_staff ?? EMPTY_EXTERNAL_ROOM_STAFF
+  );
+  useEffect(() => {
+    setExtStaff(d.external_room_staff ?? EMPTY_EXTERNAL_ROOM_STAFF);
+  }, [extStaffSyncKey]);
+
   const selectedSubject1 = useMemo(
     () => (exam1SubjectId ? subjects.find((s) => s.id === exam1SubjectId) : undefined),
     [exam1SubjectId, subjects],
@@ -340,6 +354,120 @@ function RoomFields({
             defaultValue={d.invigilators ?? ""}
             className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
           />
+        </div>
+      </div>
+
+      <input type="hidden" name="external_room_staff_json" value={JSON.stringify(extStaff)} readOnly />
+
+      <div className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/40 px-4 py-3">
+        <p className="text-sm font-bold text-amber-950">مشرف أو مراقبون من خارج تشكيل الكلية (اختياري)</p>
+        <p className="text-xs leading-relaxed text-amber-900/85">
+          إن وُجد مشرف أو مراقب من تشكيل آخر، حدّد ذلك هنا مع اسم التشكيل التابع له. أسماء المشرف والمراقبين الداخليين تُعرَف في
+          الحقول أعلاه.
+        </p>
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-[#334155]">
+          <input
+            type="checkbox"
+            checked={extStaff.supervisor_is_external}
+            onChange={(ev) =>
+              setExtStaff((prev) => ({ ...prev, supervisor_is_external: ev.target.checked }))
+            }
+            className="h-4 w-4 rounded border-amber-300 text-[#B45309] focus:ring-amber-400"
+          />
+          مشرف القاعة من خارج التشكيل
+        </label>
+        {extStaff.supervisor_is_external ? (
+          <div className="min-w-0">
+            <label className="mb-1 block text-xs font-bold text-[#334155]">التشكيل / الكلية التابع لها المشرف</label>
+            <input
+              type="text"
+              value={extStaff.supervisor_formation_name}
+              onChange={(ev) =>
+                setExtStaff((prev) => ({ ...prev, supervisor_formation_name: ev.target.value }))
+              }
+              placeholder="مثال: كلية الهندسة — قسم المدني"
+              className="h-11 w-full rounded-xl border border-amber-200/90 bg-white px-3 text-sm outline-none focus:border-amber-500"
+            />
+          </div>
+        ) : null}
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-bold text-[#334155]">مراقبون من خارج التشكيل</span>
+            <button
+              type="button"
+              onClick={() =>
+                setExtStaff((prev) =>
+                  prev.external_invigilators.length >= MAX_EXTERNAL_INVIGILATORS
+                    ? prev
+                    : {
+                        ...prev,
+                        external_invigilators: [
+                          ...prev.external_invigilators,
+                          { name: "", formation_name: "" },
+                        ],
+                      }
+                )
+              }
+              className="rounded-lg text-xs font-bold text-[#B45309] underline decoration-amber-400 underline-offset-2 hover:text-amber-950"
+            >
+              إضافة مراقب خارجي
+            </button>
+          </div>
+          {extStaff.external_invigilators.length === 0 ? (
+            <p className="text-[11px] text-[#64748B]">لا يوجد — استخدم «إضافة» عند وجود مراقب من تشكيل آخر.</p>
+          ) : (
+            <ul className="space-y-2">
+              {extStaff.external_invigilators.map((inv, idx) => (
+                <li
+                  key={idx}
+                  className="flex flex-col gap-2 rounded-xl border border-amber-100 bg-white/90 p-3 sm:flex-row sm:items-end"
+                >
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-0.5 block text-[10px] font-bold text-[#64748B]">اسم المراقب</label>
+                    <input
+                      type="text"
+                      value={inv.name}
+                      onChange={(ev) =>
+                        setExtStaff((prev) => {
+                          const next = [...prev.external_invigilators];
+                          next[idx] = { ...next[idx]!, name: ev.target.value };
+                          return { ...prev, external_invigilators: next };
+                        })
+                      }
+                      className="h-10 w-full rounded-lg border border-[#E2E8F0] px-2.5 text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-0.5 block text-[10px] font-bold text-[#64748B]">التشكيل التابع له</label>
+                    <input
+                      type="text"
+                      value={inv.formation_name}
+                      onChange={(ev) =>
+                        setExtStaff((prev) => {
+                          const next = [...prev.external_invigilators];
+                          next[idx] = { ...next[idx]!, formation_name: ev.target.value };
+                          return { ...prev, external_invigilators: next };
+                        })
+                      }
+                      className="h-10 w-full rounded-lg border border-[#E2E8F0] px-2.5 text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtStaff((prev) => ({
+                        ...prev,
+                        external_invigilators: prev.external_invigilators.filter((_, i) => i !== idx),
+                      }))
+                    }
+                    className="h-10 shrink-0 rounded-lg border border-red-200 px-3 text-xs font-bold text-red-700 hover:bg-red-50"
+                  >
+                    حذف
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -1021,7 +1149,20 @@ function RowDetailHint({
           ) : (
             <span className="text-[#94A3B8]">—</span>
           )}
+          {row.external_room_staff.external_invigilators.length > 0 ? (
+            <span className="mt-1 block text-xs text-amber-900">
+              مراقبون خارج التشكيل:{" "}
+              {row.external_room_staff.external_invigilators
+                .map((x) => `${x.name}${x.formation_name.trim() ? ` (${x.formation_name.trim()})` : ""}`)
+                .join("؛ ")}
+            </span>
+          ) : null}
         </li>
+        {row.external_room_staff.supervisor_is_external && row.external_room_staff.supervisor_formation_name.trim() ? (
+          <li className="text-xs text-amber-900">
+            مشرف القاعة خارج التشكيل — التشكيل: {row.external_room_staff.supervisor_formation_name.trim()}
+          </li>
+        ) : null}
       </ul>
       {aggregateSlot2 ? (
         <p className="rounded-lg border border-[#C4B5FD] bg-[#F5F3FF] px-3 py-2 text-xs leading-relaxed text-[#4C1D95]">
@@ -1212,12 +1353,17 @@ export function RoomsManagementPanel({
             : hints
                 .map((h) => `${h.exam_date} ${h.meal_slot_label} ${h.start_time}-${h.end_time} (${h.study_subject_name})`)
                 .join("؛ ");
+        const { supervisorLine, invigilatorsLine } = formatExternalStaffPlainTextForExport(
+          r.supervisor_name,
+          r.invigilators,
+          r.external_room_staff
+        );
         return {
           الكلية: collegeLabel,
           التسلسل: r.serial_no,
           "اسم القاعة": r.room_name,
-          "مشرف القاعة": r.supervisor_name,
-          المراقبون: r.invigilators,
+          "مشرف القاعة": supervisorLine,
+          المراقبون: invigilatorsLine,
           "المادة الامتحانية الأولى": r.study_subject_name,
           "المرحلة (الامتحان الأول)": roomStageExportLabel(r.stage_level ?? 1),
           "المادة الامتحانية الثانية": r.study_subject_name_2 || "",
@@ -1469,10 +1615,26 @@ export function RoomsManagementPanel({
                       {row.room_name}
                     </td>
                     <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-[11px] leading-snug text-[#334155]">
-                      {row.supervisor_name}
+                      <span className="block">{row.supervisor_name}</span>
+                      {row.external_room_staff.supervisor_is_external &&
+                      row.external_room_staff.supervisor_formation_name.trim() ? (
+                        <span className="mt-1 block text-[9px] font-semibold text-amber-900">
+                          خارج التشكيل — {row.external_room_staff.supervisor_formation_name.trim()}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-top break-words text-right text-[#334155]">
                       <StackedNamesCell value={row.invigilators} />
+                      {row.external_room_staff.external_invigilators.length > 0 ? (
+                        <div className="mt-1.5 space-y-0.5 border-t border-amber-100 pt-1.5 text-[9px] leading-snug text-amber-900">
+                          {row.external_room_staff.external_invigilators.map((x, i) => (
+                            <div key={`${i}-${x.name.slice(0, 40)}`}>
+                              <span className="font-bold">خارجي:</span> {x.name}
+                              {x.formation_name.trim() ? ` — ${x.formation_name.trim()}` : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-right">
                       <SubjectsCell

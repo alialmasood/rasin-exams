@@ -22,17 +22,28 @@ export async function loginAction(formData: FormData) {
   const uid = String(user.id);
 
   /** يُحدَّد لـ COLLEGE فقط — لاستخدامه بعد إنشاء الجلسة (خارج try حتى لا يلتقط redirect خطأ NEXT_REDIRECT). */
-  let college_account_kind: "FORMATION" | "FOLLOWUP" | undefined;
+  let college_account_kind: "FORMATION" | "FOLLOWUP" | "DEPARTMENT" | undefined;
+  let college_subject_id: string | undefined;
 
   try {
     if (user.role === "COLLEGE") {
       const profile = await getCollegeProfileByUserId(uid);
-      college_account_kind = profile?.account_kind === "FOLLOWUP" ? "FOLLOWUP" : "FORMATION";
+      college_account_kind =
+        profile?.account_kind === "FOLLOWUP"
+          ? "FOLLOWUP"
+          : profile?.account_kind === "DEPARTMENT"
+            ? "DEPARTMENT"
+            : "FORMATION";
+      college_subject_id =
+        profile?.account_kind === "DEPARTMENT" && profile.college_subject_id
+          ? profile.college_subject_id
+          : undefined;
       await createSession({
         uid,
         username: user.username,
         role: user.role,
         college_account_kind,
+        college_subject_id,
       });
     } else {
       await createSession({
@@ -48,6 +59,9 @@ export async function loginAction(formData: FormData) {
   if (user.role === "COLLEGE") {
     if (college_account_kind === "FOLLOWUP") {
       redirect("/tracking");
+    }
+    if (college_account_kind === "DEPARTMENT") {
+      redirect("/department");
     }
     redirect("/dashboard/college");
   }

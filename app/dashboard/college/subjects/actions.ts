@@ -26,6 +26,9 @@ export async function createCollegeSubjectAction(
   if (!session || session.role !== "COLLEGE") {
     return { ok: false, message: "غير مصرح لك بهذه العملية." };
   }
+  if (session.college_account_kind === "DEPARTMENT") {
+    return { ok: false, message: "إدارة الأقسام متاحة لحساب التشكيل فقط." };
+  }
   try {
     const result = await createCollegeSubject({
       ownerUserId: session.uid,
@@ -55,6 +58,9 @@ export async function updateCollegeSubjectAction(
   if (!session || session.role !== "COLLEGE") {
     return { ok: false, message: "غير مصرح لك بهذه العملية." };
   }
+  if (session.college_account_kind === "DEPARTMENT") {
+    return { ok: false, message: "إدارة الأقسام متاحة لحساب التشكيل فقط." };
+  }
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف العنصر غير صالح." };
   try {
@@ -80,6 +86,9 @@ export async function deleteCollegeSubjectAction(
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") {
     return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  }
+  if (session.college_account_kind === "DEPARTMENT") {
+    return { ok: false, message: "إدارة الأقسام متاحة لحساب التشكيل فقط." };
   }
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف العنصر غير صالح." };

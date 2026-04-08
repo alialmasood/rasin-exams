@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 
 export type CollegeQuickActionKey =
   | "openAddBranch"
@@ -74,13 +75,6 @@ export function useCollegeQuickActionsRegister(
   }, [ctx, ...deps]);
 }
 
-const QUICK_ROUTES: Record<CollegeQuickActionKey, { path: string; param: string }> = {
-  openAddBranch: { path: "/dashboard/college/subjects", param: "branch" },
-  openAddStudySubject: { path: "/dashboard/college/study-subjects", param: "study-subject" },
-  openAddRoom: { path: "/dashboard/college/rooms-management", param: "room" },
-  openAddExamSchedule: { path: "/dashboard/college/exam-schedules", param: "exam-schedule" },
-};
-
 const ACTION_ITEMS: Array<{
   key: CollegeQuickActionKey;
   label: string;
@@ -91,10 +85,26 @@ const ACTION_ITEMS: Array<{
   { key: "openAddExamSchedule", label: "إضافة جدول امتحاني" },
 ];
 
+function quickRoutesForBase(
+  base: string
+): Record<CollegeQuickActionKey, { path: string; param: string }> {
+  return {
+    openAddBranch: { path: `${base}/subjects`, param: "branch" },
+    openAddStudySubject: { path: `${base}/study-subjects`, param: "study-subject" },
+    openAddRoom: { path: `${base}/rooms-management`, param: "room" },
+    openAddExamSchedule: { path: `${base}/exam-schedules`, param: "exam-schedule" },
+  };
+}
+
 function CollegeFloatingQuickActions() {
   const ctx = useContext(CollegeQuickActionsContext);
   const router = useRouter();
+  const base = useCollegePortalBasePath();
+  const isDepartmentPortal = base === "/department";
   const [open, setOpen] = useState(false);
+  const visibleActions = isDepartmentPortal
+    ? ACTION_ITEMS.filter((i) => i.key !== "openAddBranch")
+    : ACTION_ITEMS;
 
   useEffect(() => {
     if (!open) return;
@@ -112,7 +122,7 @@ function CollegeFloatingQuickActions() {
     if (typeof fn === "function") {
       fn();
     } else {
-      const { path, param } = QUICK_ROUTES[key];
+      const { path, param } = quickRoutesForBase(base)[key];
       router.push(`${path}?quick=${encodeURIComponent(param)}`);
     }
     setOpen(false);
@@ -137,7 +147,7 @@ function CollegeFloatingQuickActions() {
             role="menu"
             aria-label="إجراءات سريعة"
           >
-            {ACTION_ITEMS.map(({ key, label }) => (
+            {visibleActions.map(({ key, label }) => (
               <li key={key}>
                 <button
                   type="button"

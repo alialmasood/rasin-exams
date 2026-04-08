@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -155,14 +156,19 @@ function ReportTable({
   );
 }
 
-const NAV_LINKS: { href: string; label: string; hash: string }[] = [
-  { href: "/dashboard/college/subjects", label: "الأقسام والفروع", hash: "report-branches" },
-  { href: "/dashboard/college/study-subjects", label: "المواد الدراسية", hash: "report-study" },
-  { href: "/dashboard/college/rooms-management", label: "إدارة القاعات", hash: "report-rooms" },
-  { href: "/dashboard/college/exam-schedules", label: "الجداول الامتحانية", hash: "report-schedules" },
-  { href: "/dashboard/college/upload-status", label: "رفع الموقف", hash: "report-upload" },
-  { href: "/dashboard/college/status-followup", label: "متابعة المواقف", hash: "report-followup" },
-];
+function portalReportNavLinks(portalBase: string): { href: string; label: string; hash: string }[] {
+  type Item = { path: string; label: string; hash: string };
+  const items: Item[] = [
+    { path: "subjects", label: "الأقسام والفروع", hash: "report-branches" },
+    { path: "study-subjects", label: "المواد الدراسية", hash: "report-study" },
+    { path: "rooms-management", label: "إدارة القاعات", hash: "report-rooms" },
+    { path: "exam-schedules", label: "الجداول الامتحانية", hash: "report-schedules" },
+    { path: "upload-status", label: "رفع الموقف", hash: "report-upload" },
+    { path: "status-followup", label: "متابعة المواقف", hash: "report-followup" },
+  ];
+  const filtered = portalBase === "/department" ? items.filter((i) => i.path !== "subjects") : items;
+  return filtered.map((i) => ({ href: `${portalBase}/${i.path}`, label: i.label, hash: i.hash }));
+}
 
 export function CollegeStatisticsPanel({
   collegeLabel,
@@ -171,6 +177,9 @@ export function CollegeStatisticsPanel({
   collegeLabel: string;
   data: CollegeStatisticsPageData;
 }) {
+  const portalBase = useCollegePortalBasePath();
+  const reportNavLinks = useMemo(() => portalReportNavLinks(portalBase), [portalBase]);
+
   const { snapshot, dayUploads, branchRows, rooms, deanBreakdown, schedulesByStudyType, roomCapacitySummary, generatedAtIso } =
     data;
 
@@ -297,7 +306,7 @@ export function CollegeStatisticsPanel({
         className="flex flex-wrap gap-2 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3 print:hidden"
         aria-label="انتقال سريع للأقسام"
       >
-        {NAV_LINKS.map((n) => (
+        {reportNavLinks.map((n) => (
           <a
             key={n.hash}
             href={`#${n.hash}`}
@@ -368,7 +377,7 @@ export function CollegeStatisticsPanel({
             <p className="mt-1 text-xs text-[#64748B]">يُطابق البيانات في صفحة إدارة الأقسام والفروع.</p>
           </div>
           <Link
-            href="/dashboard/college/subjects"
+            href={`${portalBase}/subjects`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←
@@ -411,7 +420,7 @@ export function CollegeStatisticsPanel({
             <p className="mt-1 text-xs text-[#64748B]">التوزيع حسب نوع الدراسة وجلسات الجدول المرتبطة بكل نوع.</p>
           </div>
           <Link
-            href="/dashboard/college/study-subjects"
+            href={`${portalBase}/study-subjects`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←
@@ -479,7 +488,7 @@ export function CollegeStatisticsPanel({
             </p>
           </div>
           <Link
-            href="/dashboard/college/rooms-management"
+            href={`${portalBase}/rooms-management`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←
@@ -539,7 +548,7 @@ export function CollegeStatisticsPanel({
             <p className="mt-1 text-xs text-[#64748B]">حالة سير العمل، التوزيع حسب القسم، وكثافة الجلسات حسب اليوم.</p>
           </div>
           <Link
-            href="/dashboard/college/exam-schedules"
+            href={`${portalBase}/exam-schedules`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←
@@ -667,7 +676,7 @@ export function CollegeStatisticsPanel({
             <p className="mt-1 text-xs text-[#64748B]">ما يخص الجلسات المعتمدة أو المرفوعة للمتابعة — حسب صفحة حالة الرفع.</p>
           </div>
           <Link
-            href="/dashboard/college/upload-status"
+            href={`${portalBase}/upload-status`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←
@@ -771,7 +780,7 @@ export function CollegeStatisticsPanel({
             <p className="mt-1 text-xs text-[#64748B]">تصنيف سجلات تقارير الموقف حسب حالة اعتماد العميد أو المعاون العلمي.</p>
           </div>
           <Link
-            href="/dashboard/college/status-followup"
+            href={`${portalBase}/status-followup`}
             className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
           >
             فتح الصفحة ←

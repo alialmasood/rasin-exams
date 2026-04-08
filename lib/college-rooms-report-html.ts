@@ -1,4 +1,5 @@
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
+import { formatExternalStaffPlainTextForExport } from "@/lib/room-external-staff";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 
 function escapeHtml(s: string): string {
@@ -81,12 +82,17 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
           : hints
               .map((h) => `${h.exam_date} ${h.start_time}–${h.end_time} (${h.study_subject_name})`)
               .join("؛ ");
+      const { supervisorLine, invigilatorsLine } = formatExternalStaffPlainTextForExport(
+        row.supervisor_name,
+        row.invigilators,
+        row.external_room_staff
+      );
       return `<tr>
         <td>${index + 1}</td>
         <td class="num">${row.serial_no}</td>
         <td><strong>${e(row.room_name)}</strong></td>
-        <td>${e(row.supervisor_name)}</td>
-        <td>${e(row.invigilators || "—")}</td>
+        <td>${e(supervisorLine)}</td>
+        <td>${e(invigilatorsLine)}</td>
         <td>${e(row.study_subject_name)}</td>
         <td class="small">${instructorCell(row, 1, e)}</td>
         <td class="num">${row.stage_level ?? 1}</td>

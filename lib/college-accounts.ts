@@ -3,7 +3,14 @@ import { hashPassword } from "@/lib/password";
 import { ensureCoreSchema } from "@/lib/schema";
 import { isValidFormationName } from "@/lib/college-formations";
 
-export type CollegeAccountKind = "FORMATION" | "FOLLOWUP";
+export type CollegeAccountKind = "FORMATION" | "FOLLOWUP" | "DEPARTMENT";
+
+function normalizeAccountKindDb(raw: string): CollegeAccountKind {
+  const u = raw.trim().toUpperCase();
+  if (u === "FOLLOWUP") return "FOLLOWUP";
+  if (u === "DEPARTMENT") return "DEPARTMENT";
+  return "FORMATION";
+}
 
 export type CollegeAccountRow = {
   id: string;
@@ -12,6 +19,8 @@ export type CollegeAccountRow = {
   formation_name: string | null;
   dean_name: string | null;
   holder_name: string | null;
+  /** للعرض: اسم القسم/الفرع عند حساب قسم */
+  branch_name: string | null;
   username: string;
   status: string;
   created_at: Date;
@@ -28,6 +37,7 @@ export async function listCollegeAccounts(): Promise<CollegeAccountRow[]> {
     formation_name: string | null;
     dean_name: string | null;
     holder_name: string | null;
+    branch_name: string | null;
     username: string;
     status: string;
     created_at: Date;
@@ -35,9 +45,11 @@ export async function listCollegeAccounts(): Promise<CollegeAccountRow[]> {
     `SELECT p.id, p.user_id,
             COALESCE(p.account_kind, 'FORMATION') AS account_kind,
             p.formation_name, p.dean_name, p.holder_name,
+            sub.branch_name AS branch_name,
             u.username, u.status, p.created_at
      FROM college_account_profiles p
      INNER JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+     LEFT JOIN college_subjects sub ON sub.id = p.college_subject_id
      ORDER BY COALESCE(p.account_kind, 'FORMATION') ASC,
               p.formation_name ASC NULLS LAST,
               p.holder_name ASC NULLS LAST`
@@ -45,10 +57,11 @@ export async function listCollegeAccounts(): Promise<CollegeAccountRow[]> {
   return r.rows.map((row) => ({
     id: String(row.id),
     user_id: String(row.user_id),
-    account_kind: (row.account_kind === "FOLLOWUP" ? "FOLLOWUP" : "FORMATION") as CollegeAccountKind,
+    account_kind: normalizeAccountKindDb(String(row.account_kind)),
     formation_name: row.formation_name,
     dean_name: row.dean_name,
     holder_name: row.holder_name,
+    branch_name: row.branch_name,
     username: row.username,
     status: row.status,
     created_at: row.created_at,
@@ -60,6 +73,11 @@ export type CollegeProfileRow = {
   formation_name: string | null;
   dean_name: string | null;
   holder_name: string | null;
+  college_subject_id: string | null;
+  scoped_branch_name: string | null;
+  scoped_branch_type: "DEPARTMENT" | "BRANCH" | null;
+  /** مالك بيانات التشكيل (لحساب القسم) */
+  tenant_owner_user_id: string | null;
 };
 
 export async function getCollegeProfileByUserId(userId: string): Promise<CollegeProfileRow | null> {
@@ -71,22 +89,64 @@ export async function getCollegeProfileByUserId(userId: string): Promise<College
     formation_name: string | null;
     dean_name: string | null;
     holder_name: string | null;
+    college_subject_id: string | number | null;
+    scoped_branch_name: string | null;
+    scoped_branch_type: string | null;
+    tenant_owner_user_id: string | null;
   }>(
-    `SELECT COALESCE(account_kind, 'FORMATION') AS account_kind,
-            formation_name, dean_name, holder_name
-     FROM college_account_profiles
-     WHERE user_id = $1
+    `SELECT COALESCE(p.account_kind, 'FORMATION') AS account_kind,
+            p.formation_name, p.dean_name, p.holder_name,
+            p.college_subject_id::text AS college_subject_id,
+            s.branch_name AS scoped_branch_name,
+            COALESCE(s.branch_type, 'DEPARTMENT') AS scoped_branch_type,
+            s.owner_user_id::text AS tenant_owner_user_id
+     FROM college_account_profiles p
+     LEFT JOIN college_subjects s ON s.id = p.college_subject_id
+     WHERE p.user_id = $1
      LIMIT 1`,
     [userId]
   );
   const row = r.rows[0];
   if (!row) return null;
+  const kind = normalizeAccountKindDb(String(row.account_kind));
   return {
-    account_kind: row.account_kind === "FOLLOWUP" ? "FOLLOWUP" : "FORMATION",
+    account_kind: kind,
     formation_name: row.formation_name,
     dean_name: row.dean_name,
     holder_name: row.holder_name,
+    college_subject_id: row.college_subject_id != null ? String(row.college_subject_id) : null,
+    scoped_branch_name: row.scoped_branch_name,
+    scoped_branch_type: row.scoped_branch_type === "BRANCH" ? "BRANCH" : row.scoped_branch_name ? "DEPARTMENT" : null,
+    tenant_owner_user_id: row.tenant_owner_user_id,
   };
+}
+
+/** أقسام/فروع التشكيل (للمدير عند إنشاء حساب قسم) — يجب أن يكون لدى التشكيل حساب تشكيل ومواد مسجّلة. */
+export async function listCollegeSubjectsByFormationNameForAdmin(formationName: string): Promise<
+  { id: string; branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" }[]
+> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const fn = formationName.trim();
+  if (!fn) return [];
+  const pool = getDbPool();
+  const r = await pool.query<{
+    id: string | number;
+    branch_name: string;
+    branch_type: string;
+  }>(
+    `SELECT s.id, s.branch_name, COALESCE(s.branch_type, 'DEPARTMENT') AS branch_type
+     FROM college_subjects s
+     INNER JOIN college_account_profiles p ON p.user_id = s.owner_user_id
+     WHERE p.account_kind = 'FORMATION' AND p.formation_name = $1
+     ORDER BY s.branch_name ASC`,
+    [fn]
+  );
+  return r.rows.map((row) => ({
+    id: String(row.id),
+    branch_name: row.branch_name,
+    branch_type: row.branch_type === "BRANCH" ? "BRANCH" : "DEPARTMENT",
+  }));
 }
 
 export async function createCollegeAccount(input: {
@@ -94,6 +154,8 @@ export async function createCollegeAccount(input: {
   formationName: string;
   deanName: string;
   holderName: string;
+  /** مطلوب لحساب القسم/الفرع */
+  collegeSubjectId?: string;
   username: string;
   password: string;
   confirmPassword: string;
@@ -121,6 +183,7 @@ export async function createCollegeAccount(input: {
   let formationName: string | null = null;
   let deanName: string | null = null;
   let holderName: string | null = null;
+  let collegeSubjectId: number | null = null;
 
   if (input.accountKind === "FORMATION") {
     const fn = input.formationName.trim();
@@ -134,6 +197,23 @@ export async function createCollegeAccount(input: {
     formationName = fn;
     deanName = dn;
     fullNameForUser = dn;
+  } else if (input.accountKind === "DEPARTMENT") {
+    const fn = input.formationName.trim();
+    const head = input.deanName.trim();
+    const sid = input.collegeSubjectId?.trim() ?? "";
+    if (!isValidFormationName(fn)) {
+      return { ok: false, message: "اختر تشكيلًا صالحًا من القائمة." };
+    }
+    if (head.length < 2) {
+      return { ok: false, message: "يرجى إدخال اسم رئيس القسم أو الفرع (حرفان على الأقل)." };
+    }
+    if (!/^[0-9]+$/.test(sid)) {
+      return { ok: false, message: "اختر القسم أو الفرع من القائمة." };
+    }
+    formationName = fn;
+    deanName = head;
+    fullNameForUser = head;
+    collegeSubjectId = Number.parseInt(sid, 10);
   } else {
     const hn = input.holderName.trim();
     if (hn.length < 2) {
@@ -164,12 +244,46 @@ export async function createCollegeAccount(input: {
 
     if (input.accountKind === "FORMATION" && formationName) {
       const dupFormation = await client.query(
-        `SELECT 1 FROM college_account_profiles WHERE formation_name = $1 LIMIT 1`,
+        `SELECT 1 FROM college_account_profiles
+         WHERE account_kind = 'FORMATION' AND formation_name = $1 LIMIT 1`,
         [formationName]
       );
       if ((dupFormation.rowCount ?? 0) > 0) {
         await client.query("ROLLBACK");
-        return { ok: false, message: "يوجد بالفعل حساب لهذا التشكيل." };
+        return { ok: false, message: "يوجد بالفعل حساب تشكيل لهذا الاسم." };
+      }
+    }
+
+    if (input.accountKind === "DEPARTMENT" && formationName && collegeSubjectId != null) {
+      const fRow = await client.query<{ user_id: string | number }>(
+        `SELECT user_id FROM college_account_profiles
+         WHERE account_kind = 'FORMATION' AND formation_name = $1 LIMIT 1`,
+        [formationName]
+      );
+      const formationOwnerId = fRow.rows[0]?.user_id;
+      if (formationOwnerId == null) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          message: "لا يوجد حساب تشكيل لهذا الاسم. أنشئ حساب التشكيل أولاً ثم سجّل الأقسام من لوحة التشكيل.",
+        };
+      }
+      const subOk = await client.query(
+        `SELECT 1 FROM college_subjects
+         WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+        [collegeSubjectId, formationOwnerId]
+      );
+      if ((subOk.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, message: "القسم/الفرع المختار لا يتبع هذا التشكيل أو غير موجود." };
+      }
+      const dupDept = await client.query(
+        `SELECT 1 FROM college_account_profiles WHERE college_subject_id = $1::bigint LIMIT 1`,
+        [collegeSubjectId]
+      );
+      if ((dupDept.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, message: "يوجد بالفعل حساب مرتبط بهذا القسم/الفرع." };
       }
     }
 
@@ -190,14 +304,15 @@ export async function createCollegeAccount(input: {
 
     await client.query(
       `INSERT INTO college_account_profiles
-        (user_id, formation_name, dean_name, holder_name, account_kind, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+        (user_id, formation_name, dean_name, holder_name, account_kind, college_subject_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
       [
         newUserId,
         formationName,
         deanName,
         holderName,
         input.accountKind,
+        input.accountKind === "DEPARTMENT" ? collegeSubjectId : null,
       ]
     );
 
@@ -223,6 +338,7 @@ export async function createCollegeAccount(input: {
         JSON.stringify({
           accountKind: input.accountKind,
           formationName,
+          collegeSubjectId: input.accountKind === "DEPARTMENT" ? collegeSubjectId : undefined,
           username,
         }),
       ]
@@ -234,7 +350,7 @@ export async function createCollegeAccount(input: {
     await client.query("ROLLBACK");
     const msg = String((e as { message?: string }).message ?? "");
     if (msg.includes("unique") || msg.includes("duplicate")) {
-      return { ok: false, message: "تعذر الحفظ: بيانات مكررة (مستخدم أو تشكيل)." };
+      return { ok: false, message: "تعذر الحفظ: بيانات مكررة (مستخدم أو تشكيل أو قسم)." };
     }
     console.error("[createCollegeAccount]", e);
     return { ok: false, message: "حدث خطأ أثناء حفظ الحساب." };

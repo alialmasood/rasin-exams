@@ -5,4 +5,5 @@ export const STUDY_TYPE_LABEL_AR: Record<StudyType, string> = {
   SEMESTER: "فصلي",
   COURSES: "مقررات",
   BOLOGNA: "بولونيا",
+  INTEGRATIVE: "تكاملي",
 };

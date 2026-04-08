@@ -1,15 +1,11 @@
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
 import { assertExamDateNotInPast } from "@/lib/exam-schedule-date";
 import { type ExamMealSlot, normalizeExamMealSlot, formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
 function normalizeScheduleStudyTypeDb(v: string | null | undefined): StudyType {
-  const t = v?.trim().toUpperCase();
-  if (t === "SEMESTER") return "SEMESTER";
-  if (t === "COURSES") return "COURSES";
-  if (t === "BOLOGNA") return "BOLOGNA";
-  return "ANNUAL";
+  return normalizeStudyType(String(v ?? ""));
 }
 
 export type ScheduleType = "FINAL" | "SEMESTER";
@@ -238,11 +234,13 @@ export type CollegeRoomScheduleHint = {
 
 /** تلميحات جداول لكل قاعة (للعرض في إدارة القاعات). */
 export async function listCollegeExamScheduleHintsByRoom(
-  ownerUserId: string
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
 ): Promise<Record<string, CollegeRoomScheduleHint[]>> {
   if (!isDatabaseConfigured()) return {};
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     room_id: string | number;
     exam_date: string;
@@ -251,13 +249,20 @@ export async function listCollegeExamScheduleHintsByRoom(
     study_subject_name: string;
     meal_slot: number | string | null;
   }>(
-    `SELECT e.room_id, e.exam_date::text, e.start_time::text, e.end_time::text, s.subject_name AS study_subject_name,
-            COALESCE(e.meal_slot, 1) AS meal_slot
-     FROM college_exam_schedules e
-     INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
-     WHERE e.owner_user_id = $1
-     ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.id ASC`,
-    [ownerUserId]
+    rid
+      ? `SELECT e.room_id, e.exam_date::text, e.start_time::text, e.end_time::text, s.subject_name AS study_subject_name,
+                COALESCE(e.meal_slot, 1) AS meal_slot
+         FROM college_exam_schedules e
+         INNER JOIN college_study_subjects s ON s.id = e.study_subject_id AND s.owner_user_id = e.owner_user_id
+         WHERE e.owner_user_id = $1 AND e.college_subject_id = $2::bigint
+         ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.id ASC`
+      : `SELECT e.room_id, e.exam_date::text, e.start_time::text, e.end_time::text, s.subject_name AS study_subject_name,
+                COALESCE(e.meal_slot, 1) AS meal_slot
+         FROM college_exam_schedules e
+         INNER JOIN college_study_subjects s ON s.id = e.study_subject_id AND s.owner_user_id = e.owner_user_id
+         WHERE e.owner_user_id = $1
+         ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.id ASC`,
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   const out: Record<string, CollegeRoomScheduleHint[]> = {};
   for (const row of r.rows) {
@@ -295,10 +300,14 @@ async function writeScheduleAudit(
   }
 }
 
-export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Promise<CollegeExamScheduleRow[]> {
+export async function listCollegeExamSchedulesByOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeExamScheduleRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
@@ -334,9 +343,9 @@ export async function listCollegeExamSchedulesByOwner(ownerUserId: string): Prom
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
      INNER JOIN college_exam_rooms r ON r.id = e.room_id
-     WHERE e.owner_user_id = $1
+     WHERE e.owner_user_id = $1${rid ? " AND e.college_subject_id = $2::bigint" : ""}
      ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
-    [ownerUserId]
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map(mapScheduleQueryRow);
 }
@@ -399,13 +408,15 @@ function mapScheduleQueryRow(x: {
 /** جداول امتحان لمالك واحد في يوم محدد فقط — مطابق لحقول «الجداول الامتحانية». */
 export async function listCollegeExamSchedulesByOwnerForExamDate(
   ownerUserId: string,
-  examDate: string
+  examDate: string,
+  restrictCollegeSubjectId?: string | null
 ): Promise<CollegeExamScheduleRow[]> {
   if (!isDatabaseConfigured()) return [];
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
@@ -441,9 +452,9 @@ export async function listCollegeExamSchedulesByOwnerForExamDate(
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
      INNER JOIN college_exam_rooms r ON r.id = e.room_id
-     WHERE e.owner_user_id = $1 AND e.exam_date = $2::date
+     WHERE e.owner_user_id = $1 AND e.exam_date = $2::date${rid ? " AND e.college_subject_id = $3::bigint" : ""}
      ORDER BY e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
-    [ownerUserId, d]
+    rid ? [ownerUserId, d, rid] : [ownerUserId, d]
   );
   return r.rows.map(mapScheduleQueryRow);
 }

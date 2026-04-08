@@ -1,4 +1,4 @@
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
 import {
   POSTGRAD_STUDY_STAGE_DIPLOMA,
   POSTGRAD_STUDY_STAGE_DOCTOR,
@@ -9,11 +9,7 @@ import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
 function normalizeStudyTypeDb(v: string): StudyType {
-  const t = v?.trim().toUpperCase();
-  if (t === "SEMESTER") return "SEMESTER";
-  if (t === "COURSES") return "COURSES";
-  if (t === "BOLOGNA") return "BOLOGNA";
-  return "ANNUAL";
+  return normalizeStudyType(v ?? "");
 }
 
 export type FormationBranchRow = {
@@ -124,7 +120,7 @@ function invigilatorNamesFromRaw(raw: string | null | undefined): string[] {
 }
 
 function emptyByType(): Record<StudyType, number> {
-  return { ANNUAL: 0, SEMESTER: 0, COURSES: 0, BOLOGNA: 0 };
+  return { ANNUAL: 0, SEMESTER: 0, COURSES: 0, BOLOGNA: 0, INTEGRATIVE: 0 };
 }
 
 /** يطابق `owner_user_id` مع نوع `public.users.id` (uuid / bigint / …). */

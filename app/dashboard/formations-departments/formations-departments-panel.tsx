@@ -478,7 +478,7 @@ function FormationCard({ f }: { f: FormationControlSnapshot }) {
   const schedulePastDraft = f.schedules_total - f.schedules_draft;
   /** مطابقة تقويم الكلية: هناك «مرفوع» = جلسات معتمدة أو مرفوعة للمتابعة (ليست مسودة ولا مرفوضة فقط) */
   const schedulePublishedLikeCalendar = f.schedules_submitted + f.schedules_approved;
-  const studyTypes: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA"];
+  const studyTypes: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA", "INTEGRATIVE"];
   const activeStudyTypes = studyTypes.filter((t) => (f.study_subjects_by_type[t] ?? 0) > 0);
   const supShow = f.supervisors_unique.slice(0, 12);
   const supMore = Math.max(0, f.supervisors_unique.length - supShow.length);

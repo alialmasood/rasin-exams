@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import {
   createCollegeExamRoom,
   deleteCollegeExamRoom,
@@ -9,6 +8,8 @@ import {
   type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
+import { getCollegePortalDataOwnerUserId } from "@/lib/college-portal-scope";
+import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
 export type CollegeRoomsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
@@ -124,12 +125,14 @@ export async function createCollegeExamRoomAction(
 ): Promise<CollegeRoomsActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const useSplitAttendance = formData.has("s1_att_m");
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
   const s1 = slot1FromForm(formData, useSplitAttendance);
   const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam);
   const result = await createCollegeExamRoom({
-    ownerUserId: session.uid,
+    ownerUserId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
     roomName: fdStr(formData, "room_name"),
@@ -149,15 +152,16 @@ export async function createCollegeExamRoomAction(
     stageLevel2: fdStr(formData, "stage_level_2"),
     shift1Attendance: s1.shiftSplit,
     shift2Attendance: s2.shiftSplit,
+    externalRoomStaffJson: fdStr(formData, "external_room_staff_json"),
   });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "create",
     resource: "exam_room",
     summary: `إضافة قاعة امتحانية: ${fdStr(formData, "room_name").trim() || "—"}.`,
   });
-  revalidatePath("/dashboard/college/rooms-management");
+  revalidateCollegePortalSegment("rooms-management");
   return { ok: true, message: "تمت إضافة القاعة بنجاح." };
 }
 
@@ -167,6 +171,8 @@ export async function updateCollegeExamRoomAction(
 ): Promise<CollegeRoomsActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const id = fdStr(formData, "id").trim();
   if (!id) return { ok: false, message: "معرّف القاعة غير صالح." };
   const useSplitAttendance = formData.has("s1_att_m");
@@ -175,7 +181,7 @@ export async function updateCollegeExamRoomAction(
   const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam);
   const result = await updateCollegeExamRoom({
     id,
-    ownerUserId: session.uid,
+    ownerUserId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
     serialNo: fdStr(formData, "serial_no"),
@@ -196,16 +202,17 @@ export async function updateCollegeExamRoomAction(
     stageLevel2: fdStr(formData, "stage_level_2"),
     shift1Attendance: s1.shiftSplit,
     shift2Attendance: s2.shiftSplit,
+    externalRoomStaffJson: fdStr(formData, "external_room_staff_json"),
   });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "update",
     resource: "exam_room",
     summary: `تحديث قاعة امتحانية (المعرّف ${id}): ${fdStr(formData, "room_name").trim() || "—"}.`,
     details: { roomId: id },
   });
-  revalidatePath("/dashboard/college/rooms-management");
+  revalidateCollegePortalSegment("rooms-management");
   return { ok: true, message: "تم تحديث القاعة بنجاح." };
 }
 
@@ -215,20 +222,22 @@ export async function deleteCollegeExamRoomAction(
 ): Promise<CollegeRoomsActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const id = fdStr(formData, "id").trim();
   if (!id) return { ok: false, message: "معرّف القاعة غير صالح." };
   const result = await deleteCollegeExamRoom({
     id,
-    ownerUserId: session.uid,
+    ownerUserId,
   });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "delete",
     resource: "exam_room",
     summary: `حذف قاعة امتحانية (المعرّف ${id}).`,
     details: { roomId: id },
   });
-  revalidatePath("/dashboard/college/rooms-management");
+  revalidateCollegePortalSegment("rooms-management");
   return { ok: true, message: "تم حذف القاعة بنجاح." };
 }

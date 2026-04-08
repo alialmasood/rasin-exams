@@ -14,8 +14,17 @@ import {
 } from "@/lib/college-followup-saved-reports";
 import type { SavedReportPart } from "@/lib/college-followup-saved-reports";
 import { deleteSituationFormSubmissionForOwner } from "@/lib/college-situation-form-submissions";
-import { deleteExamSituationReportForOwner } from "@/lib/college-exam-situations";
+import {
+  deleteExamSituationReportForOwner,
+  getExamSituationDetailForOwner,
+} from "@/lib/college-exam-situations";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
+import {
+  collegePortalDisplayLabel,
+  departmentCanAccessCollegeSubjectRow,
+  getCollegePortalDataOwnerUserId,
+} from "@/lib/college-portal-scope";
+import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
 export type { SavedReportPart } from "@/lib/college-followup-saved-reports";
@@ -30,17 +39,19 @@ export async function getDailyFinalSituationReportHtmlAction(
 ): Promise<DailyReportActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, message: "صيغة التاريخ غير صالحة." };
   if (mealSlot !== 1 && mealSlot !== 2) return { ok: false, message: "رقم الوجبة غير صالح." };
 
   const profile = await getCollegeProfileByUserId(session.uid);
-  const collegeLabel =
-    profile?.account_kind === "FOLLOWUP" ? (profile.holder_name ?? "—") : (profile?.formation_name ?? "—");
+  if (!profile) return { ok: false, message: "تعذر تحميل الملف التعريفي." };
+  const collegeLabel = collegePortalDisplayLabel(profile);
   const deanName = profile?.dean_name ?? "";
 
   return buildDailyFinalSituationReportHtmlForOwner({
-    ownerUserId: session.uid,
+    ownerUserId,
     examDate: d,
     mealSlot,
     collegeLabel,
@@ -51,16 +62,18 @@ export async function getDailyFinalSituationReportHtmlAction(
 export async function getDailyFullDayBothMealsReportHtmlAction(examDate: string): Promise<DailyReportActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, message: "صيغة التاريخ غير صالحة." };
 
   const profile = await getCollegeProfileByUserId(session.uid);
-  const collegeLabel =
-    profile?.account_kind === "FOLLOWUP" ? (profile.holder_name ?? "—") : (profile?.formation_name ?? "—");
+  if (!profile) return { ok: false, message: "تعذر تحميل الملف التعريفي." };
+  const collegeLabel = collegePortalDisplayLabel(profile);
   const deanName = profile?.dean_name ?? "";
 
   return buildDailyFinalFullDayBothMealsReportHtmlForOwner({
-    ownerUserId: session.uid,
+    ownerUserId,
     examDate: d,
     collegeLabel,
     deanName,
@@ -72,16 +85,18 @@ export async function saveFollowupDayReportsAction(
 ): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, message: "صيغة التاريخ غير صالحة." };
 
   const profile = await getCollegeProfileByUserId(session.uid);
-  const collegeLabel =
-    profile?.account_kind === "FOLLOWUP" ? (profile.holder_name ?? "—") : (profile?.formation_name ?? "—");
+  if (!profile) return { ok: false, message: "تعذر تحميل الملف التعريفي." };
+  const collegeLabel = collegePortalDisplayLabel(profile);
   const deanName = profile?.dean_name ?? "";
 
   const built = await buildSavableFollowupDayReportsForOwner({
-    ownerUserId: session.uid,
+    ownerUserId,
     examDate: d,
     collegeLabel,
     deanName,
@@ -89,7 +104,7 @@ export async function saveFollowupDayReportsAction(
   if (!built.ok) return built;
 
   const ins = await insertFollowupSavedDayReport({
-    ownerUserId: session.uid,
+    ownerUserId,
     examDate: d,
     meal1Html: built.reports.meal1,
     meal2Html: built.reports.meal2,
@@ -97,13 +112,13 @@ export async function saveFollowupDayReportsAction(
   });
   if (!ins.ok) return ins;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "save",
     resource: "followup_saved_report",
     summary: `حفظ تقارير متابعة المواقف ليوم الامتحان ${d} في الأرشيف.`,
     details: { examDate: d, reportId: ins.id },
   });
-  revalidatePath("/dashboard/college/status-followup");
+  revalidateCollegePortalSegment("status-followup");
   return { ok: true, id: ins.id };
 }
 
@@ -113,7 +128,9 @@ export async function getSavedFollowupDayReportHtmlAction(
 ): Promise<DailyReportActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  return getFollowupSavedDayReportHtmlForOwner(session.uid, reportId.trim(), part);
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
+  return getFollowupSavedDayReportHtmlForOwner(ownerUserId, reportId.trim(), part);
 }
 
 export async function deleteSavedFollowupDayReportAction(
@@ -121,17 +138,19 @@ export async function deleteSavedFollowupDayReportAction(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const rid = reportId.trim();
-  const res = await deleteFollowupSavedDayReportForOwner(session.uid, rid);
+  const res = await deleteFollowupSavedDayReportForOwner(ownerUserId, rid);
   if (res.ok) {
     void recordCollegeActivityEvent({
-      ownerUserId: session.uid,
+      ownerUserId,
       action: "delete",
       resource: "followup_saved_report",
       summary: `حذف تقرير متابعة محفوظ (المعرّف ${rid}).`,
       details: { reportId: rid },
     });
-    revalidatePath("/dashboard/college/status-followup");
+    revalidateCollegePortalSegment("status-followup");
   }
   return res;
 }
@@ -143,17 +162,23 @@ export async function deleteUploadedExamSituationAction(
   if (!session || session.role !== "COLLEGE") {
     return { ok: false, message: "غير مصرح." };
   }
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const sid = scheduleId.trim();
-  const res = await deleteExamSituationReportForOwner({ ownerUserId: session.uid, scheduleId: sid });
+  const detail = await getExamSituationDetailForOwner(ownerUserId, sid);
+  if (!detail || !departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
+    return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  }
+  const res = await deleteExamSituationReportForOwner({ ownerUserId, scheduleId: sid });
   if (res.ok) {
     void recordCollegeActivityEvent({
-      ownerUserId: session.uid,
+      ownerUserId,
       action: "delete",
       resource: "situation_report",
       summary: `حذف موقف مرفوع مرتبط بجدول امتحاني (معرّف الجدول ${sid}).`,
       details: { scheduleId: sid },
     });
-    revalidatePath("/dashboard/college/status-followup");
+    revalidateCollegePortalSegment("status-followup");
     revalidatePath("/tracking");
   }
   return res;
@@ -166,17 +191,19 @@ export async function deleteSituationFormSubmissionAction(
   if (!session || session.role !== "COLLEGE") {
     return { ok: false, message: "غير مصرح." };
   }
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
   const subId = submissionId.trim();
-  const res = await deleteSituationFormSubmissionForOwner(session.uid, subId);
+  const res = await deleteSituationFormSubmissionForOwner(ownerUserId, subId);
   if (res.ok) {
     void recordCollegeActivityEvent({
-      ownerUserId: session.uid,
+      ownerUserId,
       action: "delete",
       resource: "situation_form",
       summary: `حذف إرسال نموذج موقف (المعرّف ${subId}).`,
       details: { submissionId: subId },
     });
-    revalidatePath("/dashboard/college/status-followup");
+    revalidateCollegePortalSegment("status-followup");
     revalidatePath("/tracking");
     revalidatePath("/dashboard/situations-followup");
   }

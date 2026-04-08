@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { CollegePortalBasePathProvider } from "@/components/dashboard/college-portal-base-path";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { getSession } from "@/lib/session";
 import { CollegeQuickActionsProvider } from "./college-quick-actions";
@@ -12,6 +13,13 @@ export default async function CollegeLayout({ children }: { children: React.Reac
     if (profile?.account_kind === "FOLLOWUP") {
       redirect("/tracking");
     }
+    if (profile?.account_kind === "DEPARTMENT") {
+      redirect("/department");
+    }
   }
-  return <CollegeQuickActionsProvider>{children}</CollegeQuickActionsProvider>;
+  return (
+    <CollegePortalBasePathProvider value="/dashboard/college">
+      <CollegeQuickActionsProvider>{children}</CollegeQuickActionsProvider>
+    </CollegePortalBasePathProvider>
+  );
 }

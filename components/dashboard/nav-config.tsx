@@ -212,6 +212,46 @@ export const collegeDashboardNavSections: CollegeNavSection[] = [
   },
 ];
 
+/**
+ * بوابة القسم/الفرع: نفس مسارات التشكيل تحت `/department` دون إدارة «الأقسام والفروع» (يُضبط من حساب التشكيل).
+ */
+export const departmentDashboardNavSections: CollegeNavSection[] = [
+  {
+    id: "overview",
+    title: "نظرة عامة",
+    items: [{ href: "/department", label: "لوحة القسم", icon: <IconDashboard /> }],
+  },
+  {
+    id: "master",
+    title: "البيانات الأساسية",
+    items: [
+      { href: "/department/study-subjects", label: "المواد الدراسية", icon: <IconAcademic /> },
+      { href: "/department/rooms-management", label: "إدارة القاعات", icon: <IconBuilding /> },
+    ],
+  },
+  {
+    id: "planning",
+    title: "التخطيط الامتحاني",
+    items: [{ href: "/department/exam-schedules", label: "الجداول الامتحانية", icon: <IconCalendar /> }],
+  },
+  {
+    id: "situations",
+    title: "المواقف الامتحانية",
+    items: [
+      { href: "/department/upload-status", label: "رفع الموقف الامتحاني", icon: <IconUploadCloud /> },
+      { href: "/department/status-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
+    ],
+  },
+  {
+    id: "insights",
+    title: "المؤشرات والتقارير",
+    items: [
+      { href: "/department/statistics", label: "الإحصائيات والتقارير", icon: <IconChartBar /> },
+      { href: "/department/reports", label: "سجل الأحداث", icon: <IconActivityLog /> },
+    ],
+  },
+];
+
 /** قائمة مسطحة (للاستخدامات التي تحتاج مصفوفة واحدة). */
 export const collegeDashboardNavItems: NavItem[] = collegeDashboardNavSections.flatMap((s) => s.items);
 

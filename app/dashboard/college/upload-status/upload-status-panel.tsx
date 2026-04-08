@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { StudyType } from "@/lib/college-study-subjects";
 import type {
   UploadStatusDashboardStats,
@@ -71,13 +72,19 @@ export function UploadStatusPanel({
   collegeLabel,
   allUploadedPendingNone = false,
   dashboardStats,
+  /** بوابة القسم: إخفاء عمود «القسم» لأن الجدول يخص قسماً واحداً */
+  hideDepartmentColumn = false,
 }: {
   listItems: UploadStatusListItem[];
   collegeLabel: string;
   /** كل الجلسات المجدولة أُكّد رفع موقفها — لا شيء بانتظار العمل هنا */
   allUploadedPendingNone?: boolean;
   dashboardStats: UploadStatusDashboardStats;
+  hideDepartmentColumn?: boolean;
 }) {
+  const portalBase = useCollegePortalBasePath();
+  const tableColCount = hideDepartmentColumn ? 10 : 11;
+
   return (
     <section className="space-y-6" dir="rtl">
       <header className="relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
@@ -89,9 +96,9 @@ export function UploadStatusPanel({
         <h1 className="text-3xl font-extrabold text-[#0F172A]">رفع الموقف الامتحاني</h1>
         <p className="mt-1.5 text-sm text-[#64748B]">
           جميع المواد الامتحانية المضافة في «الجداول الامتحانية» للتشكيل «{collegeLabel}» — مرتبطة بنفس البيانات
-          (القاعات، المواد، الأقسام). اضغط «فتح التفاصيل» لإدخال الحضور والغياب ورفع الموقف خلال نافذة الامتحان (من 30
-          دقيقة بعد البداية وتبقى مفتوحة بعدها؛ الموعد المعتمد للرفع «في الموعد» يعتمد على الوجبة — راجع صفحة الجلسة).
-          تأكيد رفع الموقف يتطلب جدولاً مرفوعاً للمتابعة أو معتمداً.
+          (القاعات، المواد، الأقسام). اضغط «فتح التفاصيل» لإدخال الحضور والغياب ورفع الموقف: تُفتح البوابة بعد 30
+          دقيقة من بداية الامتحان وتبقى مفتوحة؛ الرفع «في الموعد» حتى ساعة ونصف من البداية ثم يُعدّ متأخراً (راجع صفحة
+          الجلسة). تأكيد رفع الموقف يتطلب جدولاً مرفوعاً للمتابعة أو معتمداً.
         </p>
       </header>
 
@@ -105,7 +112,7 @@ export function UploadStatusPanel({
         <StatCard
           title="بانتظار الرفع — نافذة مفتوحة أو موعد انقضى"
           value={dashboardStats.pendingWindowOpenOrLate}
-          hint="اليوم من (بداية الامتحان + 30 د) حتى النهاية، أو انقضى يوم الامتحان دون تأكيد رفع بعد."
+          hint="اليوم من (بداية الامتحان + 30 د) فصاعداً أو انقضى يوم الامتحان دون تأكيد رفع بعد."
           accentClass="bg-amber-400"
         />
         <StatCard
@@ -132,7 +139,9 @@ export function UploadStatusPanel({
               <th className="px-4 py-3 text-xs font-bold text-white">القاعة</th>
               <th className="px-4 py-3 text-xs font-bold text-white">المادة</th>
               <th className="px-4 py-3 text-xs font-bold text-white">المستوى الدراسي</th>
-              <th className="px-4 py-3 text-xs font-bold text-white">القسم</th>
+              {hideDepartmentColumn ? null : (
+                <th className="px-4 py-3 text-xs font-bold text-white">القسم</th>
+              )}
               <th className="px-4 py-3 text-xs font-bold text-white">حالة الجدول</th>
               <th className="px-4 py-3 text-xs font-bold text-white">حالة رفع الموقف</th>
               <th className="px-4 py-3 text-xs font-bold text-white">مكتمل</th>
@@ -142,11 +151,14 @@ export function UploadStatusPanel({
           <tbody className="divide-y divide-[#E2E8F0]">
             {listItems.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-14 text-center text-sm text-[#64748B]">
+                <td colSpan={tableColCount} className="px-4 py-14 text-center text-sm text-[#64748B]">
                   {allUploadedPendingNone ? (
                     <>
                       لا توجد جلسات بانتظار رفع الموقف هنا؛ المواقف التي تم تأكيد رفعها تظهر في صفحة{" "}
-                      <Link href="/dashboard/college/status-followup" className="font-bold text-[#1E3A8A] underline-offset-2 hover:underline">
+                      <Link
+                        href={`${portalBase}/status-followup`}
+                        className="font-bold text-[#1E3A8A] underline-offset-2 hover:underline"
+                      >
                         متابعة المواقف الامتحانية
                       </Link>
                       .
@@ -176,7 +188,9 @@ export function UploadStatusPanel({
                       <td className="max-w-[14rem] align-top px-4 py-3">
                         <TableStudyLevelColumnBody stageLevel={r.stage_level} studyType={r.study_type} />
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#334155]">{r.branch_name}</td>
+                      {hideDepartmentColumn ? null : (
+                        <td className="px-4 py-3 text-sm text-[#334155]">{r.branch_name}</td>
+                      )}
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${
@@ -216,7 +230,7 @@ export function UploadStatusPanel({
                       </td>
                       <td className="px-4 py-3">
                         <Link
-                          href={`/dashboard/college/upload-status/${r.schedule_id}`}
+                          href={`${portalBase}/upload-status/${r.schedule_id}`}
                           className="rounded-xl border border-[#1E3A8A] px-3 py-1.5 text-xs font-bold text-[#1E3A8A] transition hover:bg-[#EFF6FF]"
                         >
                           فتح التفاصيل
@@ -244,7 +258,9 @@ export function UploadStatusPanel({
                     <td className="max-w-[14rem] align-top px-4 py-3">
                       <TableStudyLevelColumnBody stageLevel={g.stage_level} studyType={g.study_type} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-[#334155]">{g.branch_name}</td>
+                    {hideDepartmentColumn ? null : (
+                      <td className="px-4 py-3 text-sm text-[#334155]">{g.branch_name}</td>
+                    )}
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${
@@ -284,7 +300,7 @@ export function UploadStatusPanel({
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/dashboard/college/upload-status/${g.primary_schedule_id}`}
+                        href={`${portalBase}/upload-status/${g.primary_schedule_id}`}
                         className="rounded-xl border border-[#1E3A8A] px-3 py-1.5 text-xs font-bold text-[#1E3A8A] transition hover:bg-[#EFF6FF]"
                       >
                         فتح التفاصيل

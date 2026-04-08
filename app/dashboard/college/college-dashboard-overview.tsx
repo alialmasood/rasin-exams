@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeProfileRow } from "@/lib/college-accounts";
 import { DASHBOARD_TIMELINE_MAX_BRANCHES } from "@/lib/college-dashboard-constants";
 import type { CollegeDashboardSnapshot } from "@/lib/college-dashboard-stats";
@@ -187,8 +188,11 @@ export function CollegeDashboardOverview({
   /** يُضبط من الإعدادات (مدير النظام) — إظهار الزر الأزرق «رفع الموقف الامتحاني» */
   showExamSituationUploadCta?: boolean;
 }) {
+  const portalBase = useCollegePortalBasePath();
   const isFollowup = profile?.account_kind === "FOLLOWUP";
+  const isDepartmentAccount = profile?.account_kind === "DEPARTMENT";
   const deanOrHolder = isFollowup ? (profile?.holder_name ?? "").trim() : (profile?.dean_name ?? "").trim();
+  const departmentBranchDisplayName = (profile?.scoped_branch_name ?? "").trim() || "—";
 
   const workflowData = [
     { name: "مسودة", value: snapshot.schedules.draft, color: "#94a3b8" },
@@ -226,34 +230,34 @@ export function CollegeDashboardOverview({
     dashboardInsights.push({
       tone: "info",
       text: "ابدأ بإضافة الأقسام والمواد؛ ثم الجداول والمواقف تتكوّن تلقائياً.",
-      action: { href: "/dashboard/college/subjects", label: "الأقسام" },
+      action: { href: `${portalBase}/subjects`, label: "الأقسام" },
     });
   } else if (snapshot.schedules.total === 0 && snapshot.studySubjects.total > 0) {
     dashboardInsights.push({
       tone: "info",
       text: "المواد جاهزة — جدّولوا الجلسات بعد ضبط القاعات.",
-      action: { href: "/dashboard/college/exam-schedules", label: "الجداول" },
+      action: { href: `${portalBase}/exam-schedules`, label: "الجداول" },
     });
   }
   if (snapshot.schedules.total > 0 && snapshot.schedules.draft > 0) {
     dashboardInsights.push({
       tone: "warn",
       text: `${formatNum(snapshot.schedules.draft)} جلسة مسوّدة — أرسلوا للمتابعة أو الاعتماد.`,
-      action: { href: "/dashboard/college/exam-schedules", label: "مراجعة" },
+      action: { href: `${portalBase}/exam-schedules`, label: "مراجعة" },
     });
   }
   if (snapshot.situations.totalRows > 0 && snapshot.situations.notUploaded > 0) {
     dashboardInsights.push({
       tone: "warn",
       text: `${formatNum(snapshot.situations.notUploaded)} جلسة بلا رفع موقف — خلال نافذة الامتحان.`,
-      action: { href: "/dashboard/college/upload-status", label: "رفع الموقف" },
+      action: { href: `${portalBase}/upload-status`, label: "رفع الموقف" },
     });
   }
   if (snapshot.situations.totalRows > 0 && snapshot.situations.uploaded === snapshot.situations.totalRows) {
     dashboardInsights.push({
       tone: "success",
       text: "كل المواقف مرفوعة — تابعوا اعتماد العميد.",
-      action: { href: "/dashboard/college/status-followup", label: "المتابعة" },
+      action: { href: `${portalBase}/status-followup`, label: "المتابعة" },
     });
   }
 
@@ -289,6 +293,11 @@ export function CollegeDashboardOverview({
             <>
               أهلًا وسهلًا، <span className="text-[#1E3A8A]">{deanOrHolder || "صاحب حساب المتابعة"}</span>
             </>
+          ) : isDepartmentAccount ? (
+            <>
+              أهلًا وسهلًا رئاسة {profile?.scoped_branch_type === "BRANCH" ? "فرع" : "قسم"}{" "}
+              <span className="text-[#1E3A8A]">({departmentBranchDisplayName})</span>
+            </>
           ) : (
             <>
               أهلًا وسهلًا السيد عميد الكلية{" "}
@@ -297,8 +306,10 @@ export function CollegeDashboardOverview({
           )}
         </h1>
         <p className="mt-1.5 max-w-[42rem] text-xs leading-snug text-[#64748B] md:text-[13px]">
-          ملخص <strong className="font-semibold text-[#475569]">{collegeLabel}</strong>: الأقسام، المواد، القاعات،
-          الجداول، والمواقف الامتحانية.
+          ملخص <strong className="font-semibold text-[#475569]">{collegeLabel}</strong>
+          {isDepartmentAccount
+            ? ": المواد، القاعات، الجداول، والمواقف الامتحانية."
+            : ": الأقسام، المواد، القاعات، الجداول، والمواقف الامتحانية."}
         </p>
       </header>
 
@@ -337,7 +348,7 @@ export function CollegeDashboardOverview({
 
       {showExamSituationUploadCta ? (
         <Link
-          href="/dashboard/college/exam-situation-upload"
+          href={`${portalBase}/exam-situation-upload`}
           className="relative flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border border-[#BFDBFE] bg-gradient-to-l from-[#1E40AF] via-[#2563EB] to-[#3B82F6] px-4 py-3 text-center text-sm font-bold text-white shadow-[0_6px_20px_rgba(37,99,235,0.25)] transition hover:brightness-[1.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]"
         >
           <svg className="size-5 shrink-0 opacity-95" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>

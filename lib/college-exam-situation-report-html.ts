@@ -8,6 +8,10 @@ import {
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
 import { formatExamClock12hAr } from "@/lib/exam-situation-window";
 import type { ExamSituationDetail } from "@/lib/college-exam-situations";
+import {
+  formatInvigilatorsForSituationReport,
+  formatSupervisorForSituationReport,
+} from "@/lib/room-external-staff";
 
 function escapeHtml(s: string): string {
   return s
@@ -46,6 +50,84 @@ function fmtDateTime(d: Date | null | undefined): string {
   }
 }
 
+function situationStaffAbsenceTableRows(detail: ExamSituationDetail): string {
+  const s = detail.situation_staff_absences;
+  const z = escapeHtml;
+  const out: string[] = [];
+  if (s.supervisor_absent && s.supervisor_absence_reason.trim() && s.supervisor_substitute_name.trim()) {
+    out.push(
+      `<tr><td colspan="2">تسجيل غياب مشرف القاعة</td><td colspan="2">السبب: ${z(s.supervisor_absence_reason)} — المشرف البديل: ${z(s.supervisor_substitute_name)}</td></tr>`
+    );
+  }
+  for (const inv of s.invigilator_absences) {
+    if (!inv.absent_name.trim()) continue;
+    out.push(
+      `<tr><td colspan="2">تسجيل غياب مراقب</td><td colspan="2">الغائب: ${z(inv.absent_name)} — السبب: ${z(inv.absence_reason)} — البديل: ${z(inv.substitute_name)}</td></tr>`
+    );
+  }
+  return out.join("\n");
+}
+
+function hasSituationStaffAbsencesForReport(detail: ExamSituationDetail): boolean {
+  const s = detail.situation_staff_absences;
+  if (s.supervisor_absent && s.supervisor_absence_reason.trim() && s.supervisor_substitute_name.trim()) {
+    return true;
+  }
+  return s.invigilator_absences.some((x) => x.absent_name.trim());
+}
+
+/** نص HTML مُهرب لعرض غياب المشرف/المراقبين في التقارير والجداول. */
+function situationStaffAbsencesReportBlockHtml(detail: ExamSituationDetail, z: typeof escapeHtml): string {
+  const s = detail.situation_staff_absences;
+  const parts: string[] = [];
+  if (s.supervisor_absent && s.supervisor_absence_reason.trim() && s.supervisor_substitute_name.trim()) {
+    const supName = (detail.supervisor_name ?? "").trim() || "—";
+    parts.push(
+      `<strong>غياب مشرف القاعة</strong> (المسجّل: ${z(supName)}) — <strong>السبب:</strong> ${z(s.supervisor_absence_reason)} — <strong>المشرف البديل:</strong> ${z(s.supervisor_substitute_name)}`
+    );
+  }
+  for (const inv of s.invigilator_absences) {
+    if (!inv.absent_name.trim()) continue;
+    parts.push(
+      `<strong>غياب مراقب</strong> (${z(inv.absent_name)}) — <strong>السبب:</strong> ${z(inv.absence_reason)} — <strong>المراقب البديل:</strong> ${z(inv.substitute_name)}`
+    );
+  }
+  if (parts.length === 0) return `<span class="muted">—</span>`;
+  return `<div style="font-size:12px;line-height:1.5">${parts.join("<br/><br/>")}</div>`;
+}
+
+function hasSituationCheatingForReport(detail: ExamSituationDetail): boolean {
+  const ch = detail.situation_cheating_cases;
+  if (!ch?.cheating_reported) return false;
+  return ch.cases.some((c) => c.student_name.trim().length >= 2 && c.notes.trim().length >= 2);
+}
+
+function situationCheatingReportBlockHtml(detail: ExamSituationDetail, z: typeof escapeHtml): string {
+  const ch = detail.situation_cheating_cases;
+  const parts: string[] = [];
+  for (const c of ch.cases) {
+    if (c.student_name.trim().length < 2 || c.notes.trim().length < 2) continue;
+    parts.push(
+      `<strong>الطالب:</strong> ${z(c.student_name.trim())} — <strong>ملاحظات:</strong> ${z(c.notes.trim())}`
+    );
+  }
+  if (parts.length === 0) return `<span class="muted">—</span>`;
+  return `<div style="font-size:12px;line-height:1.5">${parts.join("<br/><br/>")}</div>`;
+}
+
+function situationCheatingAttendanceAppendix(detail: ExamSituationDetail, z: typeof escapeHtml): string {
+  if (!hasSituationCheatingForReport(detail)) return "";
+  const lines: string[] = [];
+  for (const c of detail.situation_cheating_cases.cases) {
+    if (c.student_name.trim().length < 2 || c.notes.trim().length < 2) continue;
+    lines.push(
+      `<strong>الطالب:</strong> ${z(c.student_name.trim())} — <strong>ملاحظات:</strong> ${z(c.notes.trim())}`
+    );
+  }
+  if (lines.length === 0) return "";
+  return `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #d1d5db"><strong style="color:#b45309">حالات الغش:</strong><br/><br/>${lines.join("<br/><br/>")}</div>`;
+}
+
 const SCHEDULE_TYPE_AR: Record<ExamSituationDetail["schedule_type"], string> = {
   FINAL: "جدول امتحانات نهائية",
   SEMESTER: "جدول امتحانات فصلية",
@@ -66,8 +148,9 @@ const WORKFLOW_AR: Record<ExamSituationDetail["workflow_status"], string> = {
 const STUDY_TYPE_AR: Record<ExamSituationDetail["study_type"], string> = {
   ANNUAL: "سنوي",
   SEMESTER: "فصلي",
-  COURSES: "بالمقررات",
+  COURSES: "مقررات",
   BOLOGNA: "بولونيا",
+  INTEGRATIVE: "تكاملي",
 };
 
 const DEAN_AR: Record<ExamSituationDetail["dean_status"], string> = {
@@ -147,7 +230,12 @@ export function buildExamSituationReportHtml(
   const logoHtml = logoSrc
     ? `<img src="${e(logoSrc)}" alt="شعار جامعة البصرة" class="report-logo" width="72" height="72" />`
     : "";
-  const invList = splitLines(detail.invigilators).map((n) => `<li>${e(n)}</li>`).join("");
+  const invigilatorsCell = formatInvigilatorsForSituationReport(
+    detail.invigilators,
+    detail.room_external_staff,
+    e,
+    splitLines
+  );
   const absenceNamesForList = mergeAbsenceNamesByShift(
     detail.absence_names_morning ?? "",
     detail.absence_names_evening ?? ""
@@ -187,8 +275,6 @@ export function buildExamSituationReportHtml(
       : `<span class="muted">لا توجد</span>`;
 
   const deanApprovedYesNo = detail.dean_status === "APPROVED" ? "نعم" : "لا";
-  const invigilatorsCell = invList ? `<ul class="list-dot">${invList}</ul>` : "—";
-
   return `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -435,7 +521,7 @@ export function buildExamSituationReportHtml(
           <td>تاريخ إجراء الامتحان</td>
           <td>${e(detail.exam_date)}</td>
           <td>مشرف القاعة</td>
-          <td>${e(detail.supervisor_name)}</td>
+          <td>${formatSupervisorForSituationReport(detail.supervisor_name, detail.room_external_staff, e)}</td>
         </tr>
         <tr>
           <td>رقم الوجبة</td>
@@ -457,6 +543,7 @@ export function buildExamSituationReportHtml(
           <td>مدة الامتحان</td>
           <td>${e(formatDurationAr(detail.duration_minutes))}</td>
         </tr>
+        ${situationStaffAbsenceTableRows(detail)}
         <tr>
           <td>اسم القاعة الامتحانية</td>
           <td colspan="3"><strong>${e(detail.room_name)}</strong></td>
@@ -481,6 +568,8 @@ export function buildExamSituationReportHtml(
       </table>
       <table class="table" style="margin-top:8px;">
         ${row2("أسماء الطلبة الغائبين", absList ? `<ul class="list-dot">${absList}</ul>` : `<span class="muted">لا يوجد / لم يُدرج</span>`)}
+        ${hasSituationStaffAbsencesForReport(detail) ? row2("غياب المشرف أو المراقبين (السبب والبديل)", situationStaffAbsencesReportBlockHtml(detail, e)) : ""}
+        ${hasSituationCheatingForReport(detail) ? row2("حالات الغش (اسم الطالب والملاحظات)", situationCheatingReportBlockHtml(detail, e)) : ""}
         ${row2("ملاحظات على الجدول (إن وُجدت)", notesBlock)}
       </table>
     </section>
@@ -573,8 +662,9 @@ export function buildExamSituationBundleReportHtml(
     .map(
       (s) => `<tr>
   <td><strong>${e(s.room_name)}</strong><div class="muted" style="font-size:11px">معرّف ${e(s.schedule_id)}</div></td>
-  <td>${e(s.supervisor_name?.trim() || "—")}</td>
-  <td>${invigilatorsHtml(s.invigilators)}</td>
+  <td>${formatSupervisorForSituationReport(s.supervisor_name ?? "", s.room_external_staff, e)}</td>
+  <td>${formatInvigilatorsForSituationReport(s.invigilators, s.room_external_staff, e, splitLines)}</td>
+  <td style="font-size:11px;line-height:1.45">${situationStaffAbsencesReportBlockHtml(s, e)}</td>
   <td style="font-size:12px;line-height:1.45">${attendanceCellHtml(s)}</td>
   <td>${s.is_uploaded ? "نعم" : "لا"}</td>
   <td>${e(DEAN_AR[s.dean_status])}</td>
@@ -584,7 +674,7 @@ export function buildExamSituationBundleReportHtml(
 
   const shiftTotalsRow =
     capMTot > 0 || capETot > 0
-      ? `<tr class="muted"><td colspan="3"><strong>إجمالي صباحي/مسائي على كل القاعات</strong></td>
+      ? `<tr class="muted"><td colspan="4"><strong>إجمالي صباحي/مسائي على كل القاعات</strong></td>
   <td style="font-size:12px"><strong>صباحي:</strong> سعة ${capMTot}، حضور ${attMTot}، غياب ${absMTot}<br/>
   <strong>مسائي:</strong> سعة ${capETot}، حضور ${attETot}، غياب ${absETot}</td>
   <td colspan="2"></td></tr>`
@@ -632,6 +722,7 @@ export function buildExamSituationBundleReportHtml(
         <th>القاعة</th>
         <th>المشرف</th>
         <th>المراقبون</th>
+        <th>غياب المشرف / المراقب<br/><span style="font-weight:600">(السبب والبديل)</span></th>
         <th>الحضور والغياب (صباحي/مسائي حسب إعداد القاعة)</th>
         <th>مرفوع الموقف</th>
         <th>اعتماد الإدارة</th>
@@ -641,7 +732,7 @@ export function buildExamSituationBundleReportHtml(
       ${roomRows}
       ${shiftTotalsRow}
       <tr style="background:#eff6ff;font-weight:700">
-        <td colspan="3"><strong>الإجمالي على جميع القاعات</strong></td>
+        <td colspan="4"><strong>الإجمالي على جميع القاعات</strong></td>
         <td>سعة إجمالية ${capTot}، حضور ${attTot}، غياب ${absTot}</td>
         <td colspan="2"></td>
       </tr>
@@ -671,16 +762,11 @@ function formatExamDateLongAr(isoDate: string): string {
   }
 }
 
-function invigilatorsHtml(inv: string): string {
-  const e = escapeHtml;
-  const items = splitLines(inv).map((n) => `<li>${e(n)}</li>`).join("");
-  return items ? `<ul class="list-dot">${items}</ul>` : "—";
-}
-
 function attendanceCellHtml(detail: ExamSituationDetail): string {
   const e = escapeHtml;
   const capM = detail.capacity_morning;
   const capE = detail.capacity_evening;
+  const cheatBlock = situationCheatingAttendanceAppendix(detail, e);
   if (capM > 0 || capE > 0) {
     const parts: string[] = [];
     if (capM > 0) {
@@ -693,10 +779,13 @@ function attendanceCellHtml(detail: ExamSituationDetail): string {
         `<strong>مسائي:</strong> إجمالي السعة ${capE}، حضور ${detail.attendance_evening}، غياب ${detail.absence_evening}. أسماء الغياب: ${e((detail.absence_names_evening ?? "").trim()) || "—"}`
       );
     }
-    return parts.join("<br/><br/>");
+    return parts.join("<br/><br/>") + cheatBlock;
   }
   const names = (detail.absence_names ?? "").trim();
-  return `<strong>إجمالي السعة</strong> ${detail.capacity_total}، <strong>حضور</strong> ${detail.attendance_count}، <strong>غياب</strong> ${detail.absence_count}.<br/><strong>أسماء الغياب:</strong> ${e(names) || "—"}`;
+  return (
+    `<strong>إجمالي السعة</strong> ${detail.capacity_total}، <strong>حضور</strong> ${detail.attendance_count}، <strong>غياب</strong> ${detail.absence_count}.<br/><strong>أسماء الغياب:</strong> ${e(names) || "—"}` +
+    cheatBlock
+  );
 }
 
 /**
@@ -725,11 +814,11 @@ function groupExamSituationDetailsForDailyReport(details: ExamSituationDetail[])
   );
 }
 
-const OFFICIAL_DAILY_COLS = 13;
+const OFFICIAL_DAILY_COLS = 15;
 /** أعمدة الجدول قبل أعمدة السعة/الحضور/الغياب (لصف الإجمالي الفرعي) */
 const OFFICIAL_DAILY_COLS_BEFORE_COUNTS = 7;
-/** أعمدة ذيل صف الإجمالي (غياب + مشرف + مراقبون) */
-const OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN = 3;
+/** أعمدة ذيل صف الإجمالي (غياب طلاب + مشرف + مراقبون + غياب مشرف/مراقب + غش) */
+const OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN = 5;
 
 type DailyOfficialTotals = {
   examsUndergraduate: number;
@@ -789,6 +878,10 @@ function computeDailyOfficialReportTotals(
     if (sup) supervisors.add(sup);
     for (const name of splitLines(d.invigilators)) {
       invigilators.add(name);
+    }
+    for (const ex of d.room_external_staff.external_invigilators) {
+      const n = ex.name.trim();
+      if (n.length >= 2) invigilators.add(n);
     }
   }
   return {
@@ -1036,8 +1129,10 @@ function officialDailyDataRow(
   <td class="tabular">${d.attendance_count}</td>
   <td class="tabular">${d.absence_count}</td>
   <td style="font-size:12px;line-height:1.45">${absenceNamesOfficialCell(d, z)}</td>
-  <td>${z(d.supervisor_name?.trim() || "—")}</td>
-  <td style="font-size:12px">${invigilatorsHtml(d.invigilators)}</td>
+  <td>${formatSupervisorForSituationReport(d.supervisor_name ?? "", d.room_external_staff, z)}</td>
+  <td style="font-size:12px">${formatInvigilatorsForSituationReport(d.invigilators, d.room_external_staff, z, splitLines)}</td>
+  <td style="font-size:11px;line-height:1.45;text-align:right">${situationStaffAbsencesReportBlockHtml(d, z)}</td>
+  <td style="font-size:11px;line-height:1.45;text-align:right">${situationCheatingReportBlockHtml(d, z)}</td>
 </tr>`;
 }
 
@@ -1257,6 +1352,8 @@ export function buildDailyExamSituationsFinalReportHtml(
         <th>الطالب الغائب<br/>(والسبب إن وُجد)</th>
         <th>مشرف<br/>القاعة</th>
         <th>المراقبون</th>
+        <th>غياب المشرف أو المراقب<br/><span style="font-weight:600">(السبب والبديل)</span></th>
+        <th>حالات الغش<br/><span style="font-weight:600">(الطالب والملاحظات)</span></th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>

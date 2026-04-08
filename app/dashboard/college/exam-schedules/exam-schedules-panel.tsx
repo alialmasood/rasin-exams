@@ -195,6 +195,24 @@ function roomMatchesStudySubject(r: CollegeExamRoomRow, studySubjectId: string):
   return r.study_subject_id === studySubjectId || r.study_subject_id_2 === studySubjectId;
 }
 
+function buildEmptyExamScheduleForm(fixedCollegeSubjectId: string | null | undefined): FormState {
+  return {
+    collegeSubjectId: fixedCollegeSubjectId?.trim() ?? "",
+    scheduleType: "FINAL",
+    academicYear: suggestedAcademicYear(),
+    termLabel: "",
+    studyTier: "UNDERGRAD",
+    studySubjectId: "",
+    stageLevel: "",
+    examDate: "",
+    mealSlot: "1",
+    startTime: "08:00",
+    endTime: "09:00",
+    roomIds: [],
+    notes: "",
+  };
+}
+
 export function ExamSchedulesPanel({
   collegeLabel,
   subjects,
@@ -202,6 +220,8 @@ export function ExamSchedulesPanel({
   rooms,
   initialRows,
   initialHolidays,
+  /** عند `/department/...` يُثبَّت القسم في النموذج ولا يُختار قسم آخر */
+  fixedCollegeSubjectId = null,
 }: {
   collegeLabel: string;
   subjects: CollegeSubjectRow[];
@@ -209,12 +229,15 @@ export function ExamSchedulesPanel({
   rooms: CollegeExamRoomRow[];
   initialRows: CollegeExamScheduleRow[];
   initialHolidays: CollegeHolidayRow[];
+  fixedCollegeSubjectId?: string | null;
 }) {
   const [rows, setRows] = useState<CollegeExamScheduleRow[]>(sortSchedules(initialRows));
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [filterDepartment, setFilterDepartment] = useState("ALL");
+  const [filterDepartment, setFilterDepartment] = useState(() =>
+    fixedCollegeSubjectId?.trim() ? fixedCollegeSubjectId.trim() : "ALL"
+  );
   const [filterType, setFilterType] = useState<"ALL" | ScheduleType>("ALL");
   const [filterDate, setFilterDate] = useState("");
   const [page, setPage] = useState(1);
@@ -249,22 +272,20 @@ export function ExamSchedulesPanel({
   const [pdfExportSubjectId, setPdfExportSubjectId] = useState<string | null>(null);
   const [whatsAppShareSubjectId, setWhatsAppShareSubjectId] = useState<string | null>(null);
 
-  const emptyForm: FormState = {
-    collegeSubjectId: "",
-    scheduleType: "FINAL",
-    academicYear: suggestedAcademicYear(),
-    termLabel: "",
-    studyTier: "UNDERGRAD",
-    studySubjectId: "",
-    stageLevel: "",
-    examDate: "",
-    mealSlot: "1",
-    startTime: "08:00",
-    endTime: "09:00",
-    roomIds: [],
-    notes: "",
-  };
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const emptyForm = useMemo(
+    () => buildEmptyExamScheduleForm(fixedCollegeSubjectId),
+    [fixedCollegeSubjectId]
+  );
+  const [form, setForm] = useState<FormState>(() => buildEmptyExamScheduleForm(fixedCollegeSubjectId));
+
+  const branchLockedToDepartment = Boolean(fixedCollegeSubjectId?.trim());
+  const lockedBranchMeta = useMemo(
+    () =>
+      fixedCollegeSubjectId?.trim()
+        ? subjects.find((s) => s.id === fixedCollegeSubjectId.trim())
+        : undefined,
+    [subjects, fixedCollegeSubjectId]
+  );
 
   const openExamScheduleFabRef = useRef<() => void>(() => {});
   openExamScheduleFabRef.current = () => {
@@ -302,6 +323,20 @@ export function ExamSchedulesPanel({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    const fid = fixedCollegeSubjectId?.trim();
+    if (fid) setFilterDepartment(fid);
+  }, [fixedCollegeSubjectId]);
+
+  useEffect(() => {
+    const fid = fixedCollegeSubjectId?.trim();
+    if (!fid || !builderOpen) return;
+    setForm((f) => {
+      if (f.collegeSubjectId === fid) return f;
+      return { ...f, collegeSubjectId: fid, studySubjectId: "", stageLevel: "", roomIds: [] };
+    });
+  }, [fixedCollegeSubjectId, builderOpen]);
 
   useEffect(() => {
     const el = holidaysDialogRef.current;
@@ -818,23 +853,50 @@ export function ExamSchedulesPanel({
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القسم / الفرع</label>
-              <select
-                value={form.collegeSubjectId}
-                disabled={generalLocked}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    collegeSubjectId: e.target.value,
-                    studySubjectId: "",
-                    stageLevel: "",
-                    roomIds: [],
-                  }))
-                }
-                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
-              >
-                <option value="">اختر القسم/الفرع</option>
-                {subjects.map((s) => <option key={s.id} value={s.id}>{s.branch_name} ({s.branch_type === "BRANCH" ? "فرع" : "قسم"})</option>)}
-              </select>
+              {branchLockedToDepartment ? (
+                <>
+                  <div
+                    className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] px-3 text-sm text-[#334155]"
+                    aria-readonly
+                  >
+                    {lockedBranchMeta ? (
+                      <>
+                        {lockedBranchMeta.branch_name}{" "}
+                        <span className="text-[#64748B]">
+                          ({lockedBranchMeta.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[#64748B]">قسم حسابك الحالي</span>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-[#64748B]">
+                    مرتبط بحساب القسم ضمن التشكيل؛ لا يُغيَّر من هذه الصفحة.
+                  </p>
+                </>
+              ) : (
+                <select
+                  value={form.collegeSubjectId}
+                  disabled={generalLocked}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      collegeSubjectId: e.target.value,
+                      studySubjectId: "",
+                      stageLevel: "",
+                      roomIds: [],
+                    }))
+                  }
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
+                >
+                  <option value="">اختر القسم/الفرع</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.branch_name} ({s.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="sm:col-span-2 grid grid-cols-3 gap-2 sm:gap-4">
               <div className="min-w-0">
@@ -1448,18 +1510,20 @@ export function ExamSchedulesPanel({
               placeholder="بحث..."
               className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
-            <select
-              value={filterDepartment}
-              onChange={(e) => setFilterDepartment(e.target.value)}
-              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
-            >
-              <option value="ALL">فلتر القسم/الفرع</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.branch_name}
-                </option>
-              ))}
-            </select>
+            {branchLockedToDepartment ? null : (
+              <select
+                value={filterDepartment}
+                onChange={(e) => setFilterDepartment(e.target.value)}
+                className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+              >
+                <option value="ALL">فلتر القسم/الفرع</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.branch_name}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as "ALL" | ScheduleType)}

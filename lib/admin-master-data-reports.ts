@@ -1,5 +1,5 @@
 import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
@@ -65,16 +65,12 @@ function formationDisplay(
   return (formationName ?? "").trim() || "—";
 }
 
-function normalizeStudyType(raw: string): StudyType {
-  const v = raw.trim().toUpperCase();
-  if (v === "SEMESTER") return "SEMESTER";
-  if (v === "COURSES") return "COURSES";
-  if (v === "BOLOGNA") return "BOLOGNA";
-  return "ANNUAL";
+function normalizeStudyTypeFromRaw(raw: string): StudyType {
+  return normalizeStudyType(raw);
 }
 
 function studyTypeAr(raw: string): string {
-  return STUDY_TYPE_LABEL_AR[normalizeStudyType(raw)] ?? raw;
+  return STUDY_TYPE_LABEL_AR[normalizeStudyTypeFromRaw(raw)] ?? raw;
 }
 
 const PRINT_STYLES = `

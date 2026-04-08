@@ -1,14 +1,14 @@
 /**
  * نافذة رفع الموقف (توقيت بغداد):
- * - تُفتح بعد 30 دقيقة من بداية الجلسة، وتبقى مفتوحة حتى نهاية يوم الامتحان وبعده (لا تُغلق عند انتهاء وقت الجدول).
- * - «في الموعد» حتى موعد وجبة الامتحان؛ بعده يُعدّ الرفع متأخراً دون إغلاق البوابة.
+ * - تُفتح بعد 30 دقيقة من بداية الجلسة؛ يُعد الرفع «في الموعد» حتى مرور ساعة ونصف من بداية الامتحان، ثم يُعد متأخراً.
+ * - بعد فتح البوابة يبقى الرفع مسموحاً (بما في ذلك بعد يوم الامتحان)؛ قبل يوم الامتحان أو قبل +30 دقيقة: غير مسموح.
  */
 export const EXAM_SITUATION_TZ = "Asia/Baghdad";
 
-/** آخر وقت لاعتبار الرفع «في الموعد» — الوجبة الأولى (10:00 صباحاً). */
-export const MEAL_SLOT1_ONTIME_DEADLINE_MINUTES = 10 * 60;
-/** الوجبة الثانية (1:00 ظهراً). */
-export const MEAL_SLOT2_ONTIME_DEADLINE_MINUTES = 13 * 60;
+/** دقائق بعد بداية الامتحان التي تُفتح بعدها بوابة الرفع. */
+export const EXAM_SITUATION_UPLOAD_OPEN_AFTER_START_MINUTES = 30;
+/** دقائق بعد بداية الامتحان؛ حتى هذا الحد (شاملاً) يُعد الرفع «في الموعد» بعد فتح البوابة. */
+export const EXAM_SITUATION_ONTIME_UNTIL_AFTER_START_MINUTES = 90;
 
 export function calendarDateInTimeZone(d: Date, tz: string): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -71,19 +71,19 @@ export function canUploadSituationInExamWindow(
   if (ex < today) return true;
   const sm = parseTimeToMinutes(startTime);
   if (sm < 0) return false;
-  const openFrom = sm + 30;
+  const openFrom = sm + EXAM_SITUATION_UPLOAD_OPEN_AFTER_START_MINUTES;
   const nowM = minutesSinceMidnightInTimeZone(now, EXAM_SITUATION_TZ);
   return nowM >= openFrom;
 }
 
 /**
- * الرفع «متأخر عن الموعد المعتمد» للوجبة (10:00 ص / 1:00 م بتوقيت بغداد)، مع بقاء البوابة مفتوحة.
- * يوم امتحان سابق: يُعتبر متأخراً. قبل فتح النافذة (قبل بداية+30): لا يُعرض كمتأخر.
+ * الرفع «متأخر» بعد انقضاء ساعة ونصف من بداية الامتحان (بتوقيت بغداد)، مع بقاء البوابة مفتوحة للرفع.
+ * يوم امتحان سابق: يُعتبر متأخراً. قبل فتح النافذة (قبل بداية + 30 د): لا يُعرض كمتأخر.
  */
 export function isExamSituationUploadLateByMealPolicy(
   examDate: string,
   startTime: string,
-  mealSlot: 1 | 2,
+  _mealSlot: 1 | 2,
   now: Date = new Date()
 ): boolean {
   const ex = examDate.trim();
@@ -92,12 +92,11 @@ export function isExamSituationUploadLateByMealPolicy(
   if (ex < today) return true;
   const sm = parseTimeToMinutes(startTime);
   if (sm < 0) return false;
-  const openFrom = sm + 30;
-  const deadline =
-    mealSlot === 2 ? MEAL_SLOT2_ONTIME_DEADLINE_MINUTES : MEAL_SLOT1_ONTIME_DEADLINE_MINUTES;
+  const openFrom = sm + EXAM_SITUATION_UPLOAD_OPEN_AFTER_START_MINUTES;
+  const onTimeUntil = sm + EXAM_SITUATION_ONTIME_UNTIL_AFTER_START_MINUTES;
   const nowM = minutesSinceMidnightInTimeZone(now, EXAM_SITUATION_TZ);
   if (nowM < openFrom) return false;
-  return nowM > deadline || openFrom > deadline;
+  return nowM > onTimeUntil;
 }
 
 /**
@@ -117,7 +116,7 @@ export function isExamSituationUploadWindowNotYetOpen(
   const nowM = minutesSinceMidnightInTimeZone(now, EXAM_SITUATION_TZ);
   const sm = parseTimeToMinutes(startTime);
   if (sm < 0) return true;
-  return nowM < sm + 30;
+  return nowM < sm + EXAM_SITUATION_UPLOAD_OPEN_AFTER_START_MINUTES;
 }
 
 /** مكمّل لـ `isExamSituationUploadWindowNotYetOpen`: نافذة الرفع مفتوحة اليوم، أو انقضى يوم الامتحان دون رفع بعد. */
@@ -130,10 +129,6 @@ export function isExamSituationUploadOverdueOrWindowOpen(
   return !isExamSituationUploadWindowNotYetOpen(examDate, startTime, endTime, now);
 }
 
-export function formatSituationWindowHintAr(mealSlot: 1 | 2, startTime: string): string {
-  const deadlinePhrase =
-    mealSlot === 2
-      ? "الواحدة ظهراً (1:00 م)"
-      : "العاشرة صباحاً (10:00 ص)";
-  return `تُفتح بوابة الرفع بعد 30 دقيقة من بداية الامتحان (${startTime}، توقيت بغداد) وتبقى مفتوحة بعدها دون إغلاق عند انتهاء وقت الجدول. الرفع حتى ${deadlinePhrase} يُعدّ في الموعد؛ بعده يُعدّ متأخراً ويظل الرفع متاحاً.`;
+export function formatSituationWindowHintAr(_mealSlot: 1 | 2, startTime: string): string {
+  return `تُفتح بوابة الرفع بعد 30 دقيقة من بداية الامتحان (${startTime}، توقيت بغداد) إلى غاية ساعة ونصف بعد بداية وقت الامتحان دون إغلاق. بعده يُعدّ متأخراً.`;
 }

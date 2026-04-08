@@ -257,6 +257,8 @@ export async function ensureCoreSchema() {
 
   await ensureCollegeAccountProfilesTable(pool);
   await ensureCollegeSubjectsTable(pool);
+  await migrateCollegeAccountFormationUniqueConstraint(pool);
+  await ensureCollegeAccountProfileSubjectLink(pool);
   await ensureCollegeStudySubjectsTable(pool);
   await ensureCollegeExamRoomsTable(pool);
   await ensureCollegeExamSchedulesTable(pool);
@@ -482,6 +484,62 @@ async function alignCollegeAccountProfilesColumns(pool: Pool) {
       const msg = String((err as { message?: string }).message ?? "");
       if (!msg.includes("does not exist") && !msg.includes("column \"dean_name\"")) throw err;
     }
+  }
+  await run(
+    `ALTER TABLE public.college_account_profiles ADD COLUMN IF NOT EXISTS college_subject_id BIGINT`
+  );
+}
+
+/** قيد واحد لحساب تشكيل لكل اسم تشكيل؛ يسمح بعدة حسابات أقسام لنفس التشكيل. */
+async function migrateCollegeAccountFormationUniqueConstraint(pool: Pool) {
+  const run = async (sql: string) => {
+    try {
+      await pool.query(sql);
+    } catch (err: unknown) {
+      if (isPermissionError(err)) {
+        console.warn("[schema] تعذر ترحيل قيود college_account_profiles (formation). شغّل الترحيل كـ postgres.");
+        return;
+      }
+      throw err;
+    }
+  };
+  await run(
+    `ALTER TABLE public.college_account_profiles DROP CONSTRAINT IF EXISTS college_account_profiles_formation_name_key`
+  );
+  await createIndexSafe(
+    pool,
+    "uq_college_profile_formation_name_formation_only",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_college_profile_formation_name_formation_only
+     ON public.college_account_profiles (formation_name)
+     WHERE account_kind = 'FORMATION' AND formation_name IS NOT NULL`
+  );
+  await createIndexSafe(
+    pool,
+    "uq_college_profile_college_subject_department",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_college_profile_college_subject_department
+     ON public.college_account_profiles (college_subject_id)
+     WHERE college_subject_id IS NOT NULL`
+  );
+}
+
+async function ensureCollegeAccountProfileSubjectLink(pool: Pool) {
+  if (!(await tableExists(pool, "college_subjects"))) return;
+  if (!(await tableExists(pool, "college_account_profiles"))) return;
+  if (await constraintExists(pool, "college_account_profiles_college_subject_id_fkey")) return;
+  try {
+    await pool.query(`
+      ALTER TABLE public.college_account_profiles
+      ADD CONSTRAINT college_account_profiles_college_subject_id_fkey
+      FOREIGN KEY (college_subject_id) REFERENCES public.college_subjects(id) ON DELETE SET NULL
+    `);
+  } catch (err: unknown) {
+    if (isPermissionError(err)) {
+      console.warn("[schema] تعذر ربط college_account_profiles.college_subject_id → college_subjects.id");
+      return;
+    }
+    const msg = String((err as { message?: string }).message ?? "");
+    if (msg.includes("already exists")) return;
+    throw err;
   }
 }
 
@@ -722,6 +780,9 @@ async function ensureCollegeExamRoomsTable(pool: Pool) {
     );
     await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_morning_2 TEXT`);
     await pool.query(`ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS absence_names_evening_2 TEXT`);
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS external_room_staff JSONB`
+    );
     await pool.query(`
       UPDATE public.college_exam_rooms
       SET capacity_morning = capacity_total
@@ -835,6 +896,22 @@ async function ensureCollegeExamSchedulesTable(pool: Pool) {
   } catch (err: unknown) {
     if (!isPermissionError(err)) throw err;
     console.warn("[schema] تعذر توسيع college_exam_schedules بإضافة meal_slot (صلاحيات).");
+  }
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS situation_staff_absences JSONB`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS situation_cheating_cases JSONB`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
   }
 
   if (!(await constraintExists(pool, "college_exam_schedules_owner_user_id_fkey"))) {

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   collegeDashboardNavSections,
   getDashboardNavForRole,
+  type CollegeNavSection,
 } from "@/components/dashboard/nav-config";
 import { logoutAction } from "@/app/dashboard/actions";
 
@@ -38,6 +39,10 @@ type Props = {
   sidebarTagline: string;
   /** وصف الدور (مدير النظام / اسم التشكيل) */
   roleDescription: string;
+  /** تجاوز أقسام قائمة بوابة الكلية (مثلاً `/department`) */
+  collegeNavSections?: CollegeNavSection[];
+  /** جذر مسارات القائمة لتمييز الصفحة النشطة (افتراضي: `/dashboard/college`) */
+  collegeNavRootPath?: string;
   children: React.ReactNode;
 };
 
@@ -47,6 +52,8 @@ export function AdminDashboardShell({
   displayName,
   sidebarTagline,
   roleDescription,
+  collegeNavSections,
+  collegeNavRootPath,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -57,11 +64,19 @@ export function AdminDashboardShell({
 
   const navItems = getDashboardNavForRole(role);
   const isCollegePortal = role === "COLLEGE";
+  const collegeNavResolved = collegeNavSections ?? collegeDashboardNavSections;
+  const collegeNavRoot = collegeNavRootPath ?? "/dashboard/college";
   /** أسفل الشريط: للكلية اسم التشكيل/الكلية فقط؛ لغيرها اسم العرض في الواجهة. */
   const sidebarFooterLabel =
     (isCollegePortal ? sidebarTagline : displayName).trim() || username.trim();
 
   function isNavItemActive(href: string): boolean {
+    if (isCollegePortal) {
+      if (href === collegeNavRoot) {
+        return pathname === href;
+      }
+      return pathname === href || pathname.startsWith(`${href}/`);
+    }
     if (href === "/dashboard" || href === "/dashboard/college") {
       return pathname === href;
     }
@@ -134,7 +149,7 @@ export function AdminDashboardShell({
       >
         {isCollegePortal ? (
           <>
-            {collegeDashboardNavSections.map((section, sectionIndex) => (
+            {collegeNavResolved.map((section, sectionIndex) => (
               <div key={section.id} className={sectionIndex > 0 ? "mt-5 border-t border-white/15 pt-4" : ""}>
                 <p
                   className="mb-2 px-3 text-[11px] font-bold tracking-tight text-white/55"

@@ -3,11 +3,30 @@ import { normalizeExamMealSlot } from "@/lib/exam-meal-slot";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { canUploadSituationInExamWindow } from "@/lib/exam-situation-window";
+import {
+  parseSituationCheatingCasesFromDb,
+  serializeSituationCheatingCasesForDb,
+  validateSituationCheatingCases,
+  type SituationCheatingCasesState,
+} from "@/lib/situation-cheating-cases";
+import {
+  parseSituationStaffAbsencesFromDb,
+  serializeSituationStaffAbsencesForDb,
+  splitInvigilatorNamesList,
+  validateSituationStaffAbsences,
+  type SituationStaffAbsencesState,
+} from "@/lib/situation-staff-absences";
 import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
+import {
+  allInvigilatorNamesForAbsenceCheck,
+  parseExternalRoomStaffFromDb,
+  type ExternalRoomStaffStored,
+} from "@/lib/room-external-staff";
 import type { DeanSituationStatus, UploadStatusTableRow } from "@/lib/upload-status-display";
 
 export type { DeanSituationStatus, UploadStatusListItem, UploadStatusTableRow } from "@/lib/upload-status-display";
+export type { ExternalRoomStaffStored } from "@/lib/room-external-staff";
 export { buildUploadStatusListItems } from "@/lib/upload-status-display";
 
 function normalizeDean(s: string | null | undefined): DeanSituationStatus {
@@ -19,11 +38,7 @@ function normalizeDean(s: string | null | undefined): DeanSituationStatus {
 }
 
 function normalizeStudyTypeDb(v: string): StudyType {
-  const t = v?.trim().toUpperCase();
-  if (t === "SEMESTER") return "SEMESTER";
-  if (t === "COURSES") return "COURSES";
-  if (t === "BOLOGNA") return "BOLOGNA";
-  return "ANNUAL";
+  return normalizeStudyType(v ?? "");
 }
 
 function normalizeWorkflowStatusDb(s: string | null | undefined): CollegeExamScheduleRow["workflow_status"] {
@@ -80,10 +95,14 @@ function isSituationShiftAttendanceComplete(
   return true;
 }
 
-export async function listOfficialExamSituationsForOwner(ownerUserId: string): Promise<UploadStatusTableRow[]> {
+export async function listOfficialExamSituationsForOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<UploadStatusTableRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     schedule_id: string | number;
     college_subject_id: string;
@@ -203,9 +222,9 @@ export async function listOfficialExamSituationsForOwner(ownerUserId: string): P
      INNER JOIN college_exam_rooms r ON r.id = e.room_id
      LEFT JOIN college_exam_situation_reports rep
             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
-     WHERE e.owner_user_id = $1
+     WHERE e.owner_user_id = $1${rid ? " AND e.college_subject_id = $2::bigint" : ""}
      ORDER BY e.exam_date ASC, e.meal_slot ASC, e.start_time ASC, e.created_at ASC`,
-    [ownerUserId]
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => {
     const dean = normalizeDean(row.dean_status);
@@ -313,9 +332,11 @@ function studyTypeLabelAr(t: StudyType): string {
     case "SEMESTER":
       return "فصلي";
     case "COURSES":
-      return "بالمقررات";
+      return "مقررات";
     case "BOLOGNA":
       return "بولونيا";
+    case "INTEGRATIVE":
+      return "تكاملي";
     default:
       return "سنوي";
   }
@@ -577,9 +598,10 @@ export type StatusFollowupTableRow = StatusFollowupScheduleRow;
 
 /** مواقف رُفع موقفها من رئيس القسم — تظهر في «متابعة المواقف». مرتبة من الأحدث رفعاً. */
 export async function listUploadedExamSituationsForFollowup(
-  ownerUserId: string
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
 ): Promise<StatusFollowupScheduleRow[]> {
-  const rows = await listOfficialExamSituationsForOwner(ownerUserId);
+  const rows = await listOfficialExamSituationsForOwner(ownerUserId, restrictCollegeSubjectId);
   return rows
     .filter((r) => r.is_uploaded)
     .sort((a, b) => (b.head_submitted_at?.getTime() ?? 0) - (a.head_submitted_at?.getTime() ?? 0))
@@ -599,10 +621,19 @@ export async function listUploadedExamSituationsForFollowup(
     }));
 }
 
+export type { SituationCheatingCasesState } from "@/lib/situation-cheating-cases";
+export type { SituationStaffAbsencesState } from "@/lib/situation-staff-absences";
+
 export type ExamSituationDetail = UploadStatusTableRow & {
   branch_head_name: string;
   supervisor_name: string;
   invigilators: string;
+  /** مشرف/مراقبون خارج التشكيل (من إدارة القاعات) */
+  room_external_staff: ExternalRoomStaffStored;
+  /** غياب مشرف/مراقبين مسجّل مع الجدول الامتحاني */
+  situation_staff_absences: SituationStaffAbsencesState;
+  /** حالات غش مسجّلة مع الموقف */
+  situation_cheating_cases: SituationCheatingCasesState;
   absence_names: string;
   notes: string | null;
   /** الفصل الدراسي من الجدول الامتحاني (الأول / الثاني …) */
@@ -660,6 +691,9 @@ type ExamSituationDetailDbRow = {
   dean_status: string | null;
   dean_reviewed_at: Date | null;
   notes: string | null;
+  situation_staff_absences: unknown | null;
+  situation_cheating_cases: unknown | null;
+  room_external_staff: unknown | null;
 };
 
 /** SELECT + JOINs لصف تفاصيل الموقف — يُكمَل بشرط WHERE. */
@@ -753,11 +787,12 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
                 THEN COALESCE(NULLIF(TRIM(r.invigilators_2), ''), r.invigilators)
               ELSE r.invigilators
             END AS invigilators,
+            r.external_room_staff AS room_external_staff,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
             TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
             c.branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
-            e.notes
+            e.notes, e.situation_staff_absences, e.situation_cheating_cases
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
@@ -828,11 +863,65 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     branch_head_name: row.branch_head_name,
     supervisor_name: row.supervisor_name,
     invigilators: row.invigilators ?? "",
+    room_external_staff: parseExternalRoomStaffFromDb(row.room_external_staff),
     absence_names: row.absence_names ?? "",
     notes: row.notes,
     term_label: row.term_label?.trim() ? row.term_label.trim() : null,
     instructor_name: String(row.instructor_name ?? "").trim() || "—",
+    situation_staff_absences: parseSituationStaffAbsencesFromDb(row.situation_staff_absences),
+    situation_cheating_cases: parseSituationCheatingCasesFromDb(row.situation_cheating_cases),
   };
+}
+
+export async function patchScheduleSituationStaffAbsences(input: {
+  ownerUserId: string;
+  scheduleId: string;
+  state: SituationStaffAbsencesState;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const scheduleId = input.scheduleId.trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  await ensureCoreSchema();
+  const detail = await getExamSituationDetailForOwner(input.ownerUserId, scheduleId);
+  if (!detail) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  const allowedInv = allInvigilatorNamesForAbsenceCheck(detail.invigilators, detail.room_external_staff);
+  const v = validateSituationStaffAbsences(input.state, allowedInv);
+  if (!v.ok) return v;
+  const payload = serializeSituationStaffAbsencesForDb(input.state);
+  const pool = getDbPool();
+  const r = await pool.query(
+    `UPDATE college_exam_schedules
+     SET situation_staff_absences = $1::jsonb, updated_at = NOW()
+     WHERE id = $2::bigint AND owner_user_id = $3`,
+    [payload, scheduleId, input.ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ البيانات." };
+  return { ok: true };
+}
+
+export async function patchScheduleSituationCheatingCases(input: {
+  ownerUserId: string;
+  scheduleId: string;
+  state: SituationCheatingCasesState;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const scheduleId = input.scheduleId.trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  await ensureCoreSchema();
+  const exists = await getExamSituationDetailForOwner(input.ownerUserId, scheduleId);
+  if (!exists) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  const v = validateSituationCheatingCases(input.state);
+  if (!v.ok) return v;
+  const payload = serializeSituationCheatingCasesForDb(input.state);
+  const pool = getDbPool();
+  const r = await pool.query(
+    `UPDATE college_exam_schedules
+     SET situation_cheating_cases = $1::jsonb, updated_at = NOW()
+     WHERE id = $2::bigint AND owner_user_id = $3`,
+    [payload, scheduleId, input.ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ البيانات." };
+  return { ok: true };
 }
 
 export async function getExamSituationDetailForOwner(
@@ -1037,28 +1126,45 @@ export function listExamDatesWithBothMealsFullyComplete(summaries: ExamDayUpload
 }
 
 /** عدد جلسات كل يوم ولكل وجبة (المرسلة/المعتمدة في الجدول) مقابل المرفوع موقفها — للمتابعة والتقرير لكل وجبة على حدة. */
-export async function listExamDayUploadSummariesForOwner(ownerUserId: string): Promise<ExamDayUploadSummary[]> {
+export async function listExamDayUploadSummariesForOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<ExamDayUploadSummary[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     exam_date: string;
     meal_slot: number | string | null;
     total_sessions: string;
     uploaded_sessions: string;
   }>(
-    `SELECT e.exam_date::text AS exam_date,
-            COALESCE(e.meal_slot, 1) AS meal_slot,
-            COUNT(*)::text AS total_sessions,
-            SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
-     FROM college_exam_schedules e
-     LEFT JOIN college_exam_situation_reports rep
-            ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
-     WHERE e.owner_user_id = $1
-       AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
-     GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
-     ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`,
-    [ownerUserId]
+    rid
+      ? `SELECT e.exam_date::text AS exam_date,
+                COALESCE(e.meal_slot, 1) AS meal_slot,
+                COUNT(*)::text AS total_sessions,
+                SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
+         FROM college_exam_schedules e
+         LEFT JOIN college_exam_situation_reports rep
+                ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+         WHERE e.owner_user_id = $1
+           AND e.college_subject_id = $2::bigint
+           AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
+         GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
+         ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`
+      : `SELECT e.exam_date::text AS exam_date,
+                COALESCE(e.meal_slot, 1) AS meal_slot,
+                COUNT(*)::text AS total_sessions,
+                SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
+         FROM college_exam_schedules e
+         LEFT JOIN college_exam_situation_reports rep
+                ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+         WHERE e.owner_user_id = $1
+           AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
+         GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
+         ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`,
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     exam_date: row.exam_date,

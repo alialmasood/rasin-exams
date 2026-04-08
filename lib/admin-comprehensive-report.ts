@@ -3,7 +3,7 @@ import { sanitizeComprehensiveSectionIds } from "@/lib/comprehensive-report-sect
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType } from "@/lib/college-study-subjects";
 import * as XLSX from "xlsx";
 
 /** صف جدولة امتحاني موسّع (صباحي/مسائي + تشكيل + قسم) */
@@ -377,11 +377,8 @@ export async function loadComprehensiveReportBundle(): Promise<ComprehensiveRepo
 }
 
 function studyTypeAr(t: string): string {
-  const v = t.trim().toUpperCase();
-  if (v === "SEMESTER" || v === "COURSES" || v === "BOLOGNA" || v === "ANNUAL") {
-    return STUDY_TYPE_LABEL_AR[v as StudyType];
-  }
-  return t;
+  const n = normalizeStudyType(t);
+  return STUDY_TYPE_LABEL_AR[n];
 }
 
 function safeSheetName(name: string): string {

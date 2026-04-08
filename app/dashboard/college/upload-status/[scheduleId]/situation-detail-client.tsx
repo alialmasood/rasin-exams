@@ -1,5 +1,6 @@
 "use client";
 
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
@@ -9,26 +10,26 @@ import {
   buildExamSituationBundleReportHtml,
   buildExamSituationReportHtml,
 } from "@/lib/college-exam-situation-report-html";
-import type { StudyType } from "@/lib/college-study-subjects";
 import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
+import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import {
   canUploadSituationInExamWindow,
   formatSituationWindowHintAr,
   isExamSituationUploadLateByMealPolicy,
 } from "@/lib/exam-situation-window";
+import type { CheatingCaseEntry, SituationCheatingCasesState } from "@/lib/situation-cheating-cases";
+import { validateSituationCheatingCases } from "@/lib/situation-cheating-cases";
+import { allInvigilatorNamesForAbsenceCheck } from "@/lib/room-external-staff";
+import type { InvigilatorAbsenceEntry, SituationStaffAbsencesState } from "@/lib/situation-staff-absences";
+import { validateSituationStaffAbsences } from "@/lib/situation-staff-absences";
 import {
   approveDeanSituationAction,
   patchRoomAttendanceForSituationAction,
+  patchSituationCheatingCasesAction,
+  patchSituationStaffAbsencesAction,
   submitHeadSituationAction,
   type SituationActionState,
 } from "../actions";
-
-const STUDY_TYPE_AR: Record<StudyType, string> = {
-  ANNUAL: "سنوي",
-  SEMESTER: "فصلي",
-  COURSES: "بالمقررات",
-  BOLOGNA: "بولونيا",
-};
 
 const WORKFLOW_LABEL: Record<ExamSituationDetail["workflow_status"], string> = {
   DRAFT: "مسودة",
@@ -257,6 +258,7 @@ export function SituationDetailClient({
   collegeLabel: string;
   deanName: string;
 }) {
+  const portalBase = useCollegePortalBasePath();
   const router = useRouter();
   const [activeScheduleId, setActiveScheduleId] = useState(bundle.active_schedule_id);
   const detail = useMemo(
@@ -278,6 +280,16 @@ export function SituationDetailClient({
   const [absenceNamesM, setAbsenceNamesM] = useState(detail.absence_names_morning);
   const [absenceNamesE, setAbsenceNamesE] = useState(detail.absence_names_evening);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const staffSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cheatingSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [staffAbsences, setStaffAbsences] = useState<SituationStaffAbsencesState>(() => ({
+    ...detail.situation_staff_absences,
+    invigilator_absences: detail.situation_staff_absences.invigilator_absences.map((r) => ({ ...r })),
+  }));
+  const [cheatingCases, setCheatingCases] = useState<SituationCheatingCasesState>(() => ({
+    cheating_reported: detail.situation_cheating_cases.cheating_reported,
+    cases: detail.situation_cheating_cases.cases.map((c) => ({ ...c })),
+  }));
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -298,6 +310,34 @@ export function SituationDetailClient({
   ]);
 
   useEffect(() => {
+    const s = detail.situation_staff_absences;
+    setStaffAbsences({
+      supervisor_absent: s.supervisor_absent,
+      supervisor_absence_reason: s.supervisor_absence_reason,
+      supervisor_substitute_name: s.supervisor_substitute_name,
+      invigilator_absences: s.invigilator_absences.map((r) => ({ ...r })),
+    });
+  }, [
+    detail.schedule_id,
+    detail.situation_staff_absences.supervisor_absent,
+    detail.situation_staff_absences.supervisor_absence_reason,
+    detail.situation_staff_absences.supervisor_substitute_name,
+    JSON.stringify(detail.situation_staff_absences.invigilator_absences),
+  ]);
+
+  useEffect(() => {
+    const ch = detail.situation_cheating_cases;
+    setCheatingCases({
+      cheating_reported: ch.cheating_reported,
+      cases: ch.cases.map((c) => ({ ...c })),
+    });
+  }, [
+    detail.schedule_id,
+    detail.situation_cheating_cases.cheating_reported,
+    JSON.stringify(detail.situation_cheating_cases.cases),
+  ]);
+
+  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
@@ -309,7 +349,7 @@ export function SituationDetailClient({
     !detail.is_uploaded &&
     isExamSituationUploadLateByMealPolicy(detail.exam_date, detail.start_time, mealSlot);
   const examTypeLabel = detail.schedule_type === "FINAL" ? "نهائي" : "فصلي";
-  const studySystemLabel = STUDY_TYPE_AR[detail.study_type] ?? detail.study_type;
+  const studySystemLabel = STUDY_TYPE_LABEL_AR[detail.study_type] ?? detail.study_type;
   const canSubmitHeadByWorkflow =
     detail.workflow_status === "SUBMITTED" || detail.workflow_status === "APPROVED";
 
@@ -320,6 +360,11 @@ export function SituationDetailClient({
   const capM = detail.capacity_morning;
   const capE = detail.capacity_evening;
   const dualShift = capM > 0 && capE > 0;
+
+  const invigilatorNameOptions = useMemo(
+    () => allInvigilatorNamesForAbsenceCheck(detail.invigilators, detail.room_external_staff),
+    [detail.invigilators, detail.room_external_staff]
+  );
 
   const attNumM = useMemo(() => {
     const n = Number.parseInt(attendanceM, 10);
@@ -441,8 +486,20 @@ export function SituationDetailClient({
       absence_names_morning: namesM,
       absence_names_evening: namesE,
       is_complete: dataComplete,
+      situation_staff_absences: staffAbsences,
+      situation_cheating_cases: cheatingCases,
     };
-  }, [detail, attNumM, absNumM, attNumE, absNumE, absenceNamesM, absenceNamesE]);
+  }, [
+    detail,
+    attNumM,
+    absNumM,
+    attNumE,
+    absNumE,
+    absenceNamesM,
+    absenceNamesE,
+    staffAbsences,
+    cheatingCases,
+  ]);
 
   /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اختلاف بسيط مع `detail.is_complete`. */
   const deanApproveDataOk = detail.is_complete || detailForPrint.is_complete;
@@ -492,6 +549,76 @@ export function SituationDetailClient({
     ]
   );
 
+  const runStaffAbsencesPatch = useCallback(
+    async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      const v = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
+      if (!v.ok) return false;
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      fd.set("supervisor_absent", staffAbsences.supervisor_absent ? "1" : "0");
+      fd.set("supervisor_absence_reason", staffAbsences.supervisor_absence_reason);
+      fd.set("supervisor_substitute_name", staffAbsences.supervisor_substitute_name);
+      fd.set("invigilator_absences_json", JSON.stringify(staffAbsences.invigilator_absences));
+      const res: SituationActionState = await patchSituationStaffAbsencesAction(null, fd);
+      if (!res) return false;
+      if (!res.ok) {
+        setToast({ type: "err", msg: res.message });
+        return false;
+      }
+      if (!opts?.silentSuccess) setToast({ type: "ok", msg: res.message });
+      router.refresh();
+      return true;
+    },
+    [detail.schedule_id, invigilatorNameOptions, router, staffAbsences]
+  );
+
+  const flushStaffAbsencesSave = useCallback(() => {
+    startTransition(() => {
+      void runStaffAbsencesPatch({ silentSuccess: true });
+    });
+  }, [runStaffAbsencesPatch, startTransition]);
+
+  const scheduleDebouncedStaffAbsencesSave = useCallback(() => {
+    if (staffSaveTimer.current) clearTimeout(staffSaveTimer.current);
+    staffSaveTimer.current = setTimeout(() => {
+      flushStaffAbsencesSave();
+    }, 700);
+  }, [flushStaffAbsencesSave]);
+
+  const runCheatingCasesPatch = useCallback(
+    async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      const v = validateSituationCheatingCases(cheatingCases);
+      if (!v.ok) return false;
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      fd.set("cheating_reported", cheatingCases.cheating_reported ? "1" : "0");
+      fd.set("cheating_cases_json", JSON.stringify(cheatingCases.cases));
+      const res: SituationActionState = await patchSituationCheatingCasesAction(null, fd);
+      if (!res) return false;
+      if (!res.ok) {
+        setToast({ type: "err", msg: res.message });
+        return false;
+      }
+      if (!opts?.silentSuccess) setToast({ type: "ok", msg: res.message });
+      router.refresh();
+      return true;
+    },
+    [cheatingCases, detail.schedule_id, router]
+  );
+
+  const flushCheatingCasesSave = useCallback(() => {
+    startTransition(() => {
+      void runCheatingCasesPatch({ silentSuccess: true });
+    });
+  }, [runCheatingCasesPatch, startTransition]);
+
+  const scheduleDebouncedCheatingCasesSave = useCallback(() => {
+    if (cheatingSaveTimer.current) clearTimeout(cheatingSaveTimer.current);
+    cheatingSaveTimer.current = setTimeout(() => {
+      flushCheatingCasesSave();
+    }, 700);
+  }, [flushCheatingCasesSave]);
+
   const sessionsForPrint = useMemo(
     () =>
       bundle.sessions.map((s) => (s.schedule_id === detail.schedule_id ? detailForPrint : s)),
@@ -530,12 +657,26 @@ export function SituationDetailClient({
     startTransition(async () => {
       const saved = await runAttendancePatch({ silentSuccess: true });
       if (!saved) return;
+      const staffV = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
+      if (!staffV.ok) {
+        setToast({ type: "err", msg: staffV.message });
+        return;
+      }
+      const savedStaff = await runStaffAbsencesPatch({ silentSuccess: true });
+      if (!savedStaff) return;
+      const cheatV = validateSituationCheatingCases(cheatingCases);
+      if (!cheatV.ok) {
+        setToast({ type: "err", msg: cheatV.message });
+        return;
+      }
+      const savedCheating = await runCheatingCasesPatch({ silentSuccess: true });
+      if (!savedCheating) return;
       const res = await submitHeadSituationAction(null, fd);
       if (!res) return;
       if (res.ok) {
         setToast({ type: "ok", msg: res.message });
         router.refresh();
-        router.push("/dashboard/college/status-followup");
+        router.push(`${portalBase}/status-followup`);
       } else {
         setToast({ type: "err", msg: res.message });
       }
@@ -547,6 +688,20 @@ export function SituationDetailClient({
     startTransition(async () => {
       const saved = await runAttendancePatch({ silentSuccess: true });
       if (!saved) return;
+      const staffV = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
+      if (!staffV.ok) {
+        setToast({ type: "err", msg: staffV.message });
+        return;
+      }
+      const savedStaff = await runStaffAbsencesPatch({ silentSuccess: true });
+      if (!savedStaff) return;
+      const cheatV = validateSituationCheatingCases(cheatingCases);
+      if (!cheatV.ok) {
+        setToast({ type: "err", msg: cheatV.message });
+        return;
+      }
+      const savedCheating = await runCheatingCasesPatch({ silentSuccess: true });
+      if (!savedCheating) return;
       const fd = new FormData();
       fd.set("schedule_id", detail.schedule_id);
       fd.set("dean_note", ta?.value ?? "");
@@ -610,7 +765,7 @@ export function SituationDetailClient({
             </div>
             <div className="flex w-full min-w-0 flex-shrink-0 flex-col gap-2 lg:w-auto lg:max-w-full">
               <div className="flex flex-wrap content-center items-center justify-end gap-2 sm:gap-2.5">
-                <Link href="/dashboard/college/upload-status" className={`${headerBackLinkClass} no-underline`}>
+                <Link href={`${portalBase}/upload-status`} className={`${headerBackLinkClass} no-underline`}>
                   ← رجوع
                 </Link>
                 <button
@@ -810,18 +965,252 @@ export function SituationDetailClient({
                     />
                     <span className="min-w-0 break-words text-sm font-bold text-slate-900">{detail.room_name}</span>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
                       <p className="mt-1.5 break-words rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
-                        {detail.supervisor_name}
+                        {detail.supervisor_name?.trim() || "—"}
+                        {detail.room_external_staff.supervisor_is_external &&
+                        detail.room_external_staff.supervisor_formation_name.trim() ? (
+                          <span className="mt-2 block border-t border-amber-100 pt-2 text-xs font-semibold text-amber-900">
+                            مشرف خارج التشكيل — التشكيل: {detail.room_external_staff.supervisor_formation_name.trim()}
+                          </span>
+                        ) : null}
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStaffAbsences((s) =>
+                            s.supervisor_absent
+                              ? {
+                                  ...s,
+                                  supervisor_absent: false,
+                                  supervisor_absence_reason: "",
+                                  supervisor_substitute_name: "",
+                                }
+                              : { ...s, supervisor_absent: true }
+                          );
+                          scheduleDebouncedStaffAbsencesSave();
+                        }}
+                        className="mt-2 text-xs font-bold text-[#1E3A8A] underline decoration-[#1E3A8A]/35 underline-offset-2 hover:text-[#163170]"
+                      >
+                        {staffAbsences.supervisor_absent
+                          ? "إلغاء تسجيل غياب مشرف القاعة"
+                          : "يوجد غياب لمشرف القاعة"}
+                      </button>
+                      {staffAbsences.supervisor_absent ? (
+                        <div className="mt-3 space-y-2.5 rounded-xl border border-[#1E3A8A]/15 bg-white/95 px-3 py-3 shadow-sm ring-1 ring-slate-100/80">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-bold text-[#1E3A8A]/85">
+                              سبب الغياب
+                            </label>
+                            <input
+                              type="text"
+                              dir="rtl"
+                              value={staffAbsences.supervisor_absence_reason}
+                              onChange={(e) =>
+                                setStaffAbsences((s) => ({
+                                  ...s,
+                                  supervisor_absence_reason: e.target.value,
+                                }))
+                              }
+                              onBlur={scheduleDebouncedStaffAbsencesSave}
+                              className="h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                              placeholder="اذكر السبب"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-bold text-[#1E3A8A]/85">
+                              المشرف البديل
+                            </label>
+                            <input
+                              type="text"
+                              dir="rtl"
+                              value={staffAbsences.supervisor_substitute_name}
+                              onChange={(e) =>
+                                setStaffAbsences((s) => ({
+                                  ...s,
+                                  supervisor_substitute_name: e.target.value,
+                                }))
+                              }
+                              onBlur={scheduleDebouncedStaffAbsencesSave}
+                              className="h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                              placeholder="اسم المشرف البديل"
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
                       <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
-                        {detail.invigilators || "—"}
+                        {detail.invigilators?.trim() || "—"}
+                        {detail.room_external_staff.external_invigilators.length > 0 ? (
+                          <span className="mt-2 block border-t border-amber-100 pt-2 text-xs font-semibold leading-relaxed text-amber-900">
+                            مراقبون من خارج التشكيل:
+                            <br />
+                            {detail.room_external_staff.external_invigilators.map((x, i) => (
+                              <span key={`${i}-${x.name.slice(0, 32)}`} className="block">
+                                • {x.name}
+                                {x.formation_name.trim() ? ` — التشكيل: ${x.formation_name.trim()}` : null}
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
                       </p>
+                      {invigilatorNameOptions.length > 0 ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStaffAbsences((s) => {
+                                if (s.invigilator_absences.length > 0) {
+                                  return { ...s, invigilator_absences: [] };
+                                }
+                                const empty: InvigilatorAbsenceEntry = {
+                                  absent_name: "",
+                                  absence_reason: "",
+                                  substitute_name: "",
+                                };
+                                return { ...s, invigilator_absences: [empty] };
+                              });
+                              scheduleDebouncedStaffAbsencesSave();
+                            }}
+                            className="mt-2 text-xs font-bold text-[#1E3A8A] underline decoration-[#1E3A8A]/35 underline-offset-2 hover:text-[#163170]"
+                          >
+                            {staffAbsences.invigilator_absences.length > 0
+                              ? "إلغاء تسجيل غياب المراقبين"
+                              : "يوجد غياب لمراقب"}
+                          </button>
+                          {staffAbsences.invigilator_absences.length > 0 ? (
+                            <div className="mt-3 space-y-4">
+                              {staffAbsences.invigilator_absences.map((row, idx) => (
+                                <div
+                                  key={idx}
+                                  className="space-y-2.5 rounded-xl border border-[#1E3A8A]/15 bg-white/95 px-3 py-3 shadow-sm ring-1 ring-slate-100/80"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-[11px] font-extrabold text-[#1E3A8A]">
+                                      غياب مراقب {idx + 1}
+                                    </span>
+                                    {staffAbsences.invigilator_absences.length > 1 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setStaffAbsences((s) => ({
+                                            ...s,
+                                            invigilator_absences: s.invigilator_absences.filter(
+                                              (_, j) => j !== idx
+                                            ),
+                                          }));
+                                          scheduleDebouncedStaffAbsencesSave();
+                                        }}
+                                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
+                                      >
+                                        حذف الصف
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-bold text-[#1E3A8A]/85">
+                                      المراقب الغائب
+                                    </label>
+                                    <select
+                                      dir="rtl"
+                                      value={row.absent_name}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setStaffAbsences((s) => {
+                                          const inv = [...s.invigilator_absences];
+                                          inv[idx] = { ...inv[idx]!, absent_name: v };
+                                          return { ...s, invigilator_absences: inv };
+                                        });
+                                        scheduleDebouncedStaffAbsencesSave();
+                                      }}
+                                      onBlur={scheduleDebouncedStaffAbsencesSave}
+                                      className="h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                                    >
+                                      <option value="">— اختر المراقب الغائب —</option>
+                                      {invigilatorNameOptions.map((name) => (
+                                        <option key={name} value={name}>
+                                          {name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-bold text-[#1E3A8A]/85">
+                                      سبب الغياب
+                                    </label>
+                                    <input
+                                      type="text"
+                                      dir="rtl"
+                                      value={row.absence_reason}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setStaffAbsences((s) => {
+                                          const inv = [...s.invigilator_absences];
+                                          inv[idx] = { ...inv[idx]!, absence_reason: v };
+                                          return { ...s, invigilator_absences: inv };
+                                        });
+                                      }}
+                                      onBlur={scheduleDebouncedStaffAbsencesSave}
+                                      className="h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                                      placeholder="سبب الغياب"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-[11px] font-bold text-[#1E3A8A]/85">
+                                      المراقب البديل
+                                    </label>
+                                    <input
+                                      type="text"
+                                      dir="rtl"
+                                      value={row.substitute_name}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setStaffAbsences((s) => {
+                                          const inv = [...s.invigilator_absences];
+                                          inv[idx] = { ...inv[idx]!, substitute_name: v };
+                                          return { ...s, invigilator_absences: inv };
+                                        });
+                                      }}
+                                      onBlur={scheduleDebouncedStaffAbsencesSave}
+                                      className="h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                                      placeholder="اسم المراقب البديل"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                              {staffAbsences.invigilator_absences.length < invigilatorNameOptions.length ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setStaffAbsences((s) => ({
+                                      ...s,
+                                      invigilator_absences: [
+                                        ...s.invigilator_absences,
+                                        {
+                                          absent_name: "",
+                                          absence_reason: "",
+                                          substitute_name: "",
+                                        },
+                                      ],
+                                    }));
+                                  }}
+                                  className="text-xs font-bold text-[#1E3A8A] underline decoration-[#1E3A8A]/35 underline-offset-2 hover:text-[#163170]"
+                                >
+                                  إضافة غياب مراقب آخر
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="mt-2 text-[11px] font-medium leading-relaxed text-slate-500">
+                          لتسجيل غياب مراقب، أضف أسماء المراقبين أولاً في «إدارة القاعات» لهذه القاعة.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1069,6 +1458,113 @@ export function SituationDetailClient({
                   />
                 </div>
               ) : null}
+
+              <div className="rounded-2xl border border-amber-200/80 bg-gradient-to-b from-amber-50/90 via-white to-[#FFFBF5] p-4 shadow-sm ring-1 ring-amber-100/90">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={cheatingCases.cheating_reported}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setCheatingCases((s) =>
+                        on
+                          ? {
+                              cheating_reported: true,
+                              cases:
+                                s.cases.length > 0
+                                  ? s.cases
+                                  : ([{ student_name: "", notes: "" }] satisfies CheatingCaseEntry[]),
+                            }
+                          : { cheating_reported: false, cases: [] }
+                      );
+                      scheduleDebouncedCheatingCasesSave();
+                    }}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-amber-400 text-amber-700 focus:ring-amber-500"
+                  />
+                  <span className="min-w-0 text-sm font-bold text-amber-950">
+                    يوجد حالة غش — عند التفعيل يُسجَّل اسم الطالب والملاحظات لكل حالة، ويُعرض في تقرير الموقف الامتحاني.
+                  </span>
+                </label>
+                {cheatingCases.cheating_reported ? (
+                  <div className="mt-4 space-y-4 border-t border-amber-200/70 pt-4">
+                    {cheatingCases.cases.map((row, idx) => (
+                      <div
+                        key={idx}
+                        className="space-y-2.5 rounded-xl border border-amber-200/60 bg-white/95 px-3 py-3 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-extrabold text-amber-900">حالة {idx + 1}</span>
+                          {cheatingCases.cases.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCheatingCases((s) => ({
+                                  ...s,
+                                  cases: s.cases.filter((_, j) => j !== idx),
+                                }));
+                                scheduleDebouncedCheatingCasesSave();
+                              }}
+                              className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
+                            >
+                              حذف
+                            </button>
+                          ) : null}
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] font-bold text-amber-900/85">اسم الطالب</label>
+                          <input
+                            type="text"
+                            dir="rtl"
+                            value={row.student_name}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setCheatingCases((s) => {
+                                const cases = [...s.cases];
+                                cases[idx] = { ...cases[idx]!, student_name: v };
+                                return { ...s, cases };
+                              });
+                            }}
+                            onBlur={scheduleDebouncedCheatingCasesSave}
+                            className="h-10 w-full rounded-lg border border-amber-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-500/20"
+                            placeholder="اسم الطالب"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] font-bold text-amber-900/85">الملاحظات</label>
+                          <textarea
+                            dir="rtl"
+                            value={row.notes}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setCheatingCases((s) => {
+                                const cases = [...s.cases];
+                                cases[idx] = { ...cases[idx]!, notes: v };
+                                return { ...s, cases };
+                              });
+                            }}
+                            onBlur={scheduleDebouncedCheatingCasesSave}
+                            rows={3}
+                            placeholder="تفاصيل الحالة، الإجراء المتخذ، مرجع المحضر…"
+                            className="w-full resize-y rounded-lg border border-amber-200/90 bg-white px-2.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-500/20"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCheatingCases((s) => ({
+                          ...s,
+                          cases: [...s.cases, { student_name: "", notes: "" }],
+                        }));
+                      }}
+                      className="text-xs font-bold text-amber-800 underline decoration-amber-400/50 underline-offset-2 hover:text-amber-950"
+                    >
+                      إضافة طالب آخر
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </SectionCard>
           </div>
 
@@ -1185,8 +1681,8 @@ export function SituationDetailClient({
                         ) : null}
                         {scheduleAllowed && uploadLateByMealPolicy ? (
                           <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950 shadow-sm">
-                            الرفع يُعدّ متأخراً عن الموعد المعتمد للوجبة (10:00 ص للوجبة الأولى، 1:00 م للثانية)؛
-                            البوابة ما زالت مفتوحة ويمكنك تأكيد الرفع.
+                            الرفع يُعدّ متأخراً بعد مرور ساعة ونصف من بداية وقت الامتحان (توقيت بغداد)؛ البوابة ما زالت
+                            مفتوحة ويمكنك تأكيد الرفع.
                           </p>
                         ) : null}
                         {!canSubmitHeadByWorkflow ? (

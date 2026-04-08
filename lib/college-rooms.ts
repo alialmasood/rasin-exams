@@ -1,5 +1,14 @@
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
+import {
+  parseExternalRoomStaffFromDb,
+  parseExternalRoomStaffFromFormJson,
+  serializeExternalRoomStaffForDb,
+  validateExternalRoomStaffForSave,
+  type ExternalRoomStaffStored,
+} from "@/lib/room-external-staff";
 import { ensureCoreSchema } from "@/lib/schema";
+
+export type { ExternalRoomStaffStored } from "@/lib/room-external-staff";
 
 /** حضور/غياب مفصول حسب الدوام الصباحي والمسائي لامتحان واحد في القاعة */
 export type ShiftAttendanceSplit = {
@@ -64,6 +73,8 @@ export type CollegeExamRoomRow = {
   stage_level: number;
   /** المرحلة للامتحان الثاني عند وجوده */
   stage_level_2: number | null;
+  /** مشرف/مراقبون من خارج تشكيل الكلية (من JSONB) */
+  external_room_staff: ExternalRoomStaffStored;
   created_at: Date;
   updated_at: Date;
 };
@@ -135,11 +146,15 @@ async function repairAllZeroSerialsForOwner(pool: ReturnType<typeof getDbPool>, 
   );
 }
 
-export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<CollegeExamRoomRow[]> {
+export async function listCollegeExamRoomsByOwner(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeExamRoomRow[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
   await repairAllZeroSerialsForOwner(pool, ownerUserId);
+  const rid = restrictCollegeSubjectId?.trim();
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
@@ -181,6 +196,7 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     absence_names_evening_2: string | null;
     stage_level: number;
     stage_level_2: number | null;
+    external_room_staff: unknown | null;
     created_at: Date;
     updated_at: Date;
   }>(
@@ -193,6 +209,7 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
             r.serial_no, r.room_name, r.supervisor_name,
             r.invigilators,
             r.supervisor_name_2, r.invigilators_2,
+            r.external_room_staff,
             r.stage_level, r.stage_level_2,
             r.capacity_morning, r.capacity_evening, r.capacity_total,
             r.capacity_morning_2, r.capacity_evening_2, r.capacity_total_2,
@@ -209,8 +226,9 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
      LEFT JOIN college_study_subjects s2
        ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
      WHERE r.owner_user_id = $1
+       ${rid ? `AND (s.college_subject_id = $2::bigint OR (s2.id IS NOT NULL AND s2.college_subject_id = $2::bigint))` : ""}
      ORDER BY r.serial_no ASC, r.created_at DESC`,
-    [ownerUserId]
+    rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     id: String(row.id),
@@ -254,6 +272,7 @@ export async function listCollegeExamRoomsByOwner(ownerUserId: string): Promise<
     absence_names_evening_2: row.absence_names_evening_2 ?? "",
     stage_level: Number(row.stage_level ?? 1),
     stage_level_2: row.stage_level_2 != null ? Number(row.stage_level_2) : null,
+    external_room_staff: parseExternalRoomStaffFromDb(row.external_room_staff),
     created_at: row.created_at,
     updated_at: row.updated_at,
   }));
@@ -313,6 +332,7 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     absence_names_evening_2: string | null;
     stage_level: number;
     stage_level_2: number | null;
+    external_room_staff: unknown | null;
     created_at: Date;
     updated_at: Date;
     formation_label: string;
@@ -327,6 +347,7 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
             r.serial_no, r.room_name, r.supervisor_name,
             r.invigilators,
             r.supervisor_name_2, r.invigilators_2,
+            r.external_room_staff,
             r.stage_level, r.stage_level_2,
             r.capacity_morning, r.capacity_evening, r.capacity_total,
             r.capacity_morning_2, r.capacity_evening_2, r.capacity_total_2,
@@ -400,6 +421,7 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     absence_names_evening_2: row.absence_names_evening_2 ?? "",
     stage_level: Number(row.stage_level ?? 1),
     stage_level_2: row.stage_level_2 != null ? Number(row.stage_level_2) : null,
+    external_room_staff: parseExternalRoomStaffFromDb(row.external_room_staff),
     created_at: row.created_at,
     updated_at: row.updated_at,
     formation_label: row.formation_label?.trim() || row.owner_username || "—",
@@ -430,6 +452,8 @@ export type CreateCollegeExamRoomInput = {
   /** عند الحفظ من نموذج يفصل الصباحي/المسائي */
   shift1Attendance?: ShiftAttendanceSplit;
   shift2Attendance?: ShiftAttendanceSplit;
+  /** JSON من الحقل المخفي في نموذج إدارة القاعات */
+  externalRoomStaffJson?: string;
 };
 
 export function inferredShiftFromTotals(
@@ -530,6 +554,10 @@ export async function createCollegeExamRoom(
   if (supervisorName.length < 2) return { ok: false, message: "اسم المشرف يجب أن يكون حرفين على الأقل." };
   const invigilatorsNorm = normalizeInvigilators(input.invigilators);
   if (!invigilatorsNorm.ok) return invigilatorsNorm;
+  const extParsed = parseExternalRoomStaffFromFormJson(String(input.externalRoomStaffJson ?? ""));
+  const extVal = validateExternalRoomStaffForSave(extParsed);
+  if (!extVal.ok) return extVal;
+  const externalStaffPayload = serializeExternalRoomStaffForDb(extVal.normalized);
   if (attendanceCount + absenceCount > slot.capT) {
     return { ok: false, message: "الحضور + الغياب (الامتحان الأول) لا يمكن أن يتجاوز مجموع الصباحي والمسائي." };
   }
@@ -573,8 +601,8 @@ export async function createCollegeExamRoom(
        attendance_morning, absence_morning, attendance_evening, absence_evening, absence_names_morning, absence_names_evening,
        attendance_count_2, absence_count_2, absence_names_2,
        attendance_morning_2, absence_morning_2, attendance_evening_2, absence_evening_2, absence_names_morning_2, absence_names_evening_2,
-       created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,NOW(),NOW())`,
+       external_room_staff, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,NOW(),NOW())`,
     [
       input.ownerUserId,
       input.studySubjectId.trim(),
@@ -611,6 +639,7 @@ export async function createCollegeExamRoom(
       shift2.absE,
       shift2.namesM || null,
       shift2.namesE || null,
+      externalStaffPayload,
     ]
   );
   return { ok: true };
@@ -641,6 +670,10 @@ export async function updateCollegeExamRoom(
   }
   const invigilatorsNorm = normalizeInvigilators(input.invigilators);
   if (!invigilatorsNorm.ok) return invigilatorsNorm;
+  const extParsedU = parseExternalRoomStaffFromFormJson(String(input.externalRoomStaffJson ?? ""));
+  const extValU = validateExternalRoomStaffForSave(extParsedU);
+  if (!extValU.ok) return extValU;
+  const externalStaffPayloadU = serializeExternalRoomStaffForDb(extValU.normalized);
   const attendanceCount = toInt(input.attendanceCount);
   const absenceCount = toInt(input.absenceCount);
   if (attendanceCount + absenceCount > slot.capT) {
@@ -690,8 +723,9 @@ export async function updateCollegeExamRoom(
          attendance_count_2 = $26, absence_count_2 = $27, absence_names_2 = $28,
          attendance_morning_2 = $29, absence_morning_2 = $30, attendance_evening_2 = $31, absence_evening_2 = $32,
          absence_names_morning_2 = $33, absence_names_evening_2 = $34,
+         external_room_staff = $35,
          updated_at = NOW()
-     WHERE id = $35 AND owner_user_id = $36`,
+     WHERE id = $36 AND owner_user_id = $37`,
     [
       input.studySubjectId.trim(),
       slot.id2,
@@ -727,6 +761,7 @@ export async function updateCollegeExamRoom(
       shift2.absE,
       shift2.namesM || null,
       shift2.namesE || null,
+      externalStaffPayloadU,
       input.id.trim(),
       input.ownerUserId,
     ]

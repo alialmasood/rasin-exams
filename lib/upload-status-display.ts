@@ -1,3 +1,4 @@
+import type { StudyType } from "@/lib/college-study-subjects";
 import { examScheduleLogicalGroupKeyFromRow } from "@/lib/exam-schedule-logical-group";
 import { calendarDateInTimeZone, EXAM_SITUATION_TZ, isExamSituationUploadWindowNotYetOpen } from "@/lib/exam-situation-window";
 
@@ -23,7 +24,7 @@ export type UploadStatusTableRow = {
   attendance_count: number;
   absence_count: number;
   subject_name: string;
-  study_type: "ANNUAL" | "SEMESTER" | "COURSES" | "BOLOGNA";
+  study_type: StudyType;
   branch_name: string;
   academic_year: string | null;
   stage_level: number;

@@ -1,22 +1,14 @@
 import { DASHBOARD_TIMELINE_MAX_BRANCHES } from "@/lib/college-dashboard-constants";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
-import type { StudyType } from "@/lib/college-study-subjects";
+import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
+import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import { listOfficialExamSituationsForOwner } from "@/lib/college-exam-situations";
 
-export const STUDY_TYPE_LABEL_AR: Record<StudyType, string> = {
-  ANNUAL: "سنوي",
-  SEMESTER: "فصلي",
-  COURSES: "مقررات",
-  BOLOGNA: "بولونيا",
-};
+export { STUDY_TYPE_LABEL_AR };
 
 function normalizeStudyTypeDb(v: string): StudyType {
-  const t = v?.trim().toUpperCase();
-  if (t === "SEMESTER") return "SEMESTER";
-  if (t === "COURSES") return "COURSES";
-  if (t === "BOLOGNA") return "BOLOGNA";
-  return "ANNUAL";
+  return normalizeStudyType(v ?? "");
 }
 
 function invigilatorNamesFromRaw(raw: string | null | undefined): string[] {
@@ -210,7 +202,7 @@ export type CollegeDashboardSnapshot = {
 };
 
 function emptySnapshot(): CollegeDashboardSnapshot {
-  const types: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA"];
+  const types: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA", "INTEGRATIVE"];
   return {
     branches: { total: 0, departments: 0, branchFaculties: 0 },
     studySubjects: {
@@ -235,10 +227,15 @@ function emptySnapshot(): CollegeDashboardSnapshot {
   };
 }
 
-export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<CollegeDashboardSnapshot> {
+export async function getCollegeDashboardSnapshot(
+  ownerUserId: string,
+  restrictCollegeSubjectId?: string | null
+): Promise<CollegeDashboardSnapshot> {
   if (!isDatabaseConfigured()) return emptySnapshot();
   await ensureCoreSchema();
   const pool = getDbPool();
+  const rid = restrictCollegeSubjectId?.trim() ?? null;
+  const p2 = rid ? [ownerUserId, rid] : [ownerUserId];
 
   const [br, st, rmRow, rmPeople, sch, days, situations, subjByBranch, examByBranch, timelineRaw, repActivity, schActivity] =
     await Promise.all([
@@ -246,28 +243,53 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
       `SELECT COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE COALESCE(branch_type, 'DEPARTMENT') = 'DEPARTMENT')::int AS departments,
               COUNT(*) FILTER (WHERE branch_type = 'BRANCH')::int AS branch_faculties
-       FROM college_subjects WHERE owner_user_id = $1`,
-      [ownerUserId]
+       FROM college_subjects WHERE owner_user_id = $1${rid ? " AND id = $2::bigint" : ""}`,
+      p2
     ),
     pool.query<{ study_type: string; c: number }>(
       `SELECT COALESCE(study_type, 'ANNUAL') AS study_type, COUNT(*)::int AS c
-       FROM college_study_subjects WHERE owner_user_id = $1
+       FROM college_study_subjects WHERE owner_user_id = $1${rid ? " AND college_subject_id = $2::bigint" : ""}
        GROUP BY COALESCE(study_type, 'ANNUAL')`,
-      [ownerUserId]
+      p2
     ),
-    pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM college_exam_rooms WHERE owner_user_id = $1`, [
-      ownerUserId,
-    ]),
-    pool.query<{
-      supervisor_name: string;
-      supervisor_name_2: string | null;
-      invigilators: string | null;
-      invigilators_2: string | null;
-    }>(
-      `SELECT supervisor_name, supervisor_name_2, invigilators, invigilators_2
-       FROM college_exam_rooms WHERE owner_user_id = $1`,
-      [ownerUserId]
-    ),
+    rid
+      ? pool.query<{ c: number }>(
+          `SELECT COUNT(*)::int AS c
+           FROM college_exam_rooms r
+           INNER JOIN college_study_subjects s ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
+           LEFT JOIN college_study_subjects s2 ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
+           WHERE r.owner_user_id = $1
+             AND (s.college_subject_id = $2::bigint OR (s2.id IS NOT NULL AND s2.college_subject_id = $2::bigint))`,
+          p2
+        )
+      : pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM college_exam_rooms WHERE owner_user_id = $1`, [
+          ownerUserId,
+        ]),
+    rid
+      ? pool.query<{
+          supervisor_name: string;
+          supervisor_name_2: string | null;
+          invigilators: string | null;
+          invigilators_2: string | null;
+        }>(
+          `SELECT r.supervisor_name, r.supervisor_name_2, r.invigilators, r.invigilators_2
+           FROM college_exam_rooms r
+           INNER JOIN college_study_subjects s ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
+           LEFT JOIN college_study_subjects s2 ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
+           WHERE r.owner_user_id = $1
+             AND (s.college_subject_id = $2::bigint OR (s2.id IS NOT NULL AND s2.college_subject_id = $2::bigint))`,
+          p2
+        )
+      : pool.query<{
+          supervisor_name: string;
+          supervisor_name_2: string | null;
+          invigilators: string | null;
+          invigilators_2: string | null;
+        }>(
+          `SELECT supervisor_name, supervisor_name_2, invigilators, invigilators_2
+           FROM college_exam_rooms WHERE owner_user_id = $1`,
+          [ownerUserId]
+        ),
     pool.query<{
       total: number;
       draft: number;
@@ -280,24 +302,24 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
               COUNT(*) FILTER (WHERE workflow_status = 'SUBMITTED')::int AS submitted,
               COUNT(*) FILTER (WHERE workflow_status = 'APPROVED')::int AS approved,
               COUNT(*) FILTER (WHERE workflow_status = 'REJECTED')::int AS rejected
-       FROM college_exam_schedules WHERE owner_user_id = $1`,
-      [ownerUserId]
+       FROM college_exam_schedules WHERE owner_user_id = $1${rid ? " AND college_subject_id = $2::bigint" : ""}`,
+      p2
     ),
     pool.query<{ d: string; c: number }>(
       `SELECT exam_date::text AS d, COUNT(*)::int AS c
-       FROM college_exam_schedules WHERE owner_user_id = $1
+       FROM college_exam_schedules WHERE owner_user_id = $1${rid ? " AND college_subject_id = $2::bigint" : ""}
        GROUP BY exam_date ORDER BY exam_date ASC`,
-      [ownerUserId]
+      p2
     ),
-    listOfficialExamSituationsForOwner(ownerUserId),
+    listOfficialExamSituationsForOwner(ownerUserId, rid),
     pool.query<{ branch_name: string; cnt: number }>(
       `SELECT c.branch_name, COUNT(ss.id)::int AS cnt
        FROM college_subjects c
-       LEFT JOIN college_study_subjects ss ON ss.college_subject_id = c.id
-       WHERE c.owner_user_id = $1
+       LEFT JOIN college_study_subjects ss ON ss.college_subject_id = c.id AND ss.owner_user_id = c.owner_user_id
+       WHERE c.owner_user_id = $1${rid ? " AND c.id = $2::bigint" : ""}
        GROUP BY c.id, c.branch_name
        ORDER BY c.branch_name ASC`,
-      [ownerUserId]
+      p2
     ),
     pool.query<{
       branch_name: string;
@@ -316,10 +338,10 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
        FROM college_subjects c
        LEFT JOIN college_exam_schedules e
               ON e.college_subject_id = c.id AND e.owner_user_id = c.owner_user_id
-       WHERE c.owner_user_id = $1
+       WHERE c.owner_user_id = $1${rid ? " AND c.id = $2::bigint" : ""}
        GROUP BY c.id, c.branch_name
        ORDER BY c.branch_name ASC`,
-      [ownerUserId]
+      p2
     ),
     pool.query<{ d: string; branch_id: string; branch_name: string; cnt: number }>(
       `SELECT e.exam_date::text AS d,
@@ -328,10 +350,10 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
               COUNT(*)::int AS cnt
        FROM college_exam_schedules e
        INNER JOIN college_subjects c ON c.id = e.college_subject_id AND c.owner_user_id = e.owner_user_id
-       WHERE e.owner_user_id = $1
+       WHERE e.owner_user_id = $1${rid ? " AND e.college_subject_id = $2::bigint" : ""}
        GROUP BY e.exam_date, c.id, c.branch_name
        ORDER BY e.exam_date ASC, c.branch_name ASC`,
-      [ownerUserId]
+      p2
     ),
     pool.query<{
       updated_at: Date;
@@ -346,10 +368,10 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
        FROM college_exam_situation_reports rep
        INNER JOIN college_exam_schedules e ON e.id = rep.exam_schedule_id AND e.owner_user_id = rep.owner_user_id
        INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
-       WHERE rep.owner_user_id = $1
+       WHERE rep.owner_user_id = $1${rid ? " AND e.college_subject_id = $2::bigint" : ""}
        ORDER BY rep.updated_at DESC
        LIMIT 18`,
-      [ownerUserId]
+      p2
     ),
     pool.query<{
       updated_at: Date;
@@ -361,10 +383,10 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
               s.subject_name, e.exam_date::text AS exam_date
        FROM college_exam_schedules e
        INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
-       WHERE e.owner_user_id = $1
+       WHERE e.owner_user_id = $1${rid ? " AND e.college_subject_id = $2::bigint" : ""}
        ORDER BY e.updated_at DESC
        LIMIT 18`,
-      [ownerUserId]
+      p2
     ),
   ]);
 
@@ -388,7 +410,7 @@ export async function getCollegeDashboardSnapshot(ownerUserId: string): Promise<
     const t = normalizeStudyTypeDb(r.study_type);
     countMap.set(t, (countMap.get(t) ?? 0) + Number(r.c));
   }
-  const allTypes: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA"];
+  const allTypes: StudyType[] = ["ANNUAL", "SEMESTER", "COURSES", "BOLOGNA", "INTEGRATIVE"];
   const byType = allTypes.map((type) => ({
     type,
     key: type,

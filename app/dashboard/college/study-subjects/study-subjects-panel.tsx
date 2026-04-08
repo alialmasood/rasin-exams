@@ -25,6 +25,7 @@ const STUDY_TYPE_LABEL: Record<StudyType, string> = {
   SEMESTER: "فصلي",
   COURSES: "مقررات",
   BOLOGNA: "بولونيا",
+  INTEGRATIVE: "تكاملي",
 };
 
 /** تمركز بصري: inset-0 + margin:auto + ارتفاع المحتوى؛ يُعرض عبر portal على body لتفادي سياق الـ RTL/التخطيط */
@@ -57,6 +58,7 @@ function SubjectFormFields({
   branches,
   stageOptions,
   defaults,
+  lockedCollegeSubjectId,
 }: {
   branches: CollegeSubjectRow[];
   stageOptions: number[];
@@ -67,6 +69,8 @@ function SubjectFormFields({
     studyType?: StudyType;
     studyStageLevel?: number;
   };
+  /** بوابة القسم: القسم ثابت ولا يُختار من القائمة */
+  lockedCollegeSubjectId?: string;
 }) {
   const rawStage = defaults?.studyStageLevel ?? stageOptions[0] ?? 1;
   const initialTier: StudyTierUi =
@@ -88,25 +92,53 @@ function SubjectFormFields({
 
   const hiddenStageValue = tier === "POSTGRAD" ? postgradStage : undergradStage;
 
+  const lockedBranchMeta = lockedCollegeSubjectId
+    ? branches.find((b) => b.id === lockedCollegeSubjectId)
+    : undefined;
+
   return (
     <>
       <div>
         <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم أو الفرع</label>
-        <select
-          name="college_subject_id"
-          required
-          defaultValue={defaults?.collegeSubjectId ?? ""}
-          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-        >
-          <option value="" disabled>
-            اختر القسم/الفرع
-          </option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+        {lockedCollegeSubjectId ? (
+          <>
+            <input type="hidden" name="college_subject_id" value={lockedCollegeSubjectId} />
+            <div
+              className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] px-3 text-sm text-[#334155]"
+              aria-readonly
+            >
+              {lockedBranchMeta ? (
+                <>
+                  {lockedBranchMeta.branch_name}{" "}
+                  <span className="text-[#64748B]">
+                    ({lockedBranchMeta.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                  </span>
+                </>
+              ) : (
+                <span className="text-[#64748B]">قسم حسابك الحالي</span>
+              )}
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[#64748B]">
+              مرتبط بحساب القسم ضمن التشكيل؛ لا يُغيَّر من هذه الصفحة.
+            </p>
+          </>
+        ) : (
+          <select
+            name="college_subject_id"
+            required
+            defaultValue={defaults?.collegeSubjectId ?? ""}
+            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+          >
+            <option value="" disabled>
+              اختر القسم/الفرع
             </option>
-          ))}
-        </select>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <fieldset className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
@@ -204,6 +236,7 @@ function SubjectFormFields({
           <option value="SEMESTER">فصلي</option>
           <option value="COURSES">مقررات</option>
           <option value="BOLOGNA">بولونيا</option>
+          <option value="INTEGRATIVE">تكاملي</option>
         </select>
       </div>
     </>
@@ -215,11 +248,13 @@ function AddStudySubjectDialog({
   onClose,
   branches,
   stageOptions,
+  lockedCollegeSubjectId,
 }: {
   open: boolean;
   onClose: () => void;
   branches: CollegeSubjectRow[];
   stageOptions: number[];
+  lockedCollegeSubjectId?: string;
 }) {
   const [state, formAction, pending] = useActionState(createCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -244,7 +279,11 @@ function AddStudySubjectDialog({
     <dialog ref={dialogRef} className={STUDY_SUBJECT_MODAL_DIALOG_CLASS} dir="rtl">
       <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">إضافة مادة دراسية</h2>
-        <SubjectFormFields branches={branches} stageOptions={stageOptions} />
+        <SubjectFormFields
+          branches={branches}
+          stageOptions={stageOptions}
+          lockedCollegeSubjectId={lockedCollegeSubjectId}
+        />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3 pt-1">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
@@ -264,12 +303,14 @@ function EditStudySubjectDialog({
   onClose,
   branches,
   stageOptions,
+  lockedCollegeSubjectId,
 }: {
   row: CollegeStudySubjectRow | null;
   open: boolean;
   onClose: () => void;
   branches: CollegeSubjectRow[];
   stageOptions: number[];
+  lockedCollegeSubjectId?: string;
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -299,6 +340,7 @@ function EditStudySubjectDialog({
         <SubjectFormFields
           branches={branches}
           stageOptions={stageOptions}
+          lockedCollegeSubjectId={lockedCollegeSubjectId}
           defaults={{
             collegeSubjectId: row?.college_subject_id,
             subjectName: row?.subject_name,
@@ -341,11 +383,15 @@ export function StudySubjectsPanel({
   collegeLabel,
   branches,
   rows,
+  /** عند `/department/...` يُثبَّت القسم ويُخفى اختيار قسم آخر */
+  fixedCollegeSubjectId = null,
 }: {
   collegeLabel: string;
   branches: CollegeSubjectRow[];
   rows: CollegeStudySubjectRow[];
+  fixedCollegeSubjectId?: string | null;
 }) {
+  const departmentSubjectsScope = Boolean(fixedCollegeSubjectId?.trim());
   const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
   const [addDialogNonce, setAddDialogNonce] = useState(0);
@@ -361,7 +407,9 @@ export function StudySubjectsPanel({
   const [filterStudyType, setFilterStudyType] = useState<"ALL" | StudyType>("ALL");
   const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
   /** عرض مواد قسم/فرع محدد */
-  const [filterCollegeSubjectId, setFilterCollegeSubjectId] = useState<"ALL" | string>("ALL");
+  const [filterCollegeSubjectId, setFilterCollegeSubjectId] = useState<"ALL" | string>(() =>
+    fixedCollegeSubjectId?.trim() ? fixedCollegeSubjectId.trim() : "ALL"
+  );
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
@@ -386,11 +434,17 @@ export function StudySubjectsPanel({
   }, [query, filterStudyType, filterBranch, filterCollegeSubjectId]);
 
   useEffect(() => {
+    const fid = fixedCollegeSubjectId?.trim();
+    if (fid) {
+      setFilterCollegeSubjectId(fid);
+      setFilterBranch("ALL");
+      return;
+    }
     if (filterCollegeSubjectId === "ALL") return;
     if (!branches.some((b) => b.id === filterCollegeSubjectId)) {
       setFilterCollegeSubjectId("ALL");
     }
-  }, [branches, filterCollegeSubjectId]);
+  }, [branches, filterCollegeSubjectId, fixedCollegeSubjectId]);
 
   const branchesSortedForFilter = useMemo(
     () => [...branches].sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ar")),
@@ -413,10 +467,11 @@ export function StudySubjectsPanel({
     const semester = rows.filter((r) => r.study_type === "SEMESTER").length;
     const courses = rows.filter((r) => r.study_type === "COURSES").length;
     const bologna = rows.filter((r) => r.study_type === "BOLOGNA").length;
+    const integrative = rows.filter((r) => r.study_type === "INTEGRATIVE").length;
     const latest = rows
       .map((r) => new Date(r.created_at))
       .sort((a, b) => b.getTime() - a.getTime())[0];
-    return { totalSubjects, annual, semester, courses, bologna, latest };
+    return { totalSubjects, annual, semester, courses, bologna, integrative, latest };
   }, [rows]);
 
   const tierStats = useMemo(() => {
@@ -540,7 +595,11 @@ export function StudySubjectsPanel({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث باسم المادة أو القسم أو التدريسي"
+              placeholder={
+                departmentSubjectsScope
+                  ? "ابحث باسم المادة أو التدريسي"
+                  : "ابحث باسم المادة أو القسم أو التدريسي"
+              }
               className="h-10 w-[250px] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#64748B] focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
             <select
@@ -553,33 +612,38 @@ export function StudySubjectsPanel({
               <option value="SEMESTER">فصلي</option>
               <option value="COURSES">مقررات</option>
               <option value="BOLOGNA">بولونيا</option>
+              <option value="INTEGRATIVE">تكاملي</option>
             </select>
-            <select
-              value={filterBranch}
-              onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
-              className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
-            >
-              <option value="ALL">الكل</option>
-              <option value="DEPARTMENT">الأقسام</option>
-              <option value="BRANCH">الفروع</option>
-            </select>
-            <select
-              value={filterCollegeSubjectId}
-              onChange={(e) => setFilterCollegeSubjectId(e.target.value === "ALL" ? "ALL" : e.target.value)}
-              aria-label="العرض حسب القسم أو الفرع"
-              className="h-10 min-w-[12rem] max-w-[min(280px,42vw)] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
-            >
-              <option value="ALL">العرض حسب القسم — الكل</option>
-              {branchesSortedForFilter.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
-                </option>
-              ))}
-            </select>
+            {departmentSubjectsScope ? null : (
+              <select
+                value={filterBranch}
+                onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
+                className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+              >
+                <option value="ALL">الكل</option>
+                <option value="DEPARTMENT">الأقسام</option>
+                <option value="BRANCH">الفروع</option>
+              </select>
+            )}
+            {departmentSubjectsScope ? null : (
+              <select
+                value={filterCollegeSubjectId}
+                onChange={(e) => setFilterCollegeSubjectId(e.target.value === "ALL" ? "ALL" : e.target.value)}
+                aria-label="العرض حسب القسم أو الفرع"
+                className="h-10 min-w-[12rem] max-w-[min(280px,42vw)] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
+              >
+                <option value="ALL">العرض حسب القسم — الكل</option>
+                {branchesSortedForFilter.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 border-b border-[#E2E8F0] bg-white px-5 py-4 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 border-b border-[#E2E8F0] bg-white px-5 py-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
             <p className="text-xs text-[#64748B]">إجمالي المواد</p>
             <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.totalSubjects}</p>
@@ -599,6 +663,10 @@ export function StudySubjectsPanel({
           <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
             <p className="text-xs text-[#64748B]">بولونيا</p>
             <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.bologna}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
+            <p className="text-xs text-[#64748B]">تكاملي</p>
+            <p className="mt-1 text-2xl font-extrabold text-[#1E3A8A]">{stats.integrative}</p>
           </div>
           <div className="rounded-2xl border border-[#E5ECF6] bg-[#F8FAFC] px-4 py-3">
             <p className="text-xs text-[#64748B]">آخر إضافة</p>
@@ -636,7 +704,9 @@ export function StudySubjectsPanel({
             <tr className="border-b border-[#E2E8F0]">
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المادة الدراسية</th>
-              <th className="px-4 py-3 text-sm font-bold text-[#334155]">القسم/الفرع</th>
+              {departmentSubjectsScope ? null : (
+                <th className="px-4 py-3 text-sm font-bold text-[#334155]">القسم/الفرع</th>
+              )}
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">اسم التدريسي</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المستوى الدراسي</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">نوع الدراسة</th>
@@ -648,7 +718,10 @@ export function StudySubjectsPanel({
           <tbody className="divide-y divide-[#E2E8F0] bg-white">
             {pagedRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={9}>
+                <td
+                  className="px-4 py-10 text-center text-sm text-[#64748B]"
+                  colSpan={departmentSubjectsScope ? 8 : 9}
+                >
                   لا توجد مواد دراسية بعد.
                 </td>
               </tr>
@@ -657,9 +730,11 @@ export function StudySubjectsPanel({
                 <tr key={row.id} className="hover:bg-[#F8FAFC]">
                   <td className="px-4 py-3 text-sm text-[#334155]">{(safePage - 1) * pageSize + index + 1}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{row.subject_name}</td>
-                  <td className="px-4 py-3 text-sm text-[#334155]">
-                    {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
-                  </td>
+                  {departmentSubjectsScope ? null : (
+                    <td className="px-4 py-3 text-sm text-[#334155]">
+                      {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-sm text-[#334155]">{row.instructor_name.trim() ? row.instructor_name : "—"}</td>
                   <td className="px-4 py-3 text-sm">
                     <span
@@ -762,21 +837,40 @@ export function StudySubjectsPanel({
 
       <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
         <div className="border-b border-[#1f3578] bg-[#274092] px-5 py-4">
-          <h2 className="text-base font-bold text-white">عدد المواد المضافة حسب القسم أو الفرع</h2>
+          <h2 className="text-base font-bold text-white">
+            {departmentSubjectsScope
+              ? "عدد المواد المضافة في القسم او الفرع"
+              : "عدد المواد المضافة حسب القسم أو الفرع"}
+          </h2>
         </div>
         <table className="w-full border-collapse text-right">
           <thead className="bg-[#F1F5F9]">
             <tr className="border-b border-[#E2E8F0]">
-              <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
-              <th className="px-4 py-3 text-sm font-bold text-[#334155]">اسم القسم أو الفرع</th>
-              <th className="px-4 py-3 text-sm font-bold text-[#334155]">عدد المواد المضافة</th>
+              {departmentSubjectsScope ? (
+                <th className="px-4 py-3 text-sm font-bold text-[#334155]">عدد المواد المضافة</th>
+              ) : (
+                <>
+                  <th className="px-4 py-3 text-sm font-bold text-[#334155]">#</th>
+                  <th className="px-4 py-3 text-sm font-bold text-[#334155]">اسم القسم أو الفرع</th>
+                  <th className="px-4 py-3 text-sm font-bold text-[#334155]">عدد المواد المضافة</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E2E8F0] bg-white">
             {branchSummaryRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-[#64748B]" colSpan={3}>
+                <td
+                  className="px-4 py-10 text-center text-sm text-[#64748B]"
+                  colSpan={departmentSubjectsScope ? 1 : 3}
+                >
                   لا توجد أقسام أو فروع معرّفة. أضف أقساماً من صفحة «الأقسام والفروع» أولاً.
+                </td>
+              </tr>
+            ) : departmentSubjectsScope ? (
+              <tr className="hover:bg-[#F8FAFC]">
+                <td className="px-4 py-6 text-center text-3xl font-extrabold tabular-nums text-[#1E3A8A]">
+                  {stats.totalSubjects}
                 </td>
               </tr>
             ) : (
@@ -804,6 +898,7 @@ export function StudySubjectsPanel({
           onClose={closeAddDialog}
           branches={branches}
           stageOptions={stageOptions}
+          lockedCollegeSubjectId={fixedCollegeSubjectId?.trim() || undefined}
         />
       ) : null}
       {editingRow ? (
@@ -814,6 +909,7 @@ export function StudySubjectsPanel({
           onClose={closeEditDialog}
           branches={branches}
           stageOptions={editStageOptions}
+          lockedCollegeSubjectId={fixedCollegeSubjectId?.trim() || undefined}
         />
       ) : null}
     </section>

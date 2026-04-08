@@ -10,6 +10,10 @@ import { createCollegeHoliday, deleteCollegeHoliday } from "@/lib/college-holida
 import type { UserRole } from "@/lib/authz";
 import { isAdminRole } from "@/lib/authz";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
+import {
+  getCollegePortalDataOwnerUserId,
+  effectiveCollegeSubjectIdForMutation,
+} from "@/lib/college-portal-scope";
 import { getSession } from "@/lib/session";
 
 export type ExamScheduleActionResult<T = unknown> =
@@ -19,6 +23,12 @@ export type ExamScheduleActionResult<T = unknown> =
 export async function createExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
+    session,
+    String(formData.get("college_subject_id") ?? "")
+  );
   const rawIds = String(formData.get("room_ids") ?? "").trim();
   const roomIds = rawIds
     ? rawIds
@@ -31,8 +41,8 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
     if (/^\d+$/.test(one)) roomIds.push(one);
   }
   const result = await createCollegeExamSchedulesMultiRoom({
-    ownerUserId: session.uid,
-    collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
+    ownerUserId,
+    collegeSubjectId,
     studySubjectId: String(formData.get("study_subject_id") ?? ""),
     roomIds,
     stageLevel: String(formData.get("stage_level") ?? ""),
@@ -49,7 +59,7 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
   const n = result.rows.length;
   const examDate = String(formData.get("exam_date") ?? "").trim();
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "create",
     resource: "exam_schedule",
     summary:
@@ -71,12 +81,18 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
 export async function updateExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
+    session,
+    String(formData.get("college_subject_id") ?? "")
+  );
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف الإدخال غير صالح." };
   const result = await updateCollegeExamSchedule({
     id,
-    ownerUserId: session.uid,
-    collegeSubjectId: String(formData.get("college_subject_id") ?? ""),
+    ownerUserId,
+    collegeSubjectId,
     studySubjectId: String(formData.get("study_subject_id") ?? ""),
     roomId: String(formData.get("room_id") ?? ""),
     stageLevel: String(formData.get("stage_level") ?? ""),
@@ -91,7 +107,7 @@ export async function updateExamScheduleAction(formData: FormData): Promise<Exam
   });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "update",
     resource: "exam_schedule",
     summary: `تحديث جدول امتحاني (المعرّف ${id}).`,
@@ -103,12 +119,14 @@ export async function updateExamScheduleAction(formData: FormData): Promise<Exam
 export async function deleteExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult<{ id: string }>> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف الإدخال غير صالح." };
-  const result = await deleteCollegeExamSchedule({ id, ownerUserId: session.uid });
+  const result = await deleteCollegeExamSchedule({ id, ownerUserId });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "delete",
     resource: "exam_schedule",
     summary: `حذف جلسة من الجدول الامتحاني (المعرّف ${id}).`,
@@ -120,14 +138,16 @@ export async function deleteExamScheduleAction(formData: FormData): Promise<Exam
 export async function createHolidayAction(formData: FormData): Promise<ExamScheduleActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const result = await createCollegeHoliday({
-    ownerUserId: session.uid,
+    ownerUserId,
     holidayDate: String(formData.get("holiday_date") ?? ""),
     holidayName: String(formData.get("holiday_name") ?? ""),
   });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "create",
     resource: "holiday",
     summary: `إضافة عطلة: ${String(formData.get("holiday_name") ?? "").trim() || "—"} (${String(formData.get("holiday_date") ?? "").trim() || "—"}).`,
@@ -138,12 +158,14 @@ export async function createHolidayAction(formData: FormData): Promise<ExamSched
 export async function deleteHolidayAction(formData: FormData): Promise<ExamScheduleActionResult<{ id: string }>> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف العطلة غير صالح." };
-  const result = await deleteCollegeHoliday({ id, ownerUserId: session.uid });
+  const result = await deleteCollegeHoliday({ id, ownerUserId });
   if (!result.ok) return result;
   void recordCollegeActivityEvent({
-    ownerUserId: session.uid,
+    ownerUserId,
     action: "delete",
     resource: "holiday",
     summary: `حذف عطلة (المعرّف ${id}).`,
