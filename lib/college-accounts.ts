@@ -272,7 +272,7 @@ function formationPrefixTwoLetters(formationName: string): string {
 
 function branchUsernameWord(branchName: string, index: number): string {
   const base = transliterateArabicToAscii(branchName.replace(/^(قسم|فرع)\s+/u, ""));
-  if (base.length > 0) return base;
+  if (base.length > 0) return base.slice(0, 2);
   return `unit${index + 1}`;
 }
 
@@ -293,6 +293,11 @@ function randomThreeDigits(used: Set<string>): string {
     }
   }
   throw new Error("تعذر توليد رمز رقمي فريد.");
+}
+
+function randomThreeDigitsUntracked(): string {
+  const n = Math.floor(Math.random() * 1000);
+  return String(n).padStart(3, "0");
 }
 
 export async function autoCreateDepartmentAccountsForFormation(input: {
@@ -410,15 +415,16 @@ export async function autoCreateDepartmentAccountsForFormation(input: {
       const t = targets[i];
       const headTitle = t.branch_type === "BRANCH" ? "رئاسة فرع" : "رئاسة قسم";
       const baseWord = branchUsernameWord(t.branch_name, i);
-      let username = `${formationPrefix}${baseWord}`;
-      if (username.length < 3) username = `${formationPrefix}unit${i + 1}`;
-      if (username.length > 100) username = username.slice(0, 100);
-      let counter = 1;
-      while (usedUsernames.has(username)) {
-        const suffix = String(counter);
-        const cut = Math.max(1, 100 - suffix.length);
-        username = `${username.slice(0, cut)}${suffix}`;
-        counter += 1;
+      const twoLetters = (baseWord.length >= 2 ? baseWord : `${baseWord}x`).slice(0, 2);
+      let username = `${formationPrefix}${twoLetters}-${randomThreeDigitsUntracked()}`.toLowerCase();
+      let guard = 0;
+      while (usedUsernames.has(username) && guard < 1000) {
+        username = `${formationPrefix}${twoLetters}-${randomThreeDigitsUntracked()}`.toLowerCase();
+        guard += 1;
+      }
+      if (usedUsernames.has(username)) {
+        await client.query("ROLLBACK");
+        return { ok: false, message: "تعذر توليد أسماء مستخدم فريدة. أعد المحاولة." };
       }
       usedUsernames.add(username);
 
