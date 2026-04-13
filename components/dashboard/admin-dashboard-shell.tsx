@@ -218,7 +218,7 @@ export function AdminDashboardShell({
           >
             {sidebarInitials()}
           </span>
-          <p className="sidebar-footer-label min-w-0 flex-1 truncate text-right text-base font-normal leading-snug text-white md:text-lg">
+          <p className="sidebar-footer-label min-w-0 flex-1 whitespace-normal break-words text-right text-sm font-normal leading-snug text-white md:text-base">
             {sidebarFooterLabel}
           </p>
         </div>
