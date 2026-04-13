@@ -2,7 +2,11 @@ import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureCoreSchema } from "@/lib/schema";
 import { COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX } from "@/lib/college-account-constants";
-import { getFixedCollegeDepartmentNamesForFormation, isValidFormationName } from "@/lib/college-formations";
+import {
+  getFixedCollegeDepartmentNamesForFormation,
+  getFixedFormationSubjectDefinitions,
+  isValidFormationName,
+} from "@/lib/college-formations";
 
 type DepartmentSubjectPick =
   | { mode: "existing"; id: number }
@@ -198,6 +202,289 @@ export async function listCollegeSubjectsByFormationNameForAdmin(formationName: 
     branch_name: row.branch_name,
     branch_type: row.branch_type === "BRANCH" ? "BRANCH" : "DEPARTMENT",
   }));
+}
+
+export type AutoProvisionedDepartmentCredential = {
+  branchName: string;
+  branchType: "DEPARTMENT" | "BRANCH";
+  username: string;
+  password: string;
+};
+
+const ARABIC_TO_LATIN_MAP: Record<string, string> = {
+  ا: "a",
+  أ: "a",
+  إ: "i",
+  آ: "a",
+  ب: "b",
+  ت: "t",
+  ث: "th",
+  ج: "j",
+  ح: "h",
+  خ: "kh",
+  د: "d",
+  ذ: "dh",
+  ر: "r",
+  ز: "z",
+  س: "s",
+  ش: "sh",
+  ص: "s",
+  ض: "d",
+  ط: "t",
+  ظ: "z",
+  ع: "a",
+  غ: "gh",
+  ف: "f",
+  ق: "q",
+  ك: "k",
+  گ: "g",
+  ل: "l",
+  م: "m",
+  ن: "n",
+  ه: "h",
+  و: "w",
+  ي: "y",
+  ى: "a",
+  ة: "h",
+  ء: "a",
+  ئ: "y",
+  ؤ: "w",
+};
+
+function transliterateArabicToAscii(input: string): string {
+  const raw = input.trim().toLowerCase();
+  let out = "";
+  for (const ch of raw) {
+    if (/[a-z0-9]/.test(ch)) {
+      out += ch;
+      continue;
+    }
+    out += ARABIC_TO_LATIN_MAP[ch] ?? "";
+  }
+  return out.replace(/[^a-z0-9]+/g, "");
+}
+
+function formationPrefixTwoLetters(formationName: string): string {
+  const base = transliterateArabicToAscii(formationName.replace(/^\s*كلية\s*/u, ""));
+  if (base.length >= 2) return base.slice(0, 2);
+  return "cl";
+}
+
+function branchUsernameWord(branchName: string, index: number): string {
+  const base = transliterateArabicToAscii(branchName.replace(/^(قسم|فرع)\s+/u, ""));
+  if (base.length > 0) return base;
+  return `unit${index + 1}`;
+}
+
+function passwordPrefixPart(input: string): string {
+  const t = transliterateArabicToAscii(input);
+  if (t.length >= 2) return t.slice(0, 2);
+  if (t.length === 1) return `${t}x`;
+  return "xx";
+}
+
+function randomThreeDigits(used: Set<string>): string {
+  for (let i = 0; i < 2000; i += 1) {
+    const n = Math.floor(Math.random() * 1000);
+    const s = String(n).padStart(3, "0");
+    if (!used.has(s)) {
+      used.add(s);
+      return s;
+    }
+  }
+  throw new Error("تعذر توليد رمز رقمي فريد.");
+}
+
+export async function autoCreateDepartmentAccountsForFormation(input: {
+  formationName: string;
+  createdByUserId: string | null;
+}): Promise<{ ok: true; created: AutoProvisionedDepartmentCredential[] } | { ok: false; message: string }> {
+  const formationName = input.formationName.trim();
+  if (!isValidFormationName(formationName)) {
+    return { ok: false, message: "اختر تشكيلًا صالحًا." };
+  }
+  if (!isDatabaseConfigured()) {
+    return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  }
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const ownerRow = await client.query<{ user_id: string | number }>(
+      `SELECT user_id FROM college_account_profiles
+       WHERE account_kind = 'FORMATION' AND formation_name = $1
+       LIMIT 1`,
+      [formationName]
+    );
+    const ownerUserId = ownerRow.rows[0]?.user_id;
+    if (ownerUserId == null) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "لا يوجد حساب تشكيل لهذا الاسم. أنشئ حساب التشكيل أولًا." };
+    }
+
+    const fixedDefs = getFixedFormationSubjectDefinitions(formationName);
+    const subjectRows: Array<{ id: number; branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" }> = [];
+    if (fixedDefs) {
+      for (const def of fixedDefs) {
+        const ex = await client.query<{ id: string | number; branch_type: string }>(
+          `SELECT id, COALESCE(branch_type, 'DEPARTMENT') AS branch_type
+           FROM college_subjects
+           WHERE owner_user_id = $1 AND LOWER(TRIM(branch_name)) = LOWER(TRIM($2))
+           LIMIT 1`,
+          [ownerUserId, def.branch_name]
+        );
+        const sid = ex.rows[0]?.id;
+        if (sid != null) {
+          await client.query(
+            `UPDATE college_subjects
+             SET branch_type = $2, updated_at = NOW()
+             WHERE id = $1::bigint`,
+            [sid, def.branch_type]
+          );
+          subjectRows.push({
+            id: Number(sid),
+            branch_name: def.branch_name,
+            branch_type: def.branch_type,
+          });
+        } else {
+          const ins = await client.query<{ id: string | number }>(
+            `INSERT INTO college_subjects (owner_user_id, branch_type, branch_name, branch_head_name, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NOW(), NOW())
+             RETURNING id`,
+            [ownerUserId, def.branch_type, def.branch_name, def.branch_type === "BRANCH" ? "رئاسة فرع" : "رئاسة قسم"]
+          );
+          subjectRows.push({
+            id: Number(ins.rows[0].id),
+            branch_name: def.branch_name,
+            branch_type: def.branch_type,
+          });
+        }
+      }
+    } else {
+      const ex = await client.query<{ id: string | number; branch_name: string; branch_type: string }>(
+        `SELECT id, branch_name, COALESCE(branch_type, 'DEPARTMENT') AS branch_type
+         FROM college_subjects
+         WHERE owner_user_id = $1
+         ORDER BY branch_name ASC`,
+        [ownerUserId]
+      );
+      for (const row of ex.rows) {
+        subjectRows.push({
+          id: Number(row.id),
+          branch_name: row.branch_name,
+          branch_type: row.branch_type === "BRANCH" ? "BRANCH" : "DEPARTMENT",
+        });
+      }
+    }
+
+    if (subjectRows.length === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "لا توجد أقسام/فروع مرتبطة بهذا التشكيل لتكوين الحسابات." };
+    }
+
+    const linked = await client.query<{ college_subject_id: string | number }>(
+      `SELECT college_subject_id
+       FROM college_account_profiles
+       WHERE account_kind = 'DEPARTMENT' AND college_subject_id IS NOT NULL`
+    );
+    const linkedSet = new Set(linked.rows.map((r) => Number(r.college_subject_id)));
+    const targets = subjectRows.filter((s) => !linkedSet.has(s.id));
+    if (targets.length === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "كل الأقسام/الفروع في هذا التشكيل لديها حسابات بالفعل." };
+    }
+
+    const actorId =
+      input.createdByUserId && /^[0-9]+$/.test(input.createdByUserId.trim()) ? input.createdByUserId.trim() : null;
+    const existingUsers = await client.query<{ username: string }>(
+      `SELECT LOWER(TRIM(username::text)) AS username FROM users WHERE deleted_at IS NULL`
+    );
+    const usedUsernames = new Set(existingUsers.rows.map((r) => r.username));
+    const usedRandomCodes = new Set<string>();
+    const created: AutoProvisionedDepartmentCredential[] = [];
+    const formationPrefix = formationPrefixTwoLetters(formationName);
+    const formationPassPrefix = passwordPrefixPart(formationName);
+
+    for (let i = 0; i < targets.length; i += 1) {
+      const t = targets[i];
+      const headTitle = t.branch_type === "BRANCH" ? "رئاسة فرع" : "رئاسة قسم";
+      const baseWord = branchUsernameWord(t.branch_name, i);
+      let username = `${formationPrefix}${baseWord}`;
+      if (username.length < 3) username = `${formationPrefix}unit${i + 1}`;
+      if (username.length > 100) username = username.slice(0, 100);
+      let counter = 1;
+      while (usedUsernames.has(username)) {
+        const suffix = String(counter);
+        const cut = Math.max(1, 100 - suffix.length);
+        username = `${username.slice(0, cut)}${suffix}`;
+        counter += 1;
+      }
+      usedUsernames.add(username);
+
+      const branchPassPrefix = passwordPrefixPart(t.branch_name);
+      const password = `${formationPassPrefix}${branchPassPrefix}#${randomThreeDigits(usedRandomCodes)}`;
+      const hash = hashPassword(password);
+
+      const insUser = await client.query<{ id: string | number }>(
+        `INSERT INTO users
+          (full_name, username, email, phone, password_hash, role, status, must_change_password,
+           failed_login_attempts, created_at, updated_at, created_by)
+         VALUES ($1, $2, NULL, NULL, $3, 'COLLEGE', 'ACTIVE', FALSE, 0, NOW(), NOW(), $4)
+         RETURNING id`,
+        [headTitle, username, hash, actorId]
+      );
+      const userId = insUser.rows[0].id;
+
+      await client.query(
+        `INSERT INTO college_account_profiles
+          (user_id, formation_name, dean_name, holder_name, account_kind, college_subject_id, created_at, updated_at)
+         VALUES ($1, $2, $3, NULL, 'DEPARTMENT', $4, NOW(), NOW())`,
+        [userId, formationName, headTitle, t.id]
+      );
+
+      const legacyCol = await client.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'password' LIMIT 1`
+      );
+      if ((legacyCol.rowCount ?? 0) > 0) {
+        await client.query(`UPDATE users SET password = $1 WHERE id = $2`, [hash, userId]);
+      }
+
+      await client.query(
+        `INSERT INTO audit_logs (actor_user_id, action, target_user_id, metadata)
+         VALUES ($1, 'COLLEGE_ACCOUNT_CREATED', $2, $3)`,
+        [
+          actorId,
+          /^[0-9]+$/.test(String(userId)) ? String(userId) : null,
+          JSON.stringify({
+            accountKind: "DEPARTMENT",
+            formationName,
+            collegeSubjectId: t.id,
+            branchName: t.branch_name,
+            autoProvisioned: true,
+            username,
+          }),
+        ]
+      );
+
+      created.push({
+        branchName: t.branch_name,
+        branchType: t.branch_type,
+        username,
+        password,
+      });
+    }
+
+    await client.query("COMMIT");
+    return { ok: true, created };
+  } catch (e: unknown) {
+    await client.query("ROLLBACK");
+    console.error("[autoCreateDepartmentAccountsForFormation]", e);
+    return { ok: false, message: "تعذر تكوين الحسابات تلقائيًا." };
+  } finally {
+    client.release();
+  }
 }
 
 export async function createCollegeAccount(input: {

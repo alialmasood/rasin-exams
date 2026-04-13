@@ -14,7 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX } from "@/lib/college-account-constants";
-import type { CollegeAccountRow } from "@/lib/college-accounts";
+import type { AutoProvisionedDepartmentCredential, CollegeAccountRow } from "@/lib/college-accounts";
 import {
   buildCollegeAccountsReportHtml,
   printCollegeAccountsReportHtml,
@@ -25,6 +25,7 @@ import {
   getFixedFormationSubjectDefinitions,
 } from "@/lib/college-formations";
 import {
+  autoProvisionDepartmentAccountsAction,
   changeCollegeAccountPasswordAction,
   createCollegeAccountAction,
   deleteCollegeAccountAction,
@@ -182,6 +183,21 @@ function CreateAccountButton({ onClick, className = "" }: { onClick: () => void;
   );
 }
 
+function AutoProvisionButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#0F766E] px-6 py-2.5 text-sm font-bold text-white shadow-md transition duration-200 hover:-translate-y-px hover:bg-[#115E59] hover:shadow-lg"
+    >
+      <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h10m-10 6h16M16 10l4 4m0 0-4 4m4-4h-7" />
+      </svg>
+      تكوين حسابات الأقسام/الفروع تلقائيا
+    </button>
+  );
+}
+
 function AccountsTableEmptyState({ onCreateClick }: { onCreateClick: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
@@ -200,6 +216,84 @@ function AccountsTableEmptyState({ onCreateClick }: { onCreateClick: () => void 
       </p>
       <CreateAccountButton onClick={onCreateClick} className="mt-8" />
     </div>
+  );
+}
+
+function AutoProvisionAccountsDialogForm({
+  formId,
+  dialogRef,
+  onCreated,
+  onError,
+}: {
+  formId: string;
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  onCreated: (rows: AutoProvisionedDepartmentCredential[]) => void;
+  onError: (message: string) => void;
+}) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(autoProvisionDepartmentAccountsAction, null);
+
+  useEffect(() => {
+    if (!state) return;
+    if (state.ok) {
+      onCreated(state.created);
+      dialogRef.current?.close();
+      router.refresh();
+      return;
+    }
+    onError(state.message);
+  }, [state, dialogRef, onCreated, onError, router]);
+
+  return (
+    <form action={formAction} className="flex max-h-[min(90vh,540px)] min-h-0 flex-col">
+      <div className="px-8 pb-0 pt-8">
+        <h2 className="text-xl font-bold text-[#0F172A]">تكوين حسابات الأقسام/الفروع تلقائيا</h2>
+        <div className="mt-3 border-b border-gray-100" aria-hidden />
+        <p className="mt-3 text-xs leading-relaxed text-gray-500">
+          ينشئ النظام حسابا لكل قسم/فرع غير مرتبط بحساب ضمن التشكيل المحدد، مع اسم رئيس ثابت (رئاسة قسم/رئاسة فرع) وكلمات مرور
+          أولية فريدة.
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-8 py-6">
+        <div className="min-w-0">
+          <label htmlFor={`${formId}-formation-auto`} className="block text-sm font-bold text-[#334155]">
+            اسم التشكيل
+          </label>
+          <select
+            id={`${formId}-formation-auto`}
+            name="formation"
+            required
+            className={`${modalFieldClass} cursor-pointer`}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              — اختر التشكيل —
+            </option>
+            {COLLEGE_FORMATIONS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-8 py-6">
+        <button
+          type="button"
+          className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-bold text-[#64748B] transition hover:bg-[#F8FAFC]"
+          onClick={() => dialogRef.current?.close()}
+        >
+          إلغاء
+        </button>
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-xl bg-[#0F766E] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#115E59] disabled:opacity-60"
+        >
+          {pending ? "جاري التكوين…" : "تكوين الحسابات"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -857,17 +951,21 @@ function CollegeAccountsStatsSection({ rows }: { rows: CollegeAccountRow[] }) {
 export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAccountRow[] }) {
   const router = useRouter();
   const formId = useId();
+  const autoProvisionFormId = useId();
   const passwordFormId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const autoProvisionDialogRef = useRef<HTMLDialogElement>(null);
   const viewDialogRef = useRef<HTMLDialogElement>(null);
   const passwordDialogRef = useRef<HTMLDialogElement>(null);
   const [formInstance, setFormInstance] = useState(0);
+  const [autoProvisionFormKey, setAutoProvisionFormKey] = useState(0);
   const [passwordFormKey, setPasswordFormKey] = useState(0);
   const [viewRow, setViewRow] = useState<CollegeAccountRow | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<CollegeAccountRow | null>(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
   const [mutationPending, startMutationTransition] = useTransition();
   const [rows, setRows] = useState<CollegeAccountRow[]>(initialRows);
+  const [lastAutoProvisionedRows, setLastAutoProvisionedRows] = useState<AutoProvisionedDepartmentCredential[]>([]);
   const [actionsMenu, setActionsMenu] = useState<ActionsMenuState | null>(null);
   const [portalMounted, setPortalMounted] = useState(false);
   const actionsMenuPanelRef = useRef<HTMLDivElement>(null);
@@ -901,6 +999,11 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
   const openCreateDialog = useCallback(() => {
     setFormInstance((n) => n + 1);
     queueMicrotask(() => dialogRef.current?.showModal());
+  }, []);
+
+  const openAutoProvisionDialog = useCallback(() => {
+    setAutoProvisionFormKey((n) => n + 1);
+    queueMicrotask(() => autoProvisionDialogRef.current?.showModal());
   }, []);
 
   const openViewDialog = useCallback((row: CollegeAccountRow) => {
@@ -978,6 +1081,39 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
     setToast({ id: Date.now(), variant: "error", message });
   }, []);
 
+  const onAutoProvisionCreated = useCallback((createdRows: AutoProvisionedDepartmentCredential[]) => {
+    setLastAutoProvisionedRows(createdRows);
+    setToast({
+      id: Date.now(),
+      variant: "success",
+      message: `تم تكوين ${createdRows.length} حساب/حسابات بنجاح.`,
+    });
+  }, []);
+
+  const exportProvisionedCredentialsExcel = useCallback(async () => {
+    if (lastAutoProvisionedRows.length === 0) {
+      window.alert("لا توجد بيانات حسابات مولدة للتصدير.");
+      return;
+    }
+    try {
+      const xlsx = await import("xlsx");
+      const data = lastAutoProvisionedRows.map((row, idx) => ({
+        "#": idx + 1,
+        "القسم / الفرع": row.branchName,
+        النوع: row.branchType === "BRANCH" ? "فرع" : "قسم",
+        "اسم رئيس القسم/الفرع": row.branchType === "BRANCH" ? "رئاسة فرع" : "رئاسة قسم",
+        "اسم المستخدم": row.username,
+        "كلمة المرور (أول مرة)": row.password,
+      }));
+      const ws = xlsx.utils.json_to_sheet(data);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "credentials");
+      xlsx.writeFile(wb, "college-departments-initial-credentials.xlsx");
+    } catch {
+      window.alert("تعذر تصدير ملف Excel لبيانات الحسابات المولدة.");
+    }
+  }, [lastAutoProvisionedRows]);
+
   const exportPdfReport = useCallback(() => {
     let generatedLabel: string;
     try {
@@ -1044,6 +1180,7 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <AutoProvisionButton onClick={openAutoProvisionDialog} />
           <button
             type="button"
             onClick={exportPdfReport}
@@ -1075,6 +1212,50 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
           <CreateAccountButton onClick={openCreateDialog} />
         </div>
       </div>
+
+      {lastAutoProvisionedRows.length > 0 ? (
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-emerald-900">بيانات الاعتماد الأولية (عرض لمرة أولى)</h2>
+              <p className="mt-1 text-xs text-emerald-800/80">
+                احتفظ بهذه البيانات مباشرة. لا يمكن استرجاع كلمات المرور النصية بعد إغلاق الجلسة.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void exportProvisionedCredentialsExcel()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-700/25 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
+            >
+              تصدير الحسابات المولدة (Excel)
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-emerald-200 bg-white">
+            <table className="w-full min-w-[820px] border-collapse text-right text-sm">
+              <thead>
+                <tr className="border-b border-emerald-100 bg-emerald-50">
+                  <th className="px-4 py-3 text-xs font-bold text-emerald-900">القسم / الفرع</th>
+                  <th className="px-4 py-3 text-xs font-bold text-emerald-900">النوع</th>
+                  <th className="px-4 py-3 text-xs font-bold text-emerald-900">رئاسة القسم/الفرع</th>
+                  <th className="px-4 py-3 text-xs font-bold text-emerald-900">اسم المستخدم</th>
+                  <th className="px-4 py-3 text-xs font-bold text-emerald-900">كلمة المرور الأولى</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-emerald-100">
+                {lastAutoProvisionedRows.map((row) => (
+                  <tr key={`${row.branchName}-${row.username}`} className="bg-white">
+                    <td className="px-4 py-2.5 font-semibold text-slate-800">{row.branchName}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{row.branchType === "BRANCH" ? "فرع" : "قسم"}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{row.branchType === "BRANCH" ? "رئاسة فرع" : "رئاسة قسم"}</td>
+                    <td className="px-4 py-2.5 font-mono text-[#1E3A8A]">{row.username}</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-emerald-800">{row.password}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <CollegeAccountsStatsSection rows={rows} />
 
@@ -1183,6 +1364,23 @@ export function CollegeAccountsPanel({ initialRows }: { initialRows: CollegeAcco
             dialogRef={dialogRef}
             onCreated={onAccountCreated}
             onActionError={onAccountActionError}
+          />
+        </div>
+      </dialog>
+
+      <dialog
+        ref={autoProvisionDialogRef}
+        id={autoProvisionFormId}
+        className="college-account-dialog fixed right-1/2 top-1/2 z-[100] max-h-[min(90vh,560px)] w-[min(100%,620px)] max-w-[620px] translate-x-1/2 -translate-y-1/2 border-none bg-transparent p-0 shadow-none open:flex open:flex-col"
+        dir="rtl"
+      >
+        <div className="college-account-dialog__surface w-full overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-xl">
+          <AutoProvisionAccountsDialogForm
+            key={autoProvisionFormKey}
+            formId={autoProvisionFormId}
+            dialogRef={autoProvisionDialogRef}
+            onCreated={onAutoProvisionCreated}
+            onError={onAccountActionError}
           />
         </div>
       </dialog>

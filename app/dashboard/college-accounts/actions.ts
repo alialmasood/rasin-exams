@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  autoCreateDepartmentAccountsForFormation,
   createCollegeAccount,
   listCollegeSubjectsByFormationNameForAdmin,
   setCollegeAccountUserDisabled,
   deleteCollegeAccountPermanently,
   updateCollegeAccountUserPassword,
+  type AutoProvisionedDepartmentCredential,
 } from "@/lib/college-accounts";
 import type { UserRole } from "@/lib/authz";
 import { isAdminRole } from "@/lib/authz";
@@ -16,6 +18,10 @@ import { isRasinDbMigrationRequiredError } from "@/lib/schema-errors";
 export type CreateCollegeAccountState = { ok: true } | { ok: false; message: string } | null;
 
 export type CollegeAccountMutationState = { ok: true } | { ok: false; message: string } | null;
+export type AutoProvisionAccountsState =
+  | { ok: true; created: AutoProvisionedDepartmentCredential[] }
+  | { ok: false; message: string }
+  | null;
 
 export type FormationSubjectOption = { id: string; branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" };
 
@@ -81,6 +87,31 @@ export async function createCollegeAccountAction(
 
   revalidatePath("/dashboard/college-accounts");
   return { ok: true };
+}
+
+export async function autoProvisionDepartmentAccountsAction(
+  _prev: AutoProvisionAccountsState,
+  formData: FormData
+): Promise<AutoProvisionAccountsState> {
+  const session = await getSession();
+  if (!session || !isAdminRole(session.role as UserRole)) {
+    return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  }
+  try {
+    const result = await autoCreateDepartmentAccountsForFormation({
+      formationName: String(formData.get("formation") ?? ""),
+      createdByUserId: session.uid,
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+    revalidatePath("/dashboard/college-accounts");
+    return { ok: true, created: result.created };
+  } catch (err: unknown) {
+    if (isRasinDbMigrationRequiredError(err)) {
+      return { ok: false, message: err.message };
+    }
+    console.error("[autoProvisionDepartmentAccountsAction]", err);
+    return { ok: false, message: "تعذر تكوين الحسابات تلقائيًا." };
+  }
 }
 
 export async function changeCollegeAccountPasswordAction(
