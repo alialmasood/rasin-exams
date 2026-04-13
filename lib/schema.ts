@@ -914,6 +914,20 @@ async function ensureCollegeExamSchedulesTable(pool: Pool) {
     if (!isPermissionError(err)) throw err;
   }
 
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS exam_booklets_received INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS exam_booklets_used INTEGER NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS exam_booklets_damaged INTEGER NOT NULL DEFAULT 0`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+
   if (!(await constraintExists(pool, "college_exam_schedules_owner_user_id_fkey"))) {
     try {
       await pool.query(`

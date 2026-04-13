@@ -60,6 +60,8 @@ export async function createCollegeAccountAction(
       deanName: String(formData.get("dean_name") ?? ""),
       holderName: String(formData.get("holder_name") ?? ""),
       collegeSubjectId: String(formData.get("college_subject_id") ?? "").trim() || undefined,
+      newBranchName: String(formData.get("new_branch_name") ?? "").trim() || undefined,
+      newBranchType: String(formData.get("new_branch_type") ?? "").trim() || undefined,
       username: String(formData.get("username") ?? ""),
       password: String(formData.get("password") ?? ""),
       confirmPassword: String(formData.get("confirm_password") ?? ""),

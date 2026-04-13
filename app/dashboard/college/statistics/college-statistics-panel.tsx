@@ -106,6 +106,40 @@ function StatCard({
   );
 }
 
+function ExamBookletsStatCard({
+  received,
+  used,
+  damaged,
+}: {
+  received: number;
+  used: number;
+  damaged: number;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-[#E2E8F0] bg-white p-3 shadow-sm">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l from-[#1E3A8A] via-[#2563EB] to-[#38BDF8]"
+        aria-hidden
+      />
+      <p className="text-[10px] font-bold leading-tight text-[#64748B] xl:text-[11px]">عدد الدفاتر الامتحانية</p>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1.5 text-center">
+          <p className="text-[10px] font-semibold text-[#64748B]">المستلمة</p>
+          <p className="mt-0.5 text-base font-extrabold tabular-nums text-[#0F172A]">{formatNum(received)}</p>
+        </div>
+        <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1.5 text-center">
+          <p className="text-[10px] font-semibold text-[#64748B]">المستخدمة</p>
+          <p className="mt-0.5 text-base font-extrabold tabular-nums text-[#0F172A]">{formatNum(used)}</p>
+        </div>
+        <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1.5 text-center">
+          <p className="text-[10px] font-semibold text-[#64748B]">التالفة</p>
+          <p className="mt-0.5 text-base font-extrabold tabular-nums text-[#0F172A]">{formatNum(damaged)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChartCard({
   title,
   subtitle,
@@ -178,6 +212,7 @@ export function CollegeStatisticsPanel({
   data: CollegeStatisticsPageData;
 }) {
   const portalBase = useCollegePortalBasePath();
+  const isDepartmentPortal = portalBase === "/department";
   const reportNavLinks = useMemo(() => portalReportNavLinks(portalBase), [portalBase]);
 
   const { snapshot, dayUploads, branchRows, rooms, deanBreakdown, schedulesByStudyType, roomCapacitySummary, generatedAtIso } =
@@ -203,17 +238,6 @@ export function CollegeStatisticsPanel({
   const studyBarData = snapshot.studySubjects.byType.filter((x) => x.count > 0).map((x) => ({ name: x.label, count: x.count }));
 
   const examByTypeBar = schedulesByStudyType.filter((x) => x.count > 0).map((x) => ({ name: x.label, count: x.count }));
-
-  const branchSubjectChartData = snapshot.byBranchSubjects.map((r) => ({
-    ...r,
-    labelShort: r.branchName.length > 26 ? `${r.branchName.slice(0, 24)}…` : r.branchName,
-  }));
-
-  const examStackData = snapshot.byBranchExamProgress.map((r) => ({
-    ...r,
-    labelShort: r.branchName.length > 16 ? `${r.branchName.slice(0, 14)}…` : r.branchName,
-  }));
-  const examStackChartData = examStackData.filter((r) => r.total > 0);
 
   const examDayData = snapshot.examDays.byDate.map((x) => ({
     name: formatExamDateShort(x.date),
@@ -325,7 +349,9 @@ export function CollegeStatisticsPanel({
           مؤشرات عامة
         </h2>
         <div className="statistics-kpi-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4 print:grid-cols-2">
-          <StatCard title="الأقسام والفروع" value={snapshot.branches.total} hint={branchHint} />
+          {!isDepartmentPortal ? (
+            <StatCard title="الأقسام والفروع" value={snapshot.branches.total} hint={branchHint} />
+          ) : null}
           <StatCard
             title="المواد الدراسية"
             value={snapshot.studySubjects.total}
@@ -365,51 +391,58 @@ export function CollegeStatisticsPanel({
             hint={`حاضر ${formatNum(snapshot.studentAttendanceSummary.present)} · غائب ${formatNum(snapshot.studentAttendanceSummary.absent)}`}
           />
           <StatCard title="سجلات قرار العميد" value={deanBreakdown.totalReports} hint="صفوف تقارير الموقف في النظام" />
+          <ExamBookletsStatCard
+            received={snapshot.situations.examBooklets.received}
+            used={snapshot.situations.examBooklets.used}
+            damaged={snapshot.situations.examBooklets.damaged}
+          />
         </div>
       </section>
 
-      <section id="report-branches" className="scroll-mt-24 space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
-              تقرير الأقسام والفروع
-            </h2>
-            <p className="mt-1 text-xs text-[#64748B]">يُطابق البيانات في صفحة إدارة الأقسام والفروع.</p>
+      {!isDepartmentPortal ? (
+        <section id="report-branches" className="scroll-mt-24 space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+                تقرير الأقسام والفروع
+              </h2>
+              <p className="mt-1 text-xs text-[#64748B]">يُطابق البيانات في صفحة إدارة الأقسام والفروع.</p>
+            </div>
+            <Link
+              href={`${portalBase}/subjects`}
+              className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
+            >
+              فتح الصفحة ←
+            </Link>
           </div>
-          <Link
-            href={`${portalBase}/subjects`}
-            className="text-xs font-bold text-[#1E3A8A] underline-offset-2 hover:underline print:hidden"
-          >
-            فتح الصفحة ←
-          </Link>
-        </div>
-        {branchRows.length === 0 ? (
-          <p className="rounded-xl border border-[#E2E8F0] bg-white p-6 text-sm text-[#64748B]">لا توجد أقسام مسجّلة.</p>
-        ) : (
-          <ReportTable caption="كل قسم/فرع مع أعداد المواد الدراسية وجلسات الامتحان المرتبطة">
-            <thead>
-              <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs font-bold text-[#475569]">
-                <th className="px-4 py-3">التسمية</th>
-                <th className="px-4 py-3">النوع</th>
-                <th className="px-4 py-3">رئيس القسم</th>
-                <th className="px-4 py-3 tabular-nums">مواد دراسية</th>
-                <th className="px-4 py-3 tabular-nums">جلسات جدول</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#F1F5F9]">
-              {branchRows.map((row, i) => (
-                <tr key={`${row.branchName}-${i}`} className="text-[#0F172A]">
-                  <td className="px-4 py-2.5 font-semibold">{row.branchName}</td>
-                  <td className="px-4 py-2.5 text-[#64748B]">{row.branchTypeLabel}</td>
-                  <td className="px-4 py-2.5 text-[#64748B]">{row.branchHeadName}</td>
-                  <td className="px-4 py-2.5 tabular-nums">{formatNum(row.studySubjectsCount)}</td>
-                  <td className="px-4 py-2.5 tabular-nums">{formatNum(row.examSchedulesCount)}</td>
+          {branchRows.length === 0 ? (
+            <p className="rounded-xl border border-[#E2E8F0] bg-white p-6 text-sm text-[#64748B]">لا توجد أقسام مسجّلة.</p>
+          ) : (
+            <ReportTable caption="كل قسم/فرع مع أعداد المواد الدراسية وجلسات الامتحان المرتبطة">
+              <thead>
+                <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs font-bold text-[#475569]">
+                  <th className="px-4 py-3">التسمية</th>
+                  <th className="px-4 py-3">النوع</th>
+                  <th className="px-4 py-3">رئيس القسم</th>
+                  <th className="px-4 py-3 tabular-nums">مواد دراسية</th>
+                  <th className="px-4 py-3 tabular-nums">جلسات جدول</th>
                 </tr>
-              ))}
-            </tbody>
-          </ReportTable>
-        )}
-      </section>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {branchRows.map((row, i) => (
+                  <tr key={`${row.branchName}-${i}`} className="text-[#0F172A]">
+                    <td className="px-4 py-2.5 font-semibold">{row.branchName}</td>
+                    <td className="px-4 py-2.5 text-[#64748B]">{row.branchTypeLabel}</td>
+                    <td className="px-4 py-2.5 text-[#64748B]">{row.branchHeadName}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNum(row.studySubjectsCount)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNum(row.examSchedulesCount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </ReportTable>
+          )}
+        </section>
+      ) : null}
 
       <section id="report-study" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -545,7 +578,7 @@ export function CollegeStatisticsPanel({
             <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
               الجداول الامتحانية
             </h2>
-            <p className="mt-1 text-xs text-[#64748B]">حالة سير العمل، التوزيع حسب القسم، وكثافة الجلسات حسب اليوم.</p>
+            <p className="mt-1 text-xs text-[#64748B]">حالة سير العمل وكثافة الجلسات حسب اليوم.</p>
           </div>
           <Link
             href={`${portalBase}/exam-schedules`}
@@ -581,41 +614,8 @@ export function CollegeStatisticsPanel({
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard title="الجلسات حسب القسم" subtitle="تكديس حالات سير العمل لكل قسم أو فرع">
-            {examStackChartData.length === 0 ? (
-              <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جلسات مرتبطة بأقسام.</p>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={examStackChartData} margin={{ top: 8, right: 16, left: 8, bottom: 56 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
-                  <XAxis
-                    dataKey="labelShort"
-                    tick={{ fontSize: 10, fill: MUTED }}
-                    interval={0}
-                    angle={-22}
-                    textAnchor="end"
-                    height={64}
-                  />
-                  <YAxis tick={{ fontSize: 11, fill: MUTED }} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelFormatter={(_, payload) =>
-                      (payload?.[0]?.payload as { branchName?: string } | undefined)?.branchName ?? ""
-                    }
-                  />
-                  <Legend layout="horizontal" verticalAlign="top" align="center" wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="draft" stackId="st" name="مسودة" fill={CHART_SOFT} />
-                  <Bar dataKey="submitted" stackId="st" name="مرفوع" fill={BLUE_MID} />
-                  <Bar dataKey="approved" stackId="st" name="معتمد" fill={CHART_PRIMARY} />
-                  <Bar dataKey="rejected" stackId="st" name="مرفوض" fill="#475569" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </ChartCard>
           <ChartCard
-            className="lg:col-span-2"
             chartClassName="h-[280px]"
-            printChartAreaClass="statistics-print-chart-area--wide"
             title="كثافة الجلسات حسب يوم الامتحان"
             subtitle="عدد الجلسات لكل تاريخ"
           >
@@ -885,64 +885,27 @@ export function CollegeStatisticsPanel({
             </tr>
           </tbody>
         </ReportTable>
-        <div className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm print:hidden">
-          <h3 className="text-base font-bold text-[#0F172A]">آخر العمليات</h3>
-          <p className="mt-1 text-xs text-[#64748B]">أحدث تحديثات للمواقف والجداول (كما في لوحة التحكم).</p>
-          {snapshot.recentActivities.length === 0 ? (
-            <p className="mt-6 text-center text-sm text-[#64748B]">لا توجد عمليات مسجّلة.</p>
-          ) : (
-            <ul className="mt-4 max-h-[320px] space-y-0 overflow-y-auto rounded-xl border border-[#F1F5F9] divide-y divide-[#F1F5F9]">
-              {snapshot.recentActivities.map((item, idx) => (
-                <li key={`${item.occurredAt}-${idx}`} className="flex flex-col gap-1 px-4 py-3 text-right">
-                  <span className="text-[11px] font-mono tabular-nums text-[#94A3B8]">
-                    {formatGeneratedAt(item.occurredAt)}
-                  </span>
-                  <span className="text-sm font-bold text-[#0F172A]">{item.title}</span>
-                  <span className="text-xs text-[#64748B]">{item.description}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <section className="space-y-4" aria-labelledby="cross-chart-heading">
-        <h2
-          id="cross-chart-heading"
-          className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
-        >
-          مواد الأقسام (عرض مركّب)
-        </h2>
-        <ChartCard
-          chartClassName="min-h-[280px] h-[300px]"
-          printChartAreaClass="statistics-print-chart-area--tall"
-          title="عدد المواد الدراسية لكل قسم أو فرع"
-          subtitle="مرتبط بصفحة الأقسام والمواد"
-        >
-          {branchSubjectChartData.length === 0 ? (
-            <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد أقسام بعد.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                layout="vertical"
-                data={branchSubjectChartData}
-                margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={BORDER} horizontal vertical={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: MUTED }} allowDecimals={false} />
-                <YAxis type="category" dataKey="labelShort" width={112} tick={{ fontSize: 10, fill: "#475569" }} />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  formatter={(value) => [value, "مواد دراسية"]}
-                  labelFormatter={(_, payload) =>
-                    (payload?.[0]?.payload as { branchName?: string } | undefined)?.branchName ?? ""
-                  }
-                />
-                <Bar dataKey="studySubjectCount" name="المواد" fill={CHART_PRIMARY} radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
+        {!isDepartmentPortal ? (
+          <div className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm print:hidden">
+            <h3 className="text-base font-bold text-[#0F172A]">آخر العمليات</h3>
+            <p className="mt-1 text-xs text-[#64748B]">أحدث تحديثات للمواقف والجداول (كما في لوحة التحكم).</p>
+            {snapshot.recentActivities.length === 0 ? (
+              <p className="mt-6 text-center text-sm text-[#64748B]">لا توجد عمليات مسجّلة.</p>
+            ) : (
+              <ul className="mt-4 max-h-[320px] space-y-0 overflow-y-auto rounded-xl border border-[#F1F5F9] divide-y divide-[#F1F5F9]">
+                {snapshot.recentActivities.map((item, idx) => (
+                  <li key={`${item.occurredAt}-${idx}`} className="flex flex-col gap-1 px-4 py-3 text-right">
+                    <span className="text-[11px] font-mono tabular-nums text-[#94A3B8]">
+                      {formatGeneratedAt(item.occurredAt)}
+                    </span>
+                    <span className="text-sm font-bold text-[#0F172A]">{item.title}</span>
+                    <span className="text-xs text-[#64748B]">{item.description}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <footer className="mt-12 hidden border-t-2 border-[#1E3A8A] pt-5 text-center print:block">

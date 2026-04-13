@@ -5,6 +5,7 @@ import { patchCollegeExamRoomAttendance, type PatchCollegeExamRoomAttendanceInpu
 import {
   approveDeanExamSituation,
   getExamSituationDetailForOwner,
+  patchScheduleExamBooklets,
   patchScheduleSituationCheatingCases,
   patchScheduleSituationStaffAbsences,
   submitHeadExamSituation,
@@ -73,6 +74,41 @@ export async function patchRoomAttendanceForSituationAction(
   revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
   revalidateCollegePortalSegment("rooms-management");
   return { ok: true, message: "تم حفظ بيانات الحضور والغياب وتحديث القاعة." };
+}
+
+export async function patchSituationExamBookletsAction(
+  _prev: SituationActionState,
+  formData: FormData
+): Promise<SituationActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
+  const scheduleId = String(formData.get("schedule_id") ?? "").trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  const detail = await getExamSituationDetailForOwner(ownerUserId, scheduleId);
+  if (!detail) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
+    return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  }
+  const res = await patchScheduleExamBooklets({
+    ownerUserId,
+    scheduleId,
+    receivedRaw: String(formData.get("exam_booklets_received") ?? ""),
+    usedRaw: String(formData.get("exam_booklets_used") ?? ""),
+    damagedRaw: String(formData.get("exam_booklets_damaged") ?? ""),
+  });
+  if (!res.ok) return res;
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "patch",
+    resource: "situation_exam_booklets",
+    summary: `تحديث أعداد الدفاتر الامتحانية للجدول ${scheduleId}.`,
+    details: { scheduleId },
+  });
+  revalidateCollegePortalSegment("upload-status");
+  revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
+  return { ok: true, message: "تم حفظ بيانات الدفاتر الامتحانية." };
 }
 
 export async function patchSituationStaffAbsencesAction(

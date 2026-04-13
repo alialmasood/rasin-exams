@@ -1,7 +1,58 @@
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureCoreSchema } from "@/lib/schema";
-import { isValidFormationName } from "@/lib/college-formations";
+import { COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX } from "@/lib/college-account-constants";
+import { getFixedCollegeDepartmentNamesForFormation, isValidFormationName } from "@/lib/college-formations";
+
+type DepartmentSubjectPick =
+  | { mode: "existing"; id: number }
+  | { mode: "create"; branchName: string; branchType: "DEPARTMENT" | "BRANCH" };
+
+function parseDepartmentSubjectPick(input: {
+  formationNameTrimmed: string;
+  collegeSubjectIdRaw: string;
+  newBranchName?: string;
+  newBranchType?: string;
+}): { ok: true; pick: DepartmentSubjectPick } | { ok: false; message: string } {
+  const sid = input.collegeSubjectIdRaw.trim();
+  const freeName = (input.newBranchName ?? "").trim();
+  const freeType = input.newBranchType?.trim().toUpperCase() === "BRANCH" ? "BRANCH" : "DEPARTMENT";
+  const fixed = getFixedCollegeDepartmentNamesForFormation(input.formationNameTrimmed);
+
+  if (/^[0-9]+$/.test(sid)) {
+    return { ok: true, pick: { mode: "existing", id: Number.parseInt(sid, 10) } };
+  }
+
+  if (sid.startsWith(COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX)) {
+    try {
+      const json = decodeURIComponent(sid.slice(COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX.length));
+      const payload = JSON.parse(json) as { n?: string; t?: string };
+      const branchName = String(payload.n ?? "").trim();
+      const branchType = payload.t === "BRANCH" ? "BRANCH" : "DEPARTMENT";
+      if (branchName.length < 2) {
+        return { ok: false, message: "اختر القسم أو الفرع من القائمة." };
+      }
+      if (fixed) {
+        const ok = fixed.some((x) => x.trim() === branchName.trim());
+        if (!ok) {
+          return { ok: false, message: "القسم المختار غير معتمد لهذا التشكيل." };
+        }
+      }
+      return { ok: true, pick: { mode: "create", branchName, branchType } };
+    } catch {
+      return { ok: false, message: "اختيار القسم أو الفرع غير صالح." };
+    }
+  }
+
+  if (freeName.length >= 2) {
+    if (fixed) {
+      return { ok: false, message: "يرجى اختيار القسم أو الفرع من القائمة المعتمدة لهذا التشكيل." };
+    }
+    return { ok: true, pick: { mode: "create", branchName: freeName, branchType: freeType } };
+  }
+
+  return { ok: false, message: "اختر القسم أو الفرع من القائمة، أو أدخل اسمه." };
+}
 
 export type CollegeAccountKind = "FORMATION" | "FOLLOWUP" | "DEPARTMENT";
 
@@ -121,7 +172,7 @@ export async function getCollegeProfileByUserId(userId: string): Promise<College
   };
 }
 
-/** أقسام/فروع التشكيل (للمدير عند إنشاء حساب قسم) — يجب أن يكون لدى التشكيل حساب تشكيل ومواد مسجّلة. */
+/** أقسام/فروع التشكيل المسجّلة مسبقًا (للمدير عند إنشاء حساب قسم) — اختياري؛ يمكن إنشاء القسم من نفس صفحة الحسابات. */
 export async function listCollegeSubjectsByFormationNameForAdmin(formationName: string): Promise<
   { id: string; branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" }[]
 > {
@@ -154,8 +205,11 @@ export async function createCollegeAccount(input: {
   formationName: string;
   deanName: string;
   holderName: string;
-  /** مطلوب لحساب القسم/الفرع */
+  /** معرّف قسم مسجّل، أو قيمة create:… عند الاختيار من قائمة معتمدة بدون سجل بعد */
   collegeSubjectId?: string;
+  /** عند التشكيلات بدون قائمة ثابتة ولا أقسام مسجّلة بعد: اسم القسم/الفرع الجديد */
+  newBranchName?: string;
+  newBranchType?: string;
   username: string;
   password: string;
   confirmPassword: string;
@@ -184,6 +238,7 @@ export async function createCollegeAccount(input: {
   let deanName: string | null = null;
   let holderName: string | null = null;
   let collegeSubjectId: number | null = null;
+  let departmentSubjectPick: DepartmentSubjectPick | null = null;
 
   if (input.accountKind === "FORMATION") {
     const fn = input.formationName.trim();
@@ -200,20 +255,25 @@ export async function createCollegeAccount(input: {
   } else if (input.accountKind === "DEPARTMENT") {
     const fn = input.formationName.trim();
     const head = input.deanName.trim();
-    const sid = input.collegeSubjectId?.trim() ?? "";
     if (!isValidFormationName(fn)) {
       return { ok: false, message: "اختر تشكيلًا صالحًا من القائمة." };
     }
     if (head.length < 2) {
       return { ok: false, message: "يرجى إدخال اسم رئيس القسم أو الفرع (حرفان على الأقل)." };
     }
-    if (!/^[0-9]+$/.test(sid)) {
-      return { ok: false, message: "اختر القسم أو الفرع من القائمة." };
-    }
     formationName = fn;
     deanName = head;
     fullNameForUser = head;
-    collegeSubjectId = Number.parseInt(sid, 10);
+    const pickResult = parseDepartmentSubjectPick({
+      formationNameTrimmed: fn,
+      collegeSubjectIdRaw: input.collegeSubjectId ?? "",
+      newBranchName: input.newBranchName,
+      newBranchType: input.newBranchType,
+    });
+    if (!pickResult.ok) {
+      return { ok: false, message: pickResult.message };
+    }
+    departmentSubjectPick = pickResult.pick;
   } else {
     const hn = input.holderName.trim();
     if (hn.length < 2) {
@@ -254,7 +314,7 @@ export async function createCollegeAccount(input: {
       }
     }
 
-    if (input.accountKind === "DEPARTMENT" && formationName && collegeSubjectId != null) {
+    if (input.accountKind === "DEPARTMENT" && formationName && departmentSubjectPick) {
       const fRow = await client.query<{ user_id: string | number }>(
         `SELECT user_id FROM college_account_profiles
          WHERE account_kind = 'FORMATION' AND formation_name = $1 LIMIT 1`,
@@ -265,26 +325,62 @@ export async function createCollegeAccount(input: {
         await client.query("ROLLBACK");
         return {
           ok: false,
-          message: "لا يوجد حساب تشكيل لهذا الاسم. أنشئ حساب التشكيل أولاً ثم سجّل الأقسام من لوحة التشكيل.",
+          message: "لا يوجد حساب تشكيل لهذا الاسم. أنشئ حساب التشكيل أولاً من هذه الصفحة.",
         };
       }
-      const subOk = await client.query(
-        `SELECT 1 FROM college_subjects
-         WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
-        [collegeSubjectId, formationOwnerId]
-      );
-      if ((subOk.rowCount ?? 0) === 0) {
-        await client.query("ROLLBACK");
-        return { ok: false, message: "القسم/الفرع المختار لا يتبع هذا التشكيل أو غير موجود." };
+
+      const head = deanName ?? "";
+      let resolvedSubjectId: number;
+
+      if (departmentSubjectPick.mode === "create") {
+        const { branchName, branchType } = departmentSubjectPick;
+        const ex = await client.query<{ id: string | number }>(
+          `SELECT id FROM college_subjects
+           WHERE owner_user_id = $1 AND LOWER(TRIM(branch_name)) = LOWER(TRIM($2))
+           LIMIT 1`,
+          [formationOwnerId, branchName]
+        );
+        const existingId = ex.rows[0]?.id;
+        if (existingId != null) {
+          resolvedSubjectId = Number(existingId);
+          await client.query(
+            `UPDATE college_subjects
+             SET branch_head_name = $2, branch_type = $3, updated_at = NOW()
+             WHERE id = $1::bigint AND owner_user_id = $4`,
+            [resolvedSubjectId, head, branchType, formationOwnerId]
+          );
+        } else {
+          const ins = await client.query<{ id: string | number }>(
+            `INSERT INTO college_subjects (owner_user_id, branch_type, branch_name, branch_head_name, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NOW(), NOW())
+             RETURNING id`,
+            [formationOwnerId, branchType, branchName, head]
+          );
+          resolvedSubjectId = Number(ins.rows[0].id);
+        }
+      } else {
+        resolvedSubjectId = departmentSubjectPick.id;
+        const subOk = await client.query(
+          `SELECT 1 FROM college_subjects
+           WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+          [resolvedSubjectId, formationOwnerId]
+        );
+        if ((subOk.rowCount ?? 0) === 0) {
+          await client.query("ROLLBACK");
+          return { ok: false, message: "القسم/الفرع المختار لا يتبع هذا التشكيل أو غير موجود." };
+        }
       }
+
       const dupDept = await client.query(
         `SELECT 1 FROM college_account_profiles WHERE college_subject_id = $1::bigint LIMIT 1`,
-        [collegeSubjectId]
+        [resolvedSubjectId]
       );
       if ((dupDept.rowCount ?? 0) > 0) {
         await client.query("ROLLBACK");
         return { ok: false, message: "يوجد بالفعل حساب مرتبط بهذا القسم/الفرع." };
       }
+
+      collegeSubjectId = resolvedSubjectId;
     }
 
     const createdBy =

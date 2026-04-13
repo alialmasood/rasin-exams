@@ -3,6 +3,7 @@
 import { useActionState, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import {
@@ -1200,6 +1201,9 @@ export function RoomsManagementPanel({
   scheduleHintsByRoom: Record<string, CollegeRoomScheduleHint[]>;
   collegeLabel: string;
 }) {
+  const portalBase = useCollegePortalBasePath();
+  const hideAddRoomButton = portalBase === "/dashboard/college";
+  const hideEditDeleteRoomActions = portalBase === "/dashboard/college";
   const [addOpen, setAddOpen] = useState(false);
   /** إعادة تركيب مودال الإضافة عند كل فتح حتى تُصفَّر حالة useActionState ولا يبقى ok: true من الجلسة السابقة */
   const [addDialogKey, setAddDialogKey] = useState(0);
@@ -1414,13 +1418,15 @@ export function RoomsManagementPanel({
       <div className="min-w-0 overflow-x-hidden rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={openAddDialog}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
-            >
-              إضافة قاعة
-            </button>
+            {!hideAddRoomButton ? (
+              <button
+                type="button"
+                onClick={openAddDialog}
+                className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
+              >
+                إضافة قاعة
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => void exportExcel()}
@@ -1791,18 +1797,20 @@ export function RoomsManagementPanel({
               dir="rtl"
               role="menu"
             >
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                onClick={() => {
-                  setEditDialogKey((k) => k + 1);
-                  setEditingRow(menuRow);
-                  closeActionsMenu();
-                }}
-              >
-                تعديل
-              </button>
+              {!hideEditDeleteRoomActions ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                  onClick={() => {
+                    setEditDialogKey((k) => k + 1);
+                    setEditingRow(menuRow);
+                    closeActionsMenu();
+                  }}
+                >
+                  تعديل
+                </button>
+              ) : null}
               <button
                 type="button"
                 role="menuitem"
@@ -1814,7 +1822,7 @@ export function RoomsManagementPanel({
               >
                 تقرير قاعة
               </button>
-              <DeleteRoomForm id={menuRow.id} />
+              {!hideEditDeleteRoomActions ? <DeleteRoomForm id={menuRow.id} /> : null}
             </div>,
             document.body,
           )

@@ -115,6 +115,14 @@ function situationCheatingReportBlockHtml(detail: ExamSituationDetail, z: typeof
   return `<div style="font-size:12px;line-height:1.5">${parts.join("<br/><br/>")}</div>`;
 }
 
+function examBookletsReportAppendix(detail: ExamSituationDetail, z: typeof escapeHtml): string {
+  const r = detail.exam_booklets_received ?? 0;
+  const u = detail.exam_booklets_used ?? 0;
+  const d = detail.exam_booklets_damaged ?? 0;
+  const balanced = u + d === r;
+  return `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e5e7eb"><strong>الدفاتر الامتحانية:</strong> مستلمة ${z(String(r))}، مستخدمة ${z(String(u))}، تالفة ${z(String(d))} — <strong>التطابق:</strong> ${balanced ? "نعم" : "لا"}</div>`;
+}
+
 function situationCheatingAttendanceAppendix(detail: ExamSituationDetail, z: typeof escapeHtml): string {
   if (!hasSituationCheatingForReport(detail)) return "";
   const lines: string[] = [];
@@ -564,6 +572,15 @@ export function buildExamSituationReportHtml(
         <tr><td>الحضور (الإجمالي)</td><td><strong>${detail.attendance_count}</strong></td></tr>
         <tr><td>الغياب (الإجمالي)</td><td><strong>${detail.absence_count}</strong></td></tr>
         <tr><td>المجموع (حضور + غياب)</td><td>${sumAttAbs}</td></tr>
+        <tr><td>الدفاتر الامتحانية — المستلمة</td><td><strong>${detail.exam_booklets_received ?? 0}</strong></td></tr>
+        <tr><td>الدفاتر الامتحانية — المستخدمة</td><td><strong>${detail.exam_booklets_used ?? 0}</strong></td></tr>
+        <tr><td>الدفاتر الامتحانية — التالفة</td><td><strong>${detail.exam_booklets_damaged ?? 0}</strong></td></tr>
+        <tr><td>الدفاتر: مجموع المستخدم + التالف = المستلم</td><td>${
+          Number(detail.exam_booklets_used ?? 0) + Number(detail.exam_booklets_damaged ?? 0) ===
+          Number(detail.exam_booklets_received ?? 0)
+            ? "نعم"
+            : "لا"
+        }</td></tr>
         <tr><td>اكتمال البيانات (مطابقة السعة وأسماء الغياب عند الحاجة)</td><td>${detail.is_complete ? "مكتمل" : "غير مكتمل"}</td></tr>
       </table>
       <table class="table" style="margin-top:8px;">
@@ -767,6 +784,7 @@ function attendanceCellHtml(detail: ExamSituationDetail): string {
   const capM = detail.capacity_morning;
   const capE = detail.capacity_evening;
   const cheatBlock = situationCheatingAttendanceAppendix(detail, e);
+  const bookletsBlock = examBookletsReportAppendix(detail, e);
   if (capM > 0 || capE > 0) {
     const parts: string[] = [];
     if (capM > 0) {
@@ -779,12 +797,13 @@ function attendanceCellHtml(detail: ExamSituationDetail): string {
         `<strong>مسائي:</strong> إجمالي السعة ${capE}، حضور ${detail.attendance_evening}، غياب ${detail.absence_evening}. أسماء الغياب: ${e((detail.absence_names_evening ?? "").trim()) || "—"}`
       );
     }
-    return parts.join("<br/><br/>") + cheatBlock;
+    return parts.join("<br/><br/>") + cheatBlock + bookletsBlock;
   }
   const names = (detail.absence_names ?? "").trim();
   return (
     `<strong>إجمالي السعة</strong> ${detail.capacity_total}، <strong>حضور</strong> ${detail.attendance_count}، <strong>غياب</strong> ${detail.absence_count}.<br/><strong>أسماء الغياب:</strong> ${e(names) || "—"}` +
-    cheatBlock
+    cheatBlock +
+    bookletsBlock
   );
 }
 

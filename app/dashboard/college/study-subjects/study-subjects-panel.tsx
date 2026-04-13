@@ -3,6 +3,7 @@
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
 import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
@@ -27,6 +28,12 @@ const STUDY_TYPE_LABEL: Record<StudyType, string> = {
   BOLOGNA: "بولونيا",
   INTEGRATIVE: "تكاملي",
 };
+
+function studyTypeDisplayByStage(studyType: StudyType, studyStageLevel: number): string {
+  // في الدراسات العليا لا يُعرض نوع الدراسة.
+  if (isPostgraduateStudyStageLevel(studyStageLevel)) return "";
+  return STUDY_TYPE_LABEL[studyType];
+}
 
 /** تمركز بصري: inset-0 + margin:auto + ارتفاع المحتوى؛ يُعرض عبر portal على body لتفادي سياق الـ RTL/التخطيط */
 const STUDY_SUBJECT_MODAL_DIALOG_CLASS =
@@ -89,6 +96,7 @@ function SubjectFormFields({
   const [tier, setTier] = useState<StudyTierUi>(initialTier);
   const [undergradStage, setUndergradStage] = useState(initialUndergrad);
   const [postgradStage, setPostgradStage] = useState(initialPostgrad);
+  const [studyType, setStudyType] = useState<StudyType>(defaults?.studyType ?? "ANNUAL");
 
   const hiddenStageValue = tier === "POSTGRAD" ? postgradStage : undergradStage;
 
@@ -225,20 +233,23 @@ function SubjectFormFields({
           className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
         />
       </div>
-      <div>
-        <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
-        <select
-          name="study_type"
-          defaultValue={defaults?.studyType ?? "ANNUAL"}
-          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-        >
-          <option value="ANNUAL">سنوي</option>
-          <option value="SEMESTER">فصلي</option>
-          <option value="COURSES">مقررات</option>
-          <option value="BOLOGNA">بولونيا</option>
-          <option value="INTEGRATIVE">تكاملي</option>
-        </select>
-      </div>
+      <input type="hidden" name="study_type" value={studyType} />
+      {tier === "UNDERGRAD" ? (
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
+          <select
+            value={studyType}
+            onChange={(e) => setStudyType(e.target.value as StudyType)}
+            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+          >
+            <option value="ANNUAL">سنوي</option>
+            <option value="SEMESTER">فصلي</option>
+            <option value="COURSES">مقررات</option>
+            <option value="BOLOGNA">بولونيا</option>
+            <option value="INTEGRATIVE">تكاملي</option>
+          </select>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -391,6 +402,9 @@ export function StudySubjectsPanel({
   rows: CollegeStudySubjectRow[];
   fixedCollegeSubjectId?: string | null;
 }) {
+  const portalBase = useCollegePortalBasePath();
+  const hideAddStudySubjectButton = portalBase === "/dashboard/college";
+  const hideActionsColumn = portalBase === "/dashboard/college";
   const departmentSubjectsScope = Boolean(fixedCollegeSubjectId?.trim());
   const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
   const [addOpen, setAddOpen] = useState(false);
@@ -514,7 +528,7 @@ export function StudySubjectsPanel({
       `${row.linked_branch_name} (${row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})`,
       row.instructor_name || "—",
       formatCollegeStudyLevelTierLabel(row.study_stage_level),
-      STUDY_TYPE_LABEL[row.study_type],
+      studyTypeDisplayByStage(row.study_type, row.study_stage_level),
       formatCollegeStudyStageLabel(row.study_stage_level),
       new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at)),
     ]);
@@ -575,13 +589,15 @@ export function StudySubjectsPanel({
       <div className="overflow-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={openAddStudySubjectFromFab}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
-            >
-              إضافة مادة دراسية
-            </button>
+            {!hideAddStudySubjectButton ? (
+              <button
+                type="button"
+                onClick={openAddStudySubjectFromFab}
+                className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
+              >
+                إضافة مادة دراسية
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={exportCsv}
@@ -712,7 +728,9 @@ export function StudySubjectsPanel({
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">نوع الدراسة</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">المرحلة الدراسية</th>
               <th className="px-4 py-3 text-sm font-bold text-[#334155]">تاريخ الإضافة</th>
-              <th className="px-4 py-3 text-sm font-bold text-[#334155]">إجراءات</th>
+              {!hideActionsColumn ? (
+                <th className="px-4 py-3 text-sm font-bold text-[#334155]">إجراءات</th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E2E8F0] bg-white">
@@ -720,7 +738,7 @@ export function StudySubjectsPanel({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-sm text-[#64748B]"
-                  colSpan={departmentSubjectsScope ? 8 : 9}
+                  colSpan={departmentSubjectsScope ? 8 : hideActionsColumn ? 8 : 9}
                 >
                   لا توجد مواد دراسية بعد.
                 </td>
@@ -747,7 +765,9 @@ export function StudySubjectsPanel({
                       {formatCollegeStudyLevelTierLabel(row.study_stage_level)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-[#334155]">{STUDY_TYPE_LABEL[row.study_type]}</td>
+                  <td className="px-4 py-3 text-sm text-[#334155]">
+                    {studyTypeDisplayByStage(row.study_type, row.study_stage_level)}
+                  </td>
                   <td className="px-4 py-3 text-sm text-[#334155]">
                     {formatCollegeStudyStageLabel(row.study_stage_level)}
                   </td>
@@ -756,35 +776,37 @@ export function StudySubjectsPanel({
                       new Date(row.created_at)
                     )}
                   </td>
-                  <td className="relative px-4 py-3 text-left">
-                    <button
-                      type="button"
-                      aria-label="إجراءات"
-                      className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
-                      onClick={() => setMenuId((s) => (s === row.id ? null : row.id))}
-                    >
-                      <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                        <circle cx="12" cy="5" r="2" />
-                        <circle cx="12" cy="12" r="2" />
-                        <circle cx="12" cy="19" r="2" />
-                      </svg>
-                    </button>
-                    {menuId === row.id ? (
-                      <div className="absolute left-4 top-12 z-30 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                        <button
-                          type="button"
-                          className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                          onClick={() => {
-                            setEditingRow(row);
-                            setMenuId(null);
-                          }}
-                        >
-                          تعديل
-                        </button>
-                        <DeleteStudySubjectForm id={row.id} />
-                      </div>
-                    ) : null}
-                  </td>
+                  {!hideActionsColumn ? (
+                    <td className="relative px-4 py-3 text-left">
+                      <button
+                        type="button"
+                        aria-label="إجراءات"
+                        className="rounded-lg p-2 text-[#64748B] transition hover:bg-[#F1F5F9]"
+                        onClick={() => setMenuId((s) => (s === row.id ? null : row.id))}
+                      >
+                        <svg className="size-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <circle cx="12" cy="5" r="2" />
+                          <circle cx="12" cy="12" r="2" />
+                          <circle cx="12" cy="19" r="2" />
+                        </svg>
+                      </button>
+                      {menuId === row.id ? (
+                        <div className="absolute left-4 top-12 z-30 w-40 rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                            onClick={() => {
+                              setEditingRow(row);
+                              setMenuId(null);
+                            }}
+                          >
+                            تعديل
+                          </button>
+                          <DeleteStudySubjectForm id={row.id} />
+                        </div>
+                      ) : null}
+                    </td>
+                  ) : null}
                 </tr>
               ))
             )}

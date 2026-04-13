@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeProfileRow } from "@/lib/college-accounts";
@@ -146,6 +146,40 @@ function StatCard({
   );
 }
 
+function ExamBookletsCard({
+  received,
+  used,
+  damaged,
+}: {
+  received: number;
+  used: number;
+  damaged: number;
+}) {
+  return (
+    <div className="relative flex h-[100px] flex-col overflow-hidden rounded-xl border border-[#E2E8F0] bg-white p-3 shadow-sm xl:h-[104px] xl:p-3.5">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l from-indigo-600 to-blue-600"
+        aria-hidden
+      />
+      <p className="text-[10px] font-bold leading-tight text-[#64748B] xl:text-[11px]">الدفاتر الامتحانية</p>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg bg-[#F8FAFC] px-1.5 py-1.5 ring-1 ring-[#E2E8F0]">
+          <p className="text-[10px] font-bold text-[#1E3A8A]">المستلمة</p>
+          <p className="mt-0.5 text-sm font-extrabold tabular-nums text-[#0F172A]">{formatNum(received)}</p>
+        </div>
+        <div className="rounded-lg bg-[#F8FAFC] px-1.5 py-1.5 ring-1 ring-[#E2E8F0]">
+          <p className="text-[10px] font-bold text-[#1E3A8A]">المستخدمة</p>
+          <p className="mt-0.5 text-sm font-extrabold tabular-nums text-[#0F172A]">{formatNum(used)}</p>
+        </div>
+        <div className="rounded-lg bg-[#F8FAFC] px-1.5 py-1.5 ring-1 ring-[#E2E8F0]">
+          <p className="text-[10px] font-bold text-[#1E3A8A]">التالفة</p>
+          <p className="mt-0.5 text-sm font-extrabold tabular-nums text-[#0F172A]">{formatNum(damaged)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChartCard({
   title,
   subtitle,
@@ -189,6 +223,7 @@ export function CollegeDashboardOverview({
   showExamSituationUploadCta?: boolean;
 }) {
   const portalBase = useCollegePortalBasePath();
+  const isDepartmentPortal = portalBase === "/department";
   const isFollowup = profile?.account_kind === "FOLLOWUP";
   const isDepartmentAccount = profile?.account_kind === "DEPARTMENT";
   const deanOrHolder = isFollowup ? (profile?.holder_name ?? "").trim() : (profile?.dean_name ?? "").trim();
@@ -262,23 +297,44 @@ export function CollegeDashboardOverview({
   }
 
   const branchHint =
-    snapshot.branches.total === 0
-      ? "أضف أقساماً أو فروعاً من القائمة الجانبية"
-      : `${formatNum(snapshot.branches.departments)} قسم · ${formatNum(snapshot.branches.branchFaculties)} فرع`;
+    isDepartmentPortal
+      ? ""
+      : snapshot.branches.total === 0
+        ? "أضف أقساماً أو فروعاً من القائمة الجانبية"
+        : `${formatNum(snapshot.branches.departments)} قسم · ${formatNum(snapshot.branches.branchFaculties)} فرع`;
 
   const typesInUse = snapshot.studySubjects.byType.filter((x) => x.count > 0).length;
 
-  const branchSubjectChartData = snapshot.byBranchSubjects.map((r) => ({
+  const branchSubjectSource = isDepartmentPortal
+    ? snapshot.byBranchSubjects.slice(0, 1)
+    : snapshot.byBranchSubjects;
+  const branchSubjectChartData = branchSubjectSource.map((r) => ({
     ...r,
     labelShort: r.branchName.length > 26 ? `${r.branchName.slice(0, 24)}…` : r.branchName,
   }));
 
-  const examStackData = snapshot.byBranchExamProgress.map((r) => ({
+  const examStackSource = isDepartmentPortal
+    ? snapshot.byBranchExamProgress.slice(0, 1)
+    : snapshot.byBranchExamProgress;
+  const examStackData = examStackSource.map((r) => ({
     ...r,
     labelShort: r.branchName.length > 16 ? `${r.branchName.slice(0, 14)}…` : r.branchName,
   }));
   const examStackChartData = examStackData.filter((r) => r.total > 0);
   const hasExamBreakdown = examStackChartData.length > 0;
+  const timelineLines = isDepartmentPortal
+    ? snapshot.branchTimeline.lines.slice(0, 1)
+    : snapshot.branchTimeline.lines;
+  const timelineChartData = useMemo(() => {
+    if (!isDepartmentPortal) return snapshot.branchTimeline.chartData;
+    const first = timelineLines[0];
+    if (!first) return [];
+    return snapshot.branchTimeline.chartData.map((row) => ({
+      date: row.date,
+      [first.dataKey]: row[first.dataKey] ?? 0,
+    }));
+  }, [isDepartmentPortal, snapshot.branchTimeline.chartData, timelineLines]);
+  const hasTimelineData = timelineChartData.length > 0 && timelineLines.length > 0;
 
   return (
     <div className="space-y-8" dir="rtl">
@@ -367,7 +423,9 @@ export function CollegeDashboardOverview({
           مؤشرات سريعة
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="الأقسام والفروع" value={snapshot.branches.total} hint={branchHint} accent="slate" />
+          {!isDepartmentPortal ? (
+            <StatCard title="الأقسام والفروع" value={snapshot.branches.total} hint={branchHint} accent="slate" />
+          ) : null}
           <StatCard
             title="المواد الدراسية"
             value={snapshot.studySubjects.total}
@@ -412,6 +470,11 @@ export function CollegeDashboardOverview({
             value={snapshot.situations.totalRows}
             hint={`مرفوع ${formatNum(snapshot.situations.uploaded)} · غير مرفوع ${formatNum(snapshot.situations.notUploaded)} · مكتمل ${formatNum(snapshot.situations.complete)}`}
             accent="emerald"
+          />
+          <ExamBookletsCard
+            received={snapshot.situations.examBooklets.received}
+            used={snapshot.situations.examBooklets.used}
+            damaged={snapshot.situations.examBooklets.damaged}
           />
         </div>
       </section>
@@ -527,12 +590,18 @@ export function CollegeDashboardOverview({
         <div className="grid gap-6 lg:grid-cols-2">
           <ChartCard
             chartClassName="min-h-[260px] h-[280px] lg:h-[300px]"
-            title="المواد الدراسية حسب القسم أو الفرع"
-            subtitle="عدد المواد الدراسية المسجّلة لكل تشكيل فرعي (قسم أو فرع)"
+            title={isDepartmentPortal ? "المواد الدراسية في القسم أو الفرع" : "المواد الدراسية حسب القسم أو الفرع"}
+            subtitle={
+              isDepartmentPortal
+                ? "عدد المواد الدراسية المسجّلة في القسم أو الفرع الحالي فقط."
+                : "عدد المواد الدراسية المسجّلة لكل تشكيل فرعي (قسم أو فرع)"
+            }
           >
             {branchSubjectChartData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">
-                لا توجد أقسام أو فروع بعد. أضفها من «الأقسام والفروع».
+                {isDepartmentPortal
+                  ? "لا توجد مواد دراسية مسجّلة لهذا القسم أو الفرع بعد."
+                  : "لا توجد أقسام أو فروع بعد. أضفها من «الأقسام والفروع»."}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -564,12 +633,18 @@ export function CollegeDashboardOverview({
 
           <ChartCard
             chartClassName="min-h-[260px] h-[280px] lg:h-[300px]"
-            title="الجداول الامتحانية حسب القسم"
-            subtitle="ما أنجز من جلسات لكل قسم: مسودة، مرفوع للمتابعة، معتمد، مرفوض — يعكس حالة سير العمل الحالية"
+            title={isDepartmentPortal ? "الجداول الامتحانية في القسم" : "الجداول الامتحانية حسب القسم"}
+            subtitle={
+              isDepartmentPortal
+                ? "حالة جلسات الجدول للقسم الحالي فقط: مسودة، مرفوع للمتابعة، معتمد، مرفوض."
+                : "ما أنجز من جلسات لكل قسم: مسودة، مرفوع للمتابعة، معتمد، مرفوض — يعكس حالة سير العمل الحالية"
+            }
           >
             {!hasExamBreakdown ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">
-                لا توجد جلسات امتحانية مرتبطة بالأقسام بعد.
+                {isDepartmentPortal
+                  ? "لا توجد جلسات امتحانية مرتبطة بالقسم الحالي بعد."
+                  : "لا توجد جلسات امتحانية مرتبطة بالأقسام بعد."}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -603,16 +678,22 @@ export function CollegeDashboardOverview({
           <ChartCard
             className="lg:col-span-2"
             chartClassName="h-[300px] lg:h-[320px]"
-            title="تطور الجلسات عبر زمن الامتحانات"
-            subtitle={`يوم امتحان على المحور الأفقي؛ لكل قسم خط يوضح عدد الجلسات ذلك اليوم. يُعرض حتى ${DASHBOARD_TIMELINE_MAX_BRANCHES} أقسام الأكثر نشاطاً (حسب مجموع الجلسات) لقراءة أوضح.`}
+            title={isDepartmentPortal ? "تطور جلسات القسم عبر زمن الامتحانات" : "تطور الجلسات عبر زمن الامتحانات"}
+            subtitle={
+              isDepartmentPortal
+                ? "يوم امتحان على المحور الأفقي؛ خط واحد يوضح عدد جلسات القسم الحالي في كل يوم."
+                : `يوم امتحان على المحور الأفقي؛ لكل قسم خط يوضح عدد الجلسات ذلك اليوم. يُعرض حتى ${DASHBOARD_TIMELINE_MAX_BRANCHES} أقسام الأكثر نشاطاً (حسب مجموع الجلسات) لقراءة أوضح.`
+            }
           >
-            {snapshot.branchTimeline.chartData.length === 0 || snapshot.branchTimeline.lines.length === 0 ? (
+            {!hasTimelineData ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">
-                لا توجد جلسات كافية لرسم الخط الزمني حسب القسم.
+                {isDepartmentPortal
+                  ? "لا توجد جلسات كافية لرسم خط زمني للقسم الحالي."
+                  : "لا توجد جلسات كافية لرسم الخط الزمني حسب القسم."}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={snapshot.branchTimeline.chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                <LineChart data={timelineChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis
                     dataKey="date"
@@ -626,7 +707,7 @@ export function CollegeDashboardOverview({
                     labelFormatter={(d) => (typeof d === "string" ? `التاريخ ${d}` : String(d))}
                   />
                   <Legend layout="horizontal" verticalAlign="bottom" wrapperStyle={{ fontSize: 10 }} />
-                  {snapshot.branchTimeline.lines.map((line) => (
+                  {timelineLines.map((line) => (
                     <Line
                       key={line.dataKey}
                       type="monotone"

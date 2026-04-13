@@ -24,8 +24,10 @@ import {
   type ExternalRoomStaffStored,
 } from "@/lib/room-external-staff";
 import type { DeanSituationStatus, UploadStatusTableRow } from "@/lib/upload-status-display";
+import { isSituationExamBookletsBalanced } from "@/lib/situation-exam-booklets";
 
 export type { DeanSituationStatus, UploadStatusListItem, UploadStatusTableRow } from "@/lib/upload-status-display";
+export { isSituationExamBookletsBalanced };
 export type { ExternalRoomStaffStored } from "@/lib/room-external-staff";
 export { buildUploadStatusListItems } from "@/lib/upload-status-display";
 
@@ -136,6 +138,9 @@ export async function listOfficialExamSituationsForOwner(
     dean_status: string | null;
     dean_reviewed_at: Date | null;
     absence_names: string | null;
+    exam_booklets_received: number;
+    exam_booklets_used: number;
+    exam_booklets_damaged: number;
   }>(
     `SELECT e.id AS schedule_id, e.college_subject_id::text AS college_subject_id, e.study_subject_id::text AS study_subject_id,
             e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot, e.start_time::text, e.end_time::text, e.duration_minutes,
@@ -215,7 +220,10 @@ export async function listOfficialExamSituationsForOwner(
             END AS absence_names_evening,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
             c.branch_name, e.academic_year, e.stage_level,
-            rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at
+            rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
+            COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
+            COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
+            COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
@@ -239,18 +247,23 @@ export async function listOfficialExamSituationsForOwner(
     const absE = Number(row.absence_evening ?? 0);
     const uploaded = Boolean(row.head_submitted_at);
     const useShift = capM > 0 || capE > 0;
-    const complete = useShift
-      ? isSituationShiftAttendanceComplete(
-          capM,
-          capE,
-          attM,
-          absM,
-          attE,
-          absE,
-          row.absence_names_morning,
-          row.absence_names_evening
-        )
-      : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names);
+    const bRec = Number(row.exam_booklets_received ?? 0);
+    const bUsed = Number(row.exam_booklets_used ?? 0);
+    const bDmg = Number(row.exam_booklets_damaged ?? 0);
+    const bookletsOk = isSituationExamBookletsBalanced(bRec, bUsed, bDmg);
+    const complete =
+      (useShift
+        ? isSituationShiftAttendanceComplete(
+            capM,
+            capE,
+            attM,
+            absM,
+            attE,
+            absE,
+            row.absence_names_morning,
+            row.absence_names_evening
+          )
+        : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names)) && bookletsOk;
     return {
       schedule_id: String(row.schedule_id),
       college_subject_id: String(row.college_subject_id),
@@ -650,6 +663,10 @@ export type ExamSituationDetail = UploadStatusTableRow & {
   absence_evening: number;
   absence_names_morning: string;
   absence_names_evening: string;
+  /** دفاتر امتحانية — يجب أن يكون المستخدم + التالف = المستلم */
+  exam_booklets_received: number;
+  exam_booklets_used: number;
+  exam_booklets_damaged: number;
 };
 
 type ExamSituationDetailDbRow = {
@@ -694,6 +711,9 @@ type ExamSituationDetailDbRow = {
   situation_staff_absences: unknown | null;
   situation_cheating_cases: unknown | null;
   room_external_staff: unknown | null;
+  exam_booklets_received: number;
+  exam_booklets_used: number;
+  exam_booklets_damaged: number;
 };
 
 /** SELECT + JOINs لصف تفاصيل الموقف — يُكمَل بشرط WHERE. */
@@ -792,7 +812,10 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
             TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
             c.branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
-            e.notes, e.situation_staff_absences, e.situation_cheating_cases
+            e.notes, e.situation_staff_absences, e.situation_cheating_cases,
+            COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
+            COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
+            COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
@@ -813,18 +836,23 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
   const absE = Number(row.absence_evening ?? 0);
   const uploaded = Boolean(row.head_submitted_at);
   const useShift = capM > 0 || capE > 0;
-  const complete = useShift
-    ? isSituationShiftAttendanceComplete(
-        capM,
-        capE,
-        attM,
-        absM,
-        attE,
-        absE,
-        row.absence_names_morning,
-        row.absence_names_evening
-      )
-    : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names);
+  const bRec = Math.max(0, Math.floor(Number(row.exam_booklets_received ?? 0)));
+  const bUsed = Math.max(0, Math.floor(Number(row.exam_booklets_used ?? 0)));
+  const bDmg = Math.max(0, Math.floor(Number(row.exam_booklets_damaged ?? 0)));
+  const bookletsOk = isSituationExamBookletsBalanced(bRec, bUsed, bDmg);
+  const complete =
+    (useShift
+      ? isSituationShiftAttendanceComplete(
+          capM,
+          capE,
+          attM,
+          absM,
+          attE,
+          absE,
+          row.absence_names_morning,
+          row.absence_names_evening
+        )
+      : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names)) && bookletsOk;
 
   return {
     schedule_id: String(row.schedule_id),
@@ -870,6 +898,9 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     instructor_name: String(row.instructor_name ?? "").trim() || "—",
     situation_staff_absences: parseSituationStaffAbsencesFromDb(row.situation_staff_absences),
     situation_cheating_cases: parseSituationCheatingCasesFromDb(row.situation_cheating_cases),
+    exam_booklets_received: bRec,
+    exam_booklets_used: bUsed,
+    exam_booklets_damaged: bDmg,
   };
 }
 
@@ -921,6 +952,58 @@ export async function patchScheduleSituationCheatingCases(input: {
     [payload, scheduleId, input.ownerUserId]
   );
   if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ البيانات." };
+  return { ok: true };
+}
+
+function parseNonNegativeIntSituationField(
+  raw: string,
+  label: string
+): { ok: true; n: number } | { ok: false; message: string } {
+  const t = String(raw ?? "").trim();
+  if (t === "") return { ok: true, n: 0 };
+  if (!/^\d+$/.test(t)) {
+    return { ok: false, message: `${label}: أدخل رقماً صحيحاً غير سالب أو اترك الحقل فارغاً (يُعتبر صفراً).` };
+  }
+  const n = Number.parseInt(t, 10);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, message: `${label}: قيمة غير صالحة.` };
+  }
+  return { ok: true, n };
+}
+
+export async function patchScheduleExamBooklets(input: {
+  ownerUserId: string;
+  scheduleId: string;
+  receivedRaw: string;
+  usedRaw: string;
+  damagedRaw: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const scheduleId = input.scheduleId.trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  await ensureCoreSchema();
+  const exists = await getExamSituationDetailForOwner(input.ownerUserId, scheduleId);
+  if (!exists) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  const pR = parseNonNegativeIntSituationField(input.receivedRaw, "الدفاتر المستلمة");
+  if (!pR.ok) return pR;
+  const pU = parseNonNegativeIntSituationField(input.usedRaw, "الدفاتر المستخدمة");
+  if (!pU.ok) return pU;
+  const pD = parseNonNegativeIntSituationField(input.damagedRaw, "الدفاتر التالفة");
+  if (!pD.ok) return pD;
+  if (!isSituationExamBookletsBalanced(pR.n, pU.n, pD.n)) {
+    return {
+      ok: false,
+      message: "يجب أن يساوي مجموع الدفاتر المستخدمة والدفاتر التالفة عدد الدفاتر المستلمة.",
+    };
+  }
+  const pool = getDbPool();
+  const r = await pool.query(
+    `UPDATE college_exam_schedules
+     SET exam_booklets_received = $1, exam_booklets_used = $2, exam_booklets_damaged = $3, updated_at = NOW()
+     WHERE id = $4::bigint AND owner_user_id = $5`,
+    [pR.n, pU.n, pD.n, scheduleId, input.ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ بيانات الدفاتر." };
   return { ok: true };
 }
 
@@ -1224,6 +1307,14 @@ export async function submitHeadExamSituation(input: {
         "يجب اعتماد الموقف من العميد أو المعاون العلمي أولاً (زر «اعتماد الموقف») ثم يُفعّل «تأكيد رفع الموقف».",
     };
   }
+  const situation = await getExamSituationDetailForOwner(input.ownerUserId, input.scheduleId.trim());
+  if (!situation?.is_complete) {
+    return {
+      ok: false,
+      message:
+        "أكمل بيانات الموقف (الحضور والغياب مطابقة للسعة، أسماء الغياب عند الحاجة، والدفاتر الامتحانية) قبل تأكيد الرفع.",
+    };
+  }
   await pool.query(
     `INSERT INTO college_exam_situation_reports
        (owner_user_id, exam_schedule_id, head_submitted_at, dean_status, updated_at)
@@ -1263,7 +1354,8 @@ export async function approveDeanExamSituation(input: {
   if (!detail.is_complete) {
     return {
       ok: false,
-      message: "أكمل بيانات الحضور والغياب وتطابقها مع سعة القاعة قبل اعتماد الموقف.",
+      message:
+        "أكمل بيانات الحضور والغياب وتطابقها مع سعة القاعة، وبيانات الدفاتر الامتحانية (المستخدم + التالف = المستلم)، قبل اعتماد الموقف.",
     };
   }
   const pool = getDbPool();

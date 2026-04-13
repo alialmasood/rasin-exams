@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import type { ExamSituationBundle, ExamSituationDetail } from "@/lib/college-exam-situations";
+import { isSituationExamBookletsBalanced } from "@/lib/situation-exam-booklets";
 import { describeCapacityByShiftAr, mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
 import {
   buildExamSituationBundleReportHtml,
@@ -26,6 +27,7 @@ import {
   approveDeanSituationAction,
   patchRoomAttendanceForSituationAction,
   patchSituationCheatingCasesAction,
+  patchSituationExamBookletsAction,
   patchSituationStaffAbsencesAction,
   submitHeadSituationAction,
   type SituationActionState,
@@ -104,6 +106,14 @@ function countParsedAbsenceNames(text: string): number {
     .split(/[\n\r،,;؛]+/u)
     .map((s) => s.trim())
     .filter(Boolean).length;
+}
+
+/** يتوافق مع الخادم: فارغ = 0؛ غير فارغ يجب أن يكون رقماً صحيحاً ≥ 0. */
+function parseBookletCountField(s: string): number {
+  const t = s.trim();
+  if (t === "") return 0;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
 }
 
 function IconClipboard(props: { className?: string }) {
@@ -282,6 +292,7 @@ export function SituationDetailClient({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const staffSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cheatingSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bookletsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [staffAbsences, setStaffAbsences] = useState<SituationStaffAbsencesState>(() => ({
     ...detail.situation_staff_absences,
     invigilator_absences: detail.situation_staff_absences.invigilator_absences.map((r) => ({ ...r })),
@@ -290,6 +301,9 @@ export function SituationDetailClient({
     cheating_reported: detail.situation_cheating_cases.cheating_reported,
     cases: detail.situation_cheating_cases.cases.map((c) => ({ ...c })),
   }));
+  const [bookletsReceived, setBookletsReceived] = useState(String(detail.exam_booklets_received));
+  const [bookletsUsed, setBookletsUsed] = useState(String(detail.exam_booklets_used));
+  const [bookletsDamaged, setBookletsDamaged] = useState(String(detail.exam_booklets_damaged));
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -336,6 +350,12 @@ export function SituationDetailClient({
     detail.situation_cheating_cases.cheating_reported,
     JSON.stringify(detail.situation_cheating_cases.cases),
   ]);
+
+  useEffect(() => {
+    setBookletsReceived(String(detail.exam_booklets_received));
+    setBookletsUsed(String(detail.exam_booklets_used));
+    setBookletsDamaged(String(detail.exam_booklets_damaged));
+  }, [detail.schedule_id, detail.exam_booklets_received, detail.exam_booklets_used, detail.exam_booklets_damaged]);
 
   useEffect(() => {
     if (!toast) return;
@@ -432,6 +452,19 @@ export function SituationDetailClient({
     return false;
   }, [capM, capE, absNumM, absNumE, absenceNamesM, absenceNamesE]);
 
+  const bookletRecN = useMemo(() => parseBookletCountField(bookletsReceived), [bookletsReceived]);
+  const bookletUsedN = useMemo(() => parseBookletCountField(bookletsUsed), [bookletsUsed]);
+  const bookletDmgN = useMemo(() => parseBookletCountField(bookletsDamaged), [bookletsDamaged]);
+  const bookletsInvalidInput = useMemo(() => {
+    return (
+      Number.isNaN(bookletRecN) || Number.isNaN(bookletUsedN) || Number.isNaN(bookletDmgN)
+    );
+  }, [bookletRecN, bookletUsedN, bookletDmgN]);
+  const bookletsBalanceMismatch = useMemo(() => {
+    if (bookletsInvalidInput) return false;
+    return !isSituationExamBookletsBalanced(bookletRecN, bookletUsedN, bookletDmgN);
+  }, [bookletRecN, bookletUsedN, bookletDmgN, bookletsInvalidInput]);
+
   const attendanceRate =
     detail.capacity_total > 0 && !Number.isNaN(attTotalNum)
       ? Math.min(100, Math.max(0, Math.round((attTotalNum / detail.capacity_total) * 100)))
@@ -474,6 +507,11 @@ export function SituationDetailClient({
       : detail.capacity_total > 0 &&
         attAgg + absAgg === detail.capacity_total &&
         (absAgg === 0 || namesMerged.trim().length > 0);
+    const br = bookletRecN;
+    const bu = bookletUsedN;
+    const bd = bookletDmgN;
+    const bookletsOk =
+      !Number.isNaN(br) && !Number.isNaN(bu) && !Number.isNaN(bd) && isSituationExamBookletsBalanced(br, bu, bd);
     return {
       ...detail,
       attendance_count: attAgg,
@@ -485,9 +523,12 @@ export function SituationDetailClient({
       absence_evening: bE,
       absence_names_morning: namesM,
       absence_names_evening: namesE,
-      is_complete: dataComplete,
+      is_complete: dataComplete && bookletsOk,
       situation_staff_absences: staffAbsences,
       situation_cheating_cases: cheatingCases,
+      exam_booklets_received: Number.isNaN(br) ? detail.exam_booklets_received : br,
+      exam_booklets_used: Number.isNaN(bu) ? detail.exam_booklets_used : bu,
+      exam_booklets_damaged: Number.isNaN(bd) ? detail.exam_booklets_damaged : bd,
     };
   }, [
     detail,
@@ -499,6 +540,9 @@ export function SituationDetailClient({
     absenceNamesE,
     staffAbsences,
     cheatingCases,
+    bookletRecN,
+    bookletUsedN,
+    bookletDmgN,
   ]);
 
   /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اختلاف بسيط مع `detail.is_complete`. */
@@ -619,6 +663,63 @@ export function SituationDetailClient({
     }, 700);
   }, [flushCheatingCasesSave]);
 
+  const runExamBookletsPatch = useCallback(
+    async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (bookletsInvalidInput) {
+        if (!opts?.silentSuccess) {
+          setToast({ type: "err", msg: "أدخل أعداد الدفاتر كأرقام صحيحة غير سالبة." });
+        }
+        return false;
+      }
+      if (bookletsBalanceMismatch) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "يجب أن يساوي مجموع الدفاتر المستخدمة والتالفة عدد الدفاتر المستلمة.",
+          });
+        }
+        return false;
+      }
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      fd.set("exam_booklets_received", bookletsReceived.trim());
+      fd.set("exam_booklets_used", bookletsUsed.trim());
+      fd.set("exam_booklets_damaged", bookletsDamaged.trim());
+      const res: SituationActionState = await patchSituationExamBookletsAction(null, fd);
+      if (!res) return false;
+      if (!res.ok) {
+        setToast({ type: "err", msg: res.message });
+        return false;
+      }
+      if (!opts?.silentSuccess) setToast({ type: "ok", msg: res.message });
+      router.refresh();
+      return true;
+    },
+    [
+      bookletsBalanceMismatch,
+      bookletsDamaged,
+      bookletsInvalidInput,
+      bookletsReceived,
+      bookletsUsed,
+      detail.schedule_id,
+      router,
+    ]
+  );
+
+  const flushExamBookletsSave = useCallback(() => {
+    startTransition(() => {
+      void runExamBookletsPatch({ silentSuccess: true });
+    });
+  }, [runExamBookletsPatch, startTransition]);
+
+  const scheduleDebouncedExamBookletsSave = useCallback(() => {
+    if (bookletsSaveTimer.current) clearTimeout(bookletsSaveTimer.current);
+    bookletsSaveTimer.current = setTimeout(() => {
+      flushExamBookletsSave();
+      bookletsSaveTimer.current = null;
+    }, 500);
+  }, [flushExamBookletsSave]);
+
   const sessionsForPrint = useMemo(
     () =>
       bundle.sessions.map((s) => (s.schedule_id === detail.schedule_id ? detailForPrint : s)),
@@ -671,6 +772,8 @@ export function SituationDetailClient({
       }
       const savedCheating = await runCheatingCasesPatch({ silentSuccess: true });
       if (!savedCheating) return;
+      const savedBooklets = await runExamBookletsPatch();
+      if (!savedBooklets) return;
       const res = await submitHeadSituationAction(null, fd);
       if (!res) return;
       if (res.ok) {
@@ -702,6 +805,8 @@ export function SituationDetailClient({
       }
       const savedCheating = await runCheatingCasesPatch({ silentSuccess: true });
       if (!savedCheating) return;
+      const savedBooklets = await runExamBookletsPatch();
+      if (!savedBooklets) return;
       const fd = new FormData();
       fd.set("schedule_id", detail.schedule_id);
       fd.set("dean_note", ta?.value ?? "");
@@ -1564,6 +1669,83 @@ export function SituationDetailClient({
                     </button>
                   </div>
                 ) : null}
+              </div>
+            </SectionCard>
+          </div>
+
+          <div className="col-span-12">
+            <SectionCard
+              icon={<IconClipboard className="h-5 w-5" />}
+              title="الدفاتر الامتحانية"
+              titleBarStyle="sidebar"
+              className="border-[#1E3A8A]/18 ring-1 ring-[#1E3A8A]/10"
+            >
+              <p className="mb-4 text-xs font-medium leading-relaxed text-slate-700">
+                سجّل أعداد الدفاتر لهذه الجلسة. يُحفظ تلقائياً عند مغادرة أي حقل عند اكتمال الشرط:{" "}
+                <strong className="text-[#1E3A8A]">المستخدم + التالف = المستلم</strong>.
+              </p>
+              {bookletsInvalidInput ? (
+                <div
+                  role="alert"
+                  className="mb-3 flex gap-3 rounded-xl border-2 border-amber-300/90 bg-amber-50/90 px-3.5 py-3 text-xs leading-relaxed text-amber-950 shadow-sm"
+                >
+                  <IconWarningTriangle className="h-7 w-7 shrink-0 text-amber-700" />
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <span className="font-bold text-amber-900">تنبيه:</span> أدخل أعداداً صحيحة غير سالبة فقط (أو اترك
+                    الحقل فارغاً ليُعتبر صفراً).
+                  </div>
+                </div>
+              ) : null}
+              {bookletsBalanceMismatch ? (
+                <div
+                  role="alert"
+                  className="mb-3 flex gap-3 rounded-xl border-2 bg-gradient-to-b from-[#EB4C1B]/20 via-[#EB4C1B]/10 to-white px-3.5 py-3 text-xs leading-relaxed text-slate-900 shadow-sm ring-1 ring-[#EB4C1B]/25"
+                  style={{ borderColor: ATTENDANCE_ALERT_ACCENT }}
+                >
+                  <IconWarningTriangle className="h-7 w-7 shrink-0 text-[#EB4C1B]" />
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <span className="font-bold" style={{ color: ATTENDANCE_ALERT_ACCENT }}>
+                      تنبيه:
+                    </span>{" "}
+                    مجموع الدفاتر المستخدمة ({bookletUsedN}) والتالفة ({bookletDmgN}) ={" "}
+                    {bookletUsedN + bookletDmgN}، بينما المستلمة {bookletRecN}. يجب أن يتطابق المجموع مع العدد المستلم.
+                  </div>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                  <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">عدد الدفاتر المستلمة</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={bookletsReceived}
+                    onChange={(e) => setBookletsReceived(e.target.value)}
+                    onBlur={scheduleDebouncedExamBookletsSave}
+                    className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                  />
+                </div>
+                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                  <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">عدد الدفاتر المستخدمة</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={bookletsUsed}
+                    onChange={(e) => setBookletsUsed(e.target.value)}
+                    onBlur={scheduleDebouncedExamBookletsSave}
+                    className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                  />
+                </div>
+                <div className="rounded-2xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/80 via-white to-[#F8FAFC] p-3.5 shadow-sm ring-1 ring-[#1E3A8A]/10">
+                  <label className="mb-2 block text-xs font-bold text-[#1E3A8A]/90">عدد الدفاتر التالفة</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={bookletsDamaged}
+                    onChange={(e) => setBookletsDamaged(e.target.value)}
+                    onBlur={scheduleDebouncedExamBookletsSave}
+                    className="h-11 w-full rounded-xl border border-[#1E3A8A]/22 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
+                  />
+                </div>
               </div>
             </SectionCard>
           </div>

@@ -187,6 +187,11 @@ export type CollegeDashboardSnapshot = {
     notUploaded: number;
     complete: number;
     incomplete: number;
+    examBooklets: {
+      received: number;
+      used: number;
+      damaged: number;
+    };
   };
   /** مواد دراسية لكل قسم/فرع */
   byBranchSubjects: BranchSubjectRow[];
@@ -218,7 +223,14 @@ function emptySnapshot(): CollegeDashboardSnapshot {
     people: { uniqueSupervisors: 0, uniqueInvigilators: 0 },
     schedules: { total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0 },
     examDays: { distinctDates: 0, byDate: [] },
-    situations: { totalRows: 0, uploaded: 0, notUploaded: 0, complete: 0, incomplete: 0 },
+    situations: {
+      totalRows: 0,
+      uploaded: 0,
+      notUploaded: 0,
+      complete: 0,
+      incomplete: 0,
+      examBooklets: { received: 0, used: 0, damaged: 0 },
+    },
     byBranchSubjects: [],
     byBranchExamProgress: [],
     branchTimeline: { chartData: [], lines: [] },
@@ -237,7 +249,21 @@ export async function getCollegeDashboardSnapshot(
   const rid = restrictCollegeSubjectId?.trim() ?? null;
   const p2 = rid ? [ownerUserId, rid] : [ownerUserId];
 
-  const [br, st, rmRow, rmPeople, sch, days, situations, subjByBranch, examByBranch, timelineRaw, repActivity, schActivity] =
+  const [
+    br,
+    st,
+    rmRow,
+    rmPeople,
+    sch,
+    days,
+    situations,
+    bookletsAgg,
+    subjByBranch,
+    examByBranch,
+    timelineRaw,
+    repActivity,
+    schActivity,
+  ] =
     await Promise.all([
     pool.query<{ total: number; departments: number; branch_faculties: number }>(
       `SELECT COUNT(*)::int AS total,
@@ -312,6 +338,15 @@ export async function getCollegeDashboardSnapshot(
       p2
     ),
     listOfficialExamSituationsForOwner(ownerUserId, rid),
+    pool.query<{ received: number; used: number; damaged: number }>(
+      `SELECT
+          COALESCE(SUM(COALESCE(exam_booklets_received, 0)), 0)::int AS received,
+          COALESCE(SUM(COALESCE(exam_booklets_used, 0)), 0)::int AS used,
+          COALESCE(SUM(COALESCE(exam_booklets_damaged, 0)), 0)::int AS damaged
+       FROM college_exam_schedules
+       WHERE owner_user_id = $1${rid ? " AND college_subject_id = $2::bigint" : ""}`,
+      p2
+    ),
     pool.query<{ branch_name: string; cnt: number }>(
       `SELECT c.branch_name, COUNT(ss.id)::int AS cnt
        FROM college_subjects c
@@ -422,6 +457,7 @@ export async function getCollegeDashboardSnapshot(
   const b0 = br.rows[0];
   const srow = sch.rows[0];
   const rmc = rmRow.rows[0];
+  const bAgg = bookletsAgg.rows[0];
 
   let uploaded = 0;
   let notUploaded = 0;
@@ -482,6 +518,11 @@ export async function getCollegeDashboardSnapshot(
       notUploaded,
       complete,
       incomplete,
+      examBooklets: {
+        received: Number(bAgg?.received ?? 0),
+        used: Number(bAgg?.used ?? 0),
+        damaged: Number(bAgg?.damaged ?? 0),
+      },
     },
     byBranchSubjects,
     byBranchExamProgress,

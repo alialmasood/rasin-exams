@@ -63,6 +63,9 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     absence_names_evening: namesE,
     situation_staff_absences: { ...EMPTY_SITUATION_STAFF_ABSENCES, invigilator_absences: [] },
     situation_cheating_cases: { ...EMPTY_SITUATION_CHEATING_CASES, cases: [] },
+    exam_booklets_received: 0,
+    exam_booklets_used: 0,
+    exam_booklets_damaged: 0,
   };
 }
 

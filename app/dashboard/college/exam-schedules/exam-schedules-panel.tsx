@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
@@ -231,6 +232,10 @@ export function ExamSchedulesPanel({
   initialHolidays: CollegeHolidayRow[];
   fixedCollegeSubjectId?: string | null;
 }) {
+  const portalBase = useCollegePortalBasePath();
+  const hideAddExamScheduleButton = portalBase === "/dashboard/college";
+  const hideManageHolidaysButton = portalBase === "/dashboard/college";
+  const hideEditDeleteExamActions = portalBase === "/dashboard/college";
   const [rows, setRows] = useState<CollegeExamScheduleRow[]>(sortSchedules(initialRows));
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -793,26 +798,30 @@ export function ExamSchedulesPanel({
             </p>
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={openExamScheduleFromFab}
-              className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white"
-            >
-              إضافة جدول امتحاني
-            </button>
+            {!hideAddExamScheduleButton ? (
+              <button
+                type="button"
+                onClick={openExamScheduleFromFab}
+                className="rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-bold text-white"
+              >
+                إضافة جدول امتحاني
+              </button>
+            ) : null}
             <button type="button" onClick={onPrintPage} className="rounded-xl border border-[#CBD5E1] px-4 py-2 text-sm">
               طباعة
             </button>
             <button type="button" onClick={onExportExcel} className="rounded-xl border border-[#CBD5E1] px-4 py-2 text-sm">
               تصدير
             </button>
-            <button
-              type="button"
-              onClick={() => setHolidaysModalOpen(true)}
-              className="rounded-xl border border-amber-300/80 bg-[#FFFBEB] px-4 py-2 text-sm font-semibold text-[#92400E] transition hover:bg-[#FEF3C7]"
-            >
-              إدارة العطل الجامعية
-            </button>
+            {!hideManageHolidaysButton ? (
+              <button
+                type="button"
+                onClick={() => setHolidaysModalOpen(true)}
+                className="rounded-xl border border-amber-300/80 bg-[#FFFBEB] px-4 py-2 text-sm font-semibold text-[#92400E] transition hover:bg-[#FEF3C7]"
+              >
+                إدارة العطل الجامعية
+              </button>
+            ) : null}
           </div>
         </div>
       </header>
@@ -1822,29 +1831,33 @@ export function ExamSchedulesPanel({
                   >
                     عرض التذكرة
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                    onClick={() => {
-                      setBuilderOpen(true);
-                      onEdit(scheduleMenuSession[0]!);
-                      closeScheduleMenu();
-                    }}
-                  >
-                    تعديل
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50"
-                    onClick={() => {
-                      setDeleteId(scheduleMenuSession[0]!.id);
-                      closeScheduleMenu();
-                    }}
-                  >
-                    حذف
-                  </button>
+                  {!hideEditDeleteExamActions ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full rounded-lg px-3 py-2 text-right text-sm text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                      onClick={() => {
+                        setBuilderOpen(true);
+                        onEdit(scheduleMenuSession[0]!);
+                        closeScheduleMenu();
+                      }}
+                    >
+                      تعديل
+                    </button>
+                  ) : null}
+                  {!hideEditDeleteExamActions ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full rounded-lg px-3 py-2 text-right text-sm text-red-600 transition hover:bg-red-50"
+                      onClick={() => {
+                        setDeleteId(scheduleMenuSession[0]!.id);
+                        closeScheduleMenu();
+                      }}
+                    >
+                      حذف
+                    </button>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -1866,29 +1879,33 @@ export function ExamSchedulesPanel({
                         >
                           عرض التذكرة
                         </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-[#0F172A] transition hover:bg-[#F8FAFC]"
-                          onClick={() => {
-                            setBuilderOpen(true);
-                            onEdit(m);
-                            closeScheduleMenu();
-                          }}
-                        >
-                          تعديل
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-red-600 transition hover:bg-red-50"
-                          onClick={() => {
-                            setDeleteId(m.id);
-                            closeScheduleMenu();
-                          }}
-                        >
-                          حذف من الجدول
-                        </button>
+                        {!hideEditDeleteExamActions ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-[#0F172A] transition hover:bg-[#F8FAFC]"
+                            onClick={() => {
+                              setBuilderOpen(true);
+                              onEdit(m);
+                              closeScheduleMenu();
+                            }}
+                          >
+                            تعديل
+                          </button>
+                        ) : null}
+                        {!hideEditDeleteExamActions ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="w-full rounded-lg px-2 py-1.5 text-right text-xs text-red-600 transition hover:bg-red-50"
+                            onClick={() => {
+                              setDeleteId(m.id);
+                              closeScheduleMenu();
+                            }}
+                          >
+                            حذف من الجدول
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   ))}

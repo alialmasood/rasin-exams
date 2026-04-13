@@ -13,12 +13,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX } from "@/lib/college-account-constants";
 import type { CollegeAccountRow } from "@/lib/college-accounts";
 import {
   buildCollegeAccountsReportHtml,
   printCollegeAccountsReportHtml,
 } from "@/lib/college-accounts-report-html";
-import { COLLEGE_FORMATIONS, getFixedCollegeDepartmentNamesForFormation } from "@/lib/college-formations";
+import {
+  COLLEGE_FORMATIONS,
+  getFixedCollegeDepartmentNamesForFormation,
+  getFixedFormationSubjectDefinitions,
+} from "@/lib/college-formations";
 import {
   changeCollegeAccountPasswordAction,
   createCollegeAccountAction,
@@ -27,8 +32,6 @@ import {
   toggleCollegeAccountDisabledAction,
   type FormationSubjectOption,
 } from "./actions";
-
-type BranchSelectRow = FormationSubjectOption & { selectable: boolean };
 
 const modalFieldClass =
   "mt-2 h-11 w-full rounded-[10px] border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)]";
@@ -263,39 +266,42 @@ function CreateCollegeAccountDialogForm({
   const usesFixedDepartmentList =
     getFixedCollegeDepartmentNamesForFormation(formationTrimmed) !== null;
 
-  const branchSelectRows: BranchSelectRow[] = useMemo(() => {
+  const branchSelectRows: FormationSubjectOption[] = useMemo(() => {
     const form = formationForDept.trim();
     if (!form) return [];
-    const fixed = getFixedCollegeDepartmentNamesForFormation(form);
-    if (fixed) {
-      return fixed.map((name) => {
-        const found = deptSubjects.find((s) => s.branch_name.trim() === name);
-        if (found) return { ...found, selectable: true };
+    const fixedDefs = getFixedFormationSubjectDefinitions(form);
+    if (fixedDefs) {
+      return fixedDefs.map((def) => {
+        const found = deptSubjects.find((s) => s.branch_name.trim() === def.branch_name.trim());
+        if (found) return found;
         return {
           id: "",
-          branch_name: name,
-          branch_type: "DEPARTMENT" as const,
-          selectable: false,
+          branch_name: def.branch_name,
+          branch_type: def.branch_type,
         };
       });
     }
-    return deptSubjects.map((s) => ({ ...s, selectable: true }));
+    return deptSubjects;
   }, [formationForDept, deptSubjects]);
 
-  const branchSelectDisabled =
-    !formationTrimmed ||
-    subjectsPending ||
-    (!usesFixedDepartmentList && deptSubjects.length === 0);
+  const showDepartmentBranchSelect =
+    Boolean(formationTrimmed) && (usesFixedDepartmentList || deptSubjects.length > 0);
+  const showDepartmentBranchFreeText =
+    Boolean(formationTrimmed) &&
+    !usesFixedDepartmentList &&
+    !subjectsPending &&
+    deptSubjects.length === 0;
+  const departmentBranchListLoading =
+    Boolean(formationTrimmed) && !usesFixedDepartmentList && subjectsPending;
 
-  const branchPlaceholderLabel = subjectsPending
-    ? "جاري التحميل…"
-    : !formationTrimmed
-      ? "— اختر التشكيل أولًا —"
-      : !usesFixedDepartmentList && deptSubjects.length === 0
-        ? "— لا توجد أقسام مسجّلة لهذا التشكيل —"
-        : usesFixedDepartmentList && !branchSelectRows.some((r) => r.selectable)
-          ? "— لا يوجد قسم مسجّل؛ أضف الاسم من لوحة الأقسام والفروع لنفس التشكيل —"
-          : "— اختر القسم أو الفرع —";
+  const branchSelectDisabled = usesFixedDepartmentList ? false : subjectsPending;
+
+  const branchPlaceholderLabel =
+    subjectsPending && !usesFixedDepartmentList
+      ? "جاري التحميل…"
+      : !formationTrimmed
+        ? "— اختر التشكيل أولًا —"
+        : "— اختر القسم أو الفرع —";
 
   return (
     <form action={formAction} className="flex max-h-[min(90vh,720px)] min-h-0 flex-col">
@@ -441,37 +447,94 @@ function CreateCollegeAccountDialogForm({
                   ))}
                 </select>
                 <p className="mt-1.5 text-[11px] leading-relaxed text-[#64748B]">
-                  يجب أن يوجد حساب تشكيل وأن تُسجَّل الأقسام من لوحة ذلك التشكيل أولًا.
+                  يشترط وجود حساب تشكيل بنفس اسم التشكيل (يُنشأ من هذه الصفحة). يُسجَّل القسم/الفرع في النظام تلقائيًا مع إنشاء الحساب إن لم يكن مسجّلاً مسبقًا.
                 </p>
               </div>
               <div className="min-w-0">
                 <label htmlFor={`${formId}-branch-dept`} className="block text-sm font-bold text-[#334155]">
                   القسم أو الفرع
                 </label>
-                <select
-                  id={`${formId}-branch-dept`}
-                  name="college_subject_id"
-                  required
-                  disabled={branchSelectDisabled}
-                  className={`${modalFieldClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-55`}
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    {branchPlaceholderLabel}
-                  </option>
-                  {branchSelectRows.map((s) =>
-                    s.selectable ? (
-                      <option key={s.id} value={s.id}>
+                {!formationTrimmed ? (
+                  <select
+                    id={`${formId}-branch-dept`}
+                    disabled
+                    className={`${modalFieldClass} cursor-not-allowed opacity-55`}
+                    defaultValue=""
+                  >
+                    <option value="">— اختر التشكيل أولًا —</option>
+                  </select>
+                ) : showDepartmentBranchSelect ? (
+                  <select
+                    id={`${formId}-branch-dept`}
+                    name="college_subject_id"
+                    required
+                    disabled={branchSelectDisabled}
+                    className={`${modalFieldClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-55`}
+                    defaultValue=""
+                  >
+                    <option value="" disabled>
+                      {branchPlaceholderLabel}
+                    </option>
+                    {branchSelectRows.map((s) => (
+                      <option
+                        key={s.id || s.branch_name}
+                        value={
+                          s.id
+                            ? s.id
+                            : `${COLLEGE_ACCOUNT_DEPT_SUBJECT_CREATE_PREFIX}${encodeURIComponent(JSON.stringify({ n: s.branch_name, t: s.branch_type }))}`
+                        }
+                      >
                         {s.branch_name}
                         {s.branch_type === "BRANCH" ? " (فرع)" : ""}
                       </option>
-                    ) : (
-                      <option key={s.branch_name} value="" disabled>
-                        {s.branch_name} — غير مسجّل في النظام
-                      </option>
-                    )
-                  )}
-                </select>
+                    ))}
+                  </select>
+                ) : departmentBranchListLoading ? (
+                  <select
+                    id={`${formId}-branch-dept`}
+                    disabled
+                    className={`${modalFieldClass} cursor-not-allowed opacity-55`}
+                    defaultValue=""
+                  >
+                    <option value="">جاري تحميل أقسام التشكيل…</option>
+                  </select>
+                ) : showDepartmentBranchFreeText ? (
+                  <div className="space-y-3">
+                    <input type="hidden" name="college_subject_id" value="" />
+                    <input
+                      id={`${formId}-branch-dept`}
+                      name="new_branch_name"
+                      required
+                      minLength={2}
+                      maxLength={200}
+                      placeholder="مثال: قسم الكيمياء"
+                      className={modalFieldClass}
+                    />
+                    <div>
+                      <label htmlFor={`${formId}-branch-type`} className="block text-sm font-bold text-[#334155]">
+                        نوع التسجيل
+                      </label>
+                      <select
+                        id={`${formId}-branch-type`}
+                        name="new_branch_type"
+                        className={`${modalFieldClass} cursor-pointer`}
+                        defaultValue="DEPARTMENT"
+                      >
+                        <option value="DEPARTMENT">قسم</option>
+                        <option value="BRANCH">فرع</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <select
+                    id={`${formId}-branch-dept`}
+                    disabled
+                    className={`${modalFieldClass} cursor-not-allowed opacity-55`}
+                    defaultValue=""
+                  >
+                    <option value="">— لا يمكن عرض القائمة —</option>
+                  </select>
+                )}
               </div>
             </div>
             <div className="min-w-0">
