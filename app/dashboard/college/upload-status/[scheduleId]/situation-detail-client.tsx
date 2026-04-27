@@ -269,6 +269,7 @@ export function SituationDetailClient({
   deanName: string;
 }) {
   const portalBase = useCollegePortalBasePath();
+  const isDepartmentPortal = portalBase === "/department";
   const router = useRouter();
   const [activeScheduleId, setActiveScheduleId] = useState(bundle.active_schedule_id);
   const detail = useMemo(
@@ -787,7 +788,6 @@ export function SituationDetailClient({
   }
 
   function onApproveDean() {
-    const ta = document.getElementById("dean-note") as HTMLTextAreaElement | null;
     startTransition(async () => {
       const saved = await runAttendancePatch({ silentSuccess: true });
       if (!saved) return;
@@ -809,7 +809,7 @@ export function SituationDetailClient({
       if (!savedBooklets) return;
       const fd = new FormData();
       fd.set("schedule_id", detail.schedule_id);
-      fd.set("dean_note", ta?.value ?? "");
+      fd.set("dean_note", "");
       const res = await approveDeanSituationAction(null, fd);
       if (!res) return;
       if (res.ok) {
@@ -1026,6 +1026,12 @@ export function SituationDetailClient({
 
         {/* Grid 12 أعمدة — بطاقات التفاصيل أوضح أقل من الملخص والاعتماد */}
         <div className="grid grid-cols-12 gap-5 lg:gap-6">
+          {!isDepartmentPortal ? (
+            <div className="col-span-12 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 text-sm font-semibold text-[#1E3A8A]">
+              هذه الصفحة للعرض فقط من حساب العميد. تعديل البيانات يتم من صفحة القسم/الفرع.
+            </div>
+          ) : null}
+          <fieldset className="col-span-12 contents" disabled={!isDepartmentPortal}>
           {/* المشرفون والمراقبون: مقاعد القاعة + القاعة والمشرف والمراقبون */}
           <div className="col-span-12">
             <SectionCard icon={<IconSeal className="h-5 w-5" />} title="المشرفون والمراقبون" titleBarStyle="sidebar">
@@ -1749,6 +1755,7 @@ export function SituationDetailClient({
               </div>
             </SectionCard>
           </div>
+          </fieldset>
 
           {/* 5. الاعتماد النهائي — تُخفى بعد اكتمال اعتماد الإدارة وتأكيد الرفع (عرض من متابعة المواقف) */}
           {!hideFinalSituationWorkflowCard ? (
@@ -1764,134 +1771,82 @@ export function SituationDetailClient({
                   className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_100%_0%,rgba(30,58,138,0.07),transparent_55%)]"
                   aria-hidden
                 />
-                <h2
-                  className="relative mb-2 flex flex-wrap items-center gap-3 text-2xl font-extrabold tracking-tight sm:text-[1.65rem]"
-                  style={{ color: PRIMARY }}
-                >
-                  <IconSeal className="h-7 w-7 shrink-0 text-[#1E3A8A]" aria-hidden />
-                  الاعتماد النهائي ورفع الموقف الرسمي
-                </h2>
-                <p className="relative mb-8 max-w-3xl border-b border-[#1E3A8A]/10 pb-6 text-sm font-semibold leading-relaxed text-slate-700">
-                  الترتيب المعتمد: بعد اكتمال الحضور والغياب يتم <strong>اعتماد الموقف</strong> من العميد أو المعاون
-                  العلمي، ثم يُفعّل <strong>تأكيد رفع الموقف</strong> خلال نافذة الامتحان؛ بعد الرفع يظهر الموقف في
-                  صفحة «متابعة المواقف».
-                </p>
-
-                <div className="relative grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
-                  <div
-                    className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
-                  >
-                    <p className="text-xs font-extrabold uppercase tracking-wide text-[#1E3A8A]">
-                      الخطوة 1 — اعتماد العميد / المعاون العلمي
-                    </p>
-                    <p className="mt-3 rounded-lg border border-slate-200/90 bg-[#F8FAFC] px-3 py-2 text-sm text-slate-700">
-                      اسم المعتمد المسجل:{" "}
-                      <span className="font-bold text-[#0F172A]">{deanName || "—"}</span>
-                    </p>
-                    <label htmlFor="dean-note" className="mt-4 block text-xs font-bold text-[#1E3A8A]/80">
-                      ملاحظات الاعتماد (اختياري)
-                    </label>
-                    <textarea
-                      id="dean-note"
-                      rows={3}
-                      placeholder="ملاحظات الاعتماد (اختياري)"
-                      className="mt-1.5 w-full rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/18"
-                    />
-                    <button
-                      type="button"
-                      onClick={onApproveDean}
-                      disabled={
-                        isPending ||
-                        detail.dean_status === "APPROVED" ||
-                        !deanApproveDataOk ||
-                        !canSubmitHeadByWorkflow
-                      }
-                      className="mt-5 inline-flex h-11 min-w-[10rem] items-center justify-center rounded-xl border-2 border-[#1E3A8A] bg-white px-5 text-sm font-extrabold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
+                {!isDepartmentPortal ? (
+                  <>
+                    <h2
+                      className="relative mb-2 flex flex-wrap items-center gap-3 text-2xl font-extrabold tracking-tight sm:text-[1.65rem]"
+                      style={{ color: PRIMARY }}
                     >
-                      اعتماد الموقف
-                    </button>
-                    {!canSubmitHeadByWorkflow ? (
-                      <p className="mt-3 text-xs font-medium text-amber-800">
-                        زر الاعتماد معطّل لأن حالة الجدول في سير العمل:{" "}
-                        <strong>{WORKFLOW_LABEL[detail.workflow_status]}</strong> — يجب أن يكون «مرفوعاً للمتابعة» أو
-                        «معتمداً» من صفحة الجداول الامتحانية.
-                      </p>
-                    ) : null}
-                    {canSubmitHeadByWorkflow && !deanApproveDataOk ? (
-                      <p className="mt-3 text-xs font-medium text-slate-600">
-                        أكمل تطابق الحضور والغياب مع السعة وأدخل أسماء الغياب عند وجود غياب؛ عند الضغط على الاعتماد يُحفظ
-                        الحضور تلقائياً ثم يُنفَّذ الاعتماد.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div
-                    className={`rounded-[20px] border border-slate-200/90 bg-white/95 p-5 shadow-sm backdrop-blur-sm sm:p-6 ${cardLift}`}
-                  >
-                    <p className="text-xs font-extrabold uppercase tracking-wide text-[#1E3A8A]">
-                      الخطوة 2 — تأكيد رفع الموقف الرسمي
+                      <IconSeal className="h-7 w-7 shrink-0 text-[#1E3A8A]" aria-hidden />
+                      تأكيد الموقف الامتحاني
+                    </h2>
+                    <p className="relative mb-6 text-sm font-semibold leading-relaxed text-slate-700">
+                      بعد اكتمال اعتماد القسم/الفرع، استخدم الزر التالي لتأكيد رفع الموقف.
                     </p>
-                    <p className="mt-3 text-sm text-slate-700">
-                      حالة الرفع:{" "}
-                      <strong className="text-slate-900">{detail.is_uploaded ? "مرفوع" : "غير مرفوع"}</strong>
-                      {detail.dean_status === "APPROVED" ? (
-                        <span className="me-2 text-sm font-bold text-[#1E3A8A]">· معتمد من الإدارة</span>
-                      ) : null}
-                    </p>
+                  </>
+                ) : null}
 
+                <div className="relative grid grid-cols-1 gap-5">
+                  {isDepartmentPortal ? (
                     <div
-                      className="mt-4 flex gap-3 rounded-xl border border-[#1E3A8A]/18 bg-gradient-to-b from-[#EFF6FF]/95 to-white p-4 shadow-sm ring-1 ring-[#1E3A8A]/10"
-                      role="alert"
+                      className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
                     >
-                      <IconWarningTriangle className="h-6 w-6 flex-shrink-0 text-[#1E3A8A]" />
-                      <div className="min-w-0 space-y-2.5 text-xs font-medium leading-relaxed text-slate-800">
-                        <p className="text-sm font-extrabold text-[#1E3A8A]">تنبيه قبل التأكيد</p>
-                        <p>
-                          لا يُفعّل «تأكيد رفع الموقف» إلا بعد <strong>اعتماد الموقف</strong> من العميد أو المعاون
-                          العلمي. راجع تطابق الحضور والغياب مع السعة وأسماء الغياب عند وجود غياب.
+                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                        اعتماد الموقف الامتحاني من العميد / المعاون العلمي.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={onApproveDean}
+                        disabled={
+                          isPending ||
+                          detail.dean_status === "APPROVED" ||
+                          !deanApproveDataOk ||
+                          !canSubmitHeadByWorkflow
+                        }
+                        className="mt-4 inline-flex min-h-[46px] min-w-[11rem] items-center justify-center gap-2 rounded-xl bg-[#1E3A8A] px-5 text-sm font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
+                      >
+                        <IconCircleCheck className="h-5 w-5 shrink-0" aria-hidden />
+                        اعتماد الموقف
+                      </button>
+                      {!canSubmitHeadByWorkflow ? (
+                        <p className="mt-2 text-xs font-medium text-amber-800">
+                          الحالة الحالية: <strong>{WORKFLOW_LABEL[detail.workflow_status]}</strong>
                         </p>
-                        {detail.dean_status !== "APPROVED" && !detail.is_uploaded ? (
-                          <p className="rounded-lg border border-[#1E3A8A]/15 bg-white/90 px-2 py-1.5 text-slate-800 shadow-sm">
-                            أكمل البيانات ثم استخدم «اعتماد الموقف» في الخطوة 1؛ بعدها يصبح زر التأكيد متاحاً (مع بقية
-                            الشروط).
-                          </p>
-                        ) : null}
-                        {!scheduleAllowed ? (
-                          <p className="rounded-lg border border-[#1E3A8A]/15 bg-white/90 px-2 py-1.5 text-slate-800 shadow-sm">
-                            لا يُفعّل التأكيد قبل يوم الامتحان، أو قبل مضي 30 دقيقة من بداية الجلسة (توقيت بغداد).
-                          </p>
-                        ) : null}
-                        {scheduleAllowed && uploadLateByMealPolicy ? (
-                          <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950 shadow-sm">
-                            الرفع يُعدّ متأخراً بعد مرور ساعة ونصف من بداية وقت الامتحان (توقيت بغداد)؛ البوابة ما زالت
-                            مفتوحة ويمكنك تأكيد الرفع.
-                          </p>
-                        ) : null}
-                        {!canSubmitHeadByWorkflow ? (
-                          <p className="rounded-lg border border-[#1E3A8A]/15 bg-white/90 px-2 py-1.5 text-slate-800 shadow-sm">
-                            تأكيد رفع الموقف متاح فقط عندما يكون الجدول «مرفوعاً للمتابعة» أو «معتمداً» في صفحة الجداول
-                            الامتحانية. يمكنك حفظ الحضور والغياب مسبقاً.
-                          </p>
-                        ) : null}
-                      </div>
+                      ) : null}
+                      {canSubmitHeadByWorkflow && !deanApproveDataOk ? (
+                        <p className="mt-2 text-xs font-medium text-slate-600">أكمل البيانات ثم أعد المحاولة.</p>
+                      ) : null}
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={onSubmitHead}
-                      disabled={
-                        isPending ||
-                        !scheduleAllowed ||
-                        !canSubmitHeadByWorkflow ||
-                        detail.is_uploaded ||
-                        detail.dean_status !== "APPROVED"
-                      }
-                      className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-xl bg-[#1E3A8A] px-8 text-base font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] hover:shadow-[0_8px_22px_-4px_rgba(30,58,138,0.55)] active:scale-[0.995] disabled:pointer-events-none disabled:opacity-45 sm:w-auto sm:min-w-[320px]"
+                  ) : (
+                    <div
+                      className={`rounded-[20px] border border-slate-200/90 bg-white/95 p-5 shadow-sm backdrop-blur-sm sm:p-6 ${cardLift}`}
                     >
-                      <IconCircleCheck className="h-6 w-6 shrink-0 opacity-95" aria-hidden />
-                      تأكيد رفع الموقف
-                    </button>
-                  </div>
+                      <p className="text-sm font-semibold text-slate-700">
+                        تأكيد رفع الموقف الامتحاني للمتابعة الرسمية.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={onSubmitHead}
+                        disabled={
+                          isPending ||
+                          !scheduleAllowed ||
+                          !canSubmitHeadByWorkflow ||
+                          detail.is_uploaded ||
+                          detail.dean_status !== "APPROVED"
+                        }
+                        className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-xl bg-[#1E3A8A] px-8 text-base font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] hover:shadow-[0_8px_22px_-4px_rgba(30,58,138,0.55)] active:scale-[0.995] disabled:pointer-events-none disabled:opacity-45 sm:w-auto sm:min-w-[320px]"
+                      >
+                        <IconCircleCheck className="h-6 w-6 shrink-0 opacity-95" aria-hidden />
+                        تأكيد الموقف
+                      </button>
+                      {detail.dean_status !== "APPROVED" ? (
+                        <p className="mt-2 text-xs font-medium text-slate-600">
+                          بانتظار الاعتماد من صفحة القسم/الفرع.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

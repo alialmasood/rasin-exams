@@ -187,6 +187,7 @@ export type CollegeDashboardSnapshot = {
     notUploaded: number;
     complete: number;
     incomplete: number;
+    awaitingOfficialUploadConfirmation: number;
     examBooklets: {
       received: number;
       used: number;
@@ -229,6 +230,7 @@ function emptySnapshot(): CollegeDashboardSnapshot {
       notUploaded: 0,
       complete: 0,
       incomplete: 0,
+      awaitingOfficialUploadConfirmation: 0,
       examBooklets: { received: 0, used: 0, damaged: 0 },
     },
     byBranchSubjects: [],
@@ -463,6 +465,7 @@ export async function getCollegeDashboardSnapshot(
   let notUploaded = 0;
   let complete = 0;
   let incomplete = 0;
+  let awaitingOfficialUploadConfirmation = 0;
   let presentSum = 0;
   let absentSum = 0;
   for (const row of situations) {
@@ -470,6 +473,9 @@ export async function getCollegeDashboardSnapshot(
     else notUploaded += 1;
     if (row.is_complete) complete += 1;
     else incomplete += 1;
+    if (!row.is_uploaded && row.dean_status === "APPROVED") {
+      awaitingOfficialUploadConfirmation += 1;
+    }
     presentSum += row.attendance_count;
     absentSum += row.absence_count;
   }
@@ -518,6 +524,7 @@ export async function getCollegeDashboardSnapshot(
       notUploaded,
       complete,
       incomplete,
+      awaitingOfficialUploadConfirmation,
       examBooklets: {
         received: Number(bAgg?.received ?? 0),
         used: Number(bAgg?.used ?? 0),

@@ -288,6 +288,16 @@ export function CollegeDashboardOverview({
       action: { href: `${portalBase}/upload-status`, label: "رفع الموقف" },
     });
   }
+  if (
+    !isDepartmentPortal &&
+    snapshot.situations.awaitingOfficialUploadConfirmation > 0
+  ) {
+    dashboardInsights.unshift({
+      tone: "warn",
+      text: `لديك ${formatNum(snapshot.situations.awaitingOfficialUploadConfirmation)} موقف/مواقف معتمدة من الأقسام وتنتظر تأكيد الرفع الرسمي من صفحة العميد.`,
+      action: { href: `${portalBase}/upload-status`, label: "تأكيد الرفع" },
+    });
+  }
   if (snapshot.situations.totalRows > 0 && snapshot.situations.uploaded === snapshot.situations.totalRows) {
     dashboardInsights.push({
       tone: "success",

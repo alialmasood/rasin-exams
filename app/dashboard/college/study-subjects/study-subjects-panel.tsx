@@ -61,6 +61,21 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
 
 type StudyTierUi = "UNDERGRAD" | "POSTGRAD";
 
+function getStageOptionsForCurrentScope(input: {
+  collegeLabel: string;
+  branches: CollegeSubjectRow[];
+  fixedCollegeSubjectId?: string | null;
+}): number[] {
+  const base = getCollegeStageLevelOptions(input.collegeLabel);
+  const fixedId = input.fixedCollegeSubjectId?.trim();
+  if (!fixedId) return base;
+  if (!input.collegeLabel.includes("كلية الهندسة")) return base;
+  const scopedBranch = input.branches.find((b) => b.id === fixedId);
+  const branchName = scopedBranch?.branch_name?.trim() ?? "";
+  if (!branchName.includes("هندسة العمارة")) return base;
+  return [1, 2, 3, 4, 5];
+}
+
 function SubjectFormFields({
   branches,
   stageOptions,
@@ -234,22 +249,20 @@ function SubjectFormFields({
         />
       </div>
       <input type="hidden" name="study_type" value={studyType} />
-      {tier === "UNDERGRAD" ? (
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
-          <select
-            value={studyType}
-            onChange={(e) => setStudyType(e.target.value as StudyType)}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          >
-            <option value="ANNUAL">سنوي</option>
-            <option value="SEMESTER">فصلي</option>
-            <option value="COURSES">مقررات</option>
-            <option value="BOLOGNA">بولونيا</option>
-            <option value="INTEGRATIVE">تكاملي</option>
-          </select>
-        </div>
-      ) : null}
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">نوع الدراسة</label>
+        <select
+          value={studyType}
+          onChange={(e) => setStudyType(e.target.value as StudyType)}
+          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+        >
+          <option value="ANNUAL">سنوي</option>
+          <option value="SEMESTER">فصلي</option>
+          <option value="COURSES">مقررات</option>
+          <option value="BOLOGNA">بولونيا</option>
+          <option value="INTEGRATIVE">تكاملي</option>
+        </select>
+      </div>
     </>
   );
 }
@@ -406,7 +419,15 @@ export function StudySubjectsPanel({
   const hideAddStudySubjectButton = portalBase === "/dashboard/college";
   const hideActionsColumn = portalBase === "/dashboard/college";
   const departmentSubjectsScope = Boolean(fixedCollegeSubjectId?.trim());
-  const stageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const stageOptions = useMemo(
+    () =>
+      getStageOptionsForCurrentScope({
+        collegeLabel,
+        branches,
+        fixedCollegeSubjectId,
+      }),
+    [branches, collegeLabel, fixedCollegeSubjectId]
+  );
   const [addOpen, setAddOpen] = useState(false);
   const [addDialogNonce, setAddDialogNonce] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);

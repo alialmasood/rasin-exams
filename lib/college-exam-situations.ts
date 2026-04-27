@@ -97,6 +97,12 @@ function isSituationShiftAttendanceComplete(
   return true;
 }
 
+/** اكتمال الدفاتر الامتحانية: يجب إدخال عدد مستلم فعلي (>0) مع شرط التوازن (المستخدم + التالف = المستلم). */
+function isSituationExamBookletsDatasetComplete(received: number, used: number, damaged: number): boolean {
+  if (received <= 0) return false;
+  return isSituationExamBookletsBalanced(received, used, damaged);
+}
+
 export async function listOfficialExamSituationsForOwner(
   ownerUserId: string,
   restrictCollegeSubjectId?: string | null
@@ -250,7 +256,7 @@ export async function listOfficialExamSituationsForOwner(
     const bRec = Number(row.exam_booklets_received ?? 0);
     const bUsed = Number(row.exam_booklets_used ?? 0);
     const bDmg = Number(row.exam_booklets_damaged ?? 0);
-    const bookletsOk = isSituationExamBookletsBalanced(bRec, bUsed, bDmg);
+    const bookletsOk = isSituationExamBookletsDatasetComplete(bRec, bUsed, bDmg);
     const complete =
       (useShift
         ? isSituationShiftAttendanceComplete(
@@ -839,7 +845,7 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
   const bRec = Math.max(0, Math.floor(Number(row.exam_booklets_received ?? 0)));
   const bUsed = Math.max(0, Math.floor(Number(row.exam_booklets_used ?? 0)));
   const bDmg = Math.max(0, Math.floor(Number(row.exam_booklets_damaged ?? 0)));
-  const bookletsOk = isSituationExamBookletsBalanced(bRec, bUsed, bDmg);
+  const bookletsOk = isSituationExamBookletsDatasetComplete(bRec, bUsed, bDmg);
   const complete =
     (useShift
       ? isSituationShiftAttendanceComplete(
