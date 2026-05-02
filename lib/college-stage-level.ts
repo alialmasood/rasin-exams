@@ -12,6 +12,24 @@ export function getCollegeStageLevelOptions(collegeLabel: string): number[] {
   return [1, 2, 3, 4];
 }
 
+/**
+ * مراحل الدراسة الأولية مع استثناء قسم هندسة العمارة في كلية الهندسة (5 مراحل) عند العمل ضمن بوابة قسم ثابتة.
+ * يُمرَّر اسم القسم من `college_subjects.branch_name` (أو ما يعادله في الواجهة).
+ */
+export function getCollegeUndergradStageLevelOptionsForScope(input: {
+  collegeLabel: string;
+  fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
+}): number[] {
+  const base = getCollegeStageLevelOptions(input.collegeLabel);
+  const label = input.collegeLabel.trim();
+  if (!label.includes("كلية الهندسة")) return base;
+  if (!input.fixedCollegeSubjectId?.trim()) return base;
+  const branch = (input.scopedBranchName ?? "").trim();
+  if (!branch.includes("هندسة العمارة")) return base;
+  return [1, 2, 3, 4, 5];
+}
+
 const POSTGRAD_STAGE_LEVELS = [
   POSTGRAD_STUDY_STAGE_DIPLOMA,
   POSTGRAD_STUDY_STAGE_MASTER,

@@ -15,7 +15,7 @@ import {
   POSTGRAD_STUDY_STAGE_MASTER,
 } from "@/lib/college-study-stage-display";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
-import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
+import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
 import {
   EMPTY_EXTERNAL_ROOM_STAFF,
   MAX_EXTERNAL_INVIGILATORS,
@@ -191,18 +191,32 @@ function roomStageExportLabel(level: number): string {
 function RoomFields({
   subjects,
   collegeLabel,
+  fixedCollegeSubjectId,
+  scopedBranchName,
   defaults,
   showSerial = true,
   disableAttendanceFields = false,
 }: {
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
+  /** بوابة القسم: معرّف القسم الثابت لحساب مراحل هندسة العمارة (5) ضمن الهندسة */
+  fixedCollegeSubjectId?: string | null;
+  /** اسم القسم/الفرع المعروض (مرادف لـ college_subjects.branch_name) */
+  scopedBranchName?: string | null;
   defaults?: Partial<CollegeExamRoomRow>;
   showSerial?: boolean;
   disableAttendanceFields?: boolean;
 }) {
   const d = defaults ?? {};
-  const undergradStageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const undergradStageOptions = useMemo(
+    () =>
+      getCollegeUndergradStageLevelOptionsForScope({
+        collegeLabel,
+        fixedCollegeSubjectId: fixedCollegeSubjectId ?? null,
+        scopedBranchName: scopedBranchName ?? null,
+      }),
+    [collegeLabel, fixedCollegeSubjectId, scopedBranchName]
+  );
   const firstUndergrad = undergradStageOptions[0] ?? 1;
   const raw1 = Number(d.stage_level ?? firstUndergrad);
   const raw2Parsed = d.stage_level_2 != null ? Number(d.stage_level_2) : firstUndergrad;
@@ -900,11 +914,15 @@ function AddRoomDialog({
   onClose,
   subjects,
   collegeLabel,
+  fixedCollegeSubjectId,
+  scopedBranchName,
 }: {
   open: boolean;
   onClose: () => void;
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
+  fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
 }) {
   const [state, formAction, pending] = useActionState(createCollegeExamRoomAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -924,7 +942,14 @@ function AddRoomDialog({
     >
       <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">إضافة قاعة جديدة</h2>
-        <RoomFields subjects={subjects} collegeLabel={collegeLabel} showSerial={false} disableAttendanceFields />
+        <RoomFields
+          subjects={subjects}
+          collegeLabel={collegeLabel}
+          fixedCollegeSubjectId={fixedCollegeSubjectId}
+          scopedBranchName={scopedBranchName}
+          showSerial={false}
+          disableAttendanceFields
+        />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
@@ -942,12 +967,16 @@ function EditRoomDialog({
   onClose,
   subjects,
   collegeLabel,
+  fixedCollegeSubjectId,
+  scopedBranchName,
   row,
 }: {
   open: boolean;
   onClose: () => void;
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
+  fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
   row: CollegeExamRoomRow | null;
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeExamRoomAction, null);
@@ -974,6 +1003,8 @@ function EditRoomDialog({
         <RoomFields
           subjects={subjects}
           collegeLabel={collegeLabel}
+          fixedCollegeSubjectId={fixedCollegeSubjectId}
+          scopedBranchName={scopedBranchName}
           defaults={row ?? undefined}
           showSerial={false}
           disableAttendanceFields
@@ -1195,11 +1226,15 @@ export function RoomsManagementPanel({
   studySubjects,
   scheduleHintsByRoom,
   collegeLabel,
+  fixedCollegeSubjectId = null,
+  scopedBranchName = null,
 }: {
   rows: CollegeExamRoomRow[];
   studySubjects: CollegeStudySubjectRow[];
   scheduleHintsByRoom: Record<string, CollegeRoomScheduleHint[]>;
   collegeLabel: string;
+  fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
 }) {
   const portalBase = useCollegePortalBasePath();
   const hideAddRoomButton = portalBase === "/dashboard/college";
@@ -1834,6 +1869,8 @@ export function RoomsManagementPanel({
         onClose={closeAddDialog}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
+        fixedCollegeSubjectId={fixedCollegeSubjectId}
+        scopedBranchName={scopedBranchName}
       />
       <EditRoomDialog
         key={`edit-room-${editDialogKey}`}
@@ -1841,6 +1878,8 @@ export function RoomsManagementPanel({
         onClose={closeEditDialog}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
+        fixedCollegeSubjectId={fixedCollegeSubjectId}
+        scopedBranchName={scopedBranchName}
         row={editingRow}
       />
       <RoomReportModal

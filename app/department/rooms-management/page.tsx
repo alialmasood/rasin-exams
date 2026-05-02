@@ -28,6 +28,8 @@ export default async function DepartmentRoomsManagementPage() {
         studySubjects={studySubjects}
         scheduleHintsByRoom={scheduleHintsByRoom}
         collegeLabel={collegeLabel}
+        fixedCollegeSubjectId={ws.collegeSubjectId}
+        scopedBranchName={profile?.scoped_branch_name ?? null}
       />
     </Suspense>
   );

@@ -5,7 +5,7 @@ import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../co
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
-import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
+import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
 import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
 import {
   formatCollegeStudyLevelTierLabel,
@@ -60,21 +60,6 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
 }
 
 type StudyTierUi = "UNDERGRAD" | "POSTGRAD";
-
-function getStageOptionsForCurrentScope(input: {
-  collegeLabel: string;
-  branches: CollegeSubjectRow[];
-  fixedCollegeSubjectId?: string | null;
-}): number[] {
-  const base = getCollegeStageLevelOptions(input.collegeLabel);
-  const fixedId = input.fixedCollegeSubjectId?.trim();
-  if (!fixedId) return base;
-  if (!input.collegeLabel.includes("كلية الهندسة")) return base;
-  const scopedBranch = input.branches.find((b) => b.id === fixedId);
-  const branchName = scopedBranch?.branch_name?.trim() ?? "";
-  if (!branchName.includes("هندسة العمارة")) return base;
-  return [1, 2, 3, 4, 5];
-}
 
 function SubjectFormFields({
   branches,
@@ -419,15 +404,14 @@ export function StudySubjectsPanel({
   const hideAddStudySubjectButton = portalBase === "/dashboard/college";
   const hideActionsColumn = portalBase === "/dashboard/college";
   const departmentSubjectsScope = Boolean(fixedCollegeSubjectId?.trim());
-  const stageOptions = useMemo(
-    () =>
-      getStageOptionsForCurrentScope({
-        collegeLabel,
-        branches,
-        fixedCollegeSubjectId,
-      }),
-    [branches, collegeLabel, fixedCollegeSubjectId]
-  );
+  const stageOptions = useMemo(() => {
+    const fid = fixedCollegeSubjectId?.trim();
+    return getCollegeUndergradStageLevelOptionsForScope({
+      collegeLabel,
+      fixedCollegeSubjectId: fid || null,
+      scopedBranchName: fid ? (branches.find((b) => b.id === fid)?.branch_name ?? null) : null,
+    });
+  }, [branches, collegeLabel, fixedCollegeSubjectId]);
   const [addOpen, setAddOpen] = useState(false);
   const [addDialogNonce, setAddDialogNonce] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);

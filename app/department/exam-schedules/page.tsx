@@ -35,6 +35,7 @@ export default async function DepartmentExamSchedulesPage() {
         initialRows={rows}
         initialHolidays={holidays}
         fixedCollegeSubjectId={ws.collegeSubjectId}
+        scopedBranchName={profile?.scoped_branch_name ?? null}
       />
     </Suspense>
   );

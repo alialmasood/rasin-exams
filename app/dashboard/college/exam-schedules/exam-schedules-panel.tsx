@@ -11,7 +11,7 @@ import type { CollegeExamScheduleRow } from "@/lib/college-exam-schedules";
 import type { CollegeHolidayRow } from "@/lib/college-holidays";
 import { assertExamDateNotInPast, todayCalendarDateLocal } from "@/lib/exam-schedule-date";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
-import { getCollegeStageLevelOptions } from "@/lib/college-stage-level";
+import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
 import {
   formatCollegeStudyLevelTierLabel,
   formatCollegeStudyStageLabel,
@@ -214,6 +214,14 @@ function buildEmptyExamScheduleForm(fixedCollegeSubjectId: string | null | undef
   };
 }
 
+/** عرض الفصل في شريط ملخص التقويم (بدون بادئة «الفصل» لقيم مثل نهائي سنوي) */
+function calendarStripTermLabel(term: string): string {
+  const t = term.trim();
+  if (!t) return "—";
+  if (t === "الأول" || t === "الثاني") return `الفصل ${t}`;
+  return t;
+}
+
 export function ExamSchedulesPanel({
   collegeLabel,
   subjects,
@@ -223,6 +231,8 @@ export function ExamSchedulesPanel({
   initialHolidays,
   /** عند `/department/...` يُثبَّت القسم في النموذج ولا يُختار قسم آخر */
   fixedCollegeSubjectId = null,
+  /** اسم القسم/الفرع لبوابة القسم (مراحل هندسة العمارة = 5 ضمن الهندسة) */
+  scopedBranchName = null,
 }: {
   collegeLabel: string;
   subjects: CollegeSubjectRow[];
@@ -231,6 +241,7 @@ export function ExamSchedulesPanel({
   initialRows: CollegeExamScheduleRow[];
   initialHolidays: CollegeHolidayRow[];
   fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
 }) {
   const portalBase = useCollegePortalBasePath();
   const hideAddExamScheduleButton = portalBase === "/dashboard/college";
@@ -308,7 +319,15 @@ export function ExamSchedulesPanel({
   useCollegeQuickUrlTrigger("exam-schedule", openExamScheduleFromFab);
   const hours12 = useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1)), []);
   const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")), []);
-  const undergradStageOptions = useMemo(() => getCollegeStageLevelOptions(collegeLabel), [collegeLabel]);
+  const undergradStageOptions = useMemo(
+    () =>
+      getCollegeUndergradStageLevelOptionsForScope({
+        collegeLabel,
+        fixedCollegeSubjectId,
+        scopedBranchName,
+      }),
+    [collegeLabel, fixedCollegeSubjectId, scopedBranchName]
+  );
   const postgradStageOptions = useMemo(
     () => [POSTGRAD_STUDY_STAGE_DIPLOMA, POSTGRAD_STUDY_STAGE_MASTER, POSTGRAD_STUDY_STAGE_DOCTOR],
     []
@@ -936,6 +955,7 @@ export function ExamSchedulesPanel({
                   <option value="">اختر الفصل</option>
                   <option value="الأول">الفصل الدراسي الأول</option>
                   <option value="الثاني">الفصل الدراسي الثاني</option>
+                  <option value="نهائي سنوي">نهائي سنوي</option>
                 </select>
               </div>
             </div>
@@ -1015,11 +1035,19 @@ export function ExamSchedulesPanel({
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
                 >
                   <option value="">{form.collegeSubjectId ? "اختر المادة الدراسية" : "اختر القسم/الفرع أولًا"}</option>
-                  {availableStudySubjects.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.subject_name} — {formatCollegeStudyLevelTierLabel(Number(s.study_stage_level))}
-                    </option>
-                  ))}
+                  {availableStudySubjects.map((s) => {
+                    const lv = Number(s.study_stage_level);
+                    const tier = formatCollegeStudyLevelTierLabel(lv);
+                    const stagePart = !isPostgraduateStudyStageLevel(lv)
+                      ? ` — ${formatCollegeStudyStageLabel(lv)}`
+                      : "";
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.subject_name} — {tier}
+                        {stagePart}
+                      </option>
+                    );
+                  })}
                 </select>
                 {form.collegeSubjectId ? (
                   <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
@@ -1209,7 +1237,7 @@ export function ExamSchedulesPanel({
         <div className="rounded-3xl border border-[#E2E8F0] bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md">
           <h2 className="text-lg font-bold text-[#0F172A]">التقويم الامتحاني</h2>
           <p className="mt-1 text-xs text-[#64748B]">
-            {SCHEDULE_TYPE_LABEL[form.scheduleType]} | {subjects.find((s) => s.id === form.collegeSubjectId)?.branch_name ?? "—"} | العام: {form.academicYear.trim() || "—"} | الفصل: {form.termLabel ? `الفصل ${form.termLabel}` : "—"}
+            {SCHEDULE_TYPE_LABEL[form.scheduleType]} | {subjects.find((s) => s.id === form.collegeSubjectId)?.branch_name ?? "—"} | العام: {form.academicYear.trim() || "—"} | الفصل: {form.termLabel ? calendarStripTermLabel(form.termLabel) : "—"}
           </p>
           <div className="mt-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
             <div className="mb-3 flex items-center justify-between">
