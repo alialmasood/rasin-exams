@@ -267,6 +267,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeSituationFormSubmissionsTable(pool);
   await ensureCollegeFollowupSavedDayReportsTable(pool);
   await ensureCollegeActivityLogTable(pool);
+  await ensureDashboardUserPresenceTable(pool);
 
   await createIndexSafe(
     pool,
@@ -1118,6 +1119,36 @@ async function ensureCollegeFollowupSavedDayReportsTable(pool: Pool) {
     "idx_followup_saved_day_owner_exam",
     "CREATE INDEX IF NOT EXISTS idx_followup_saved_day_owner_exam ON college_followup_saved_day_reports (owner_user_id, exam_date DESC)"
   );
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_followup_saved_day_reports ADD COLUMN IF NOT EXISTS department_scope_key TEXT NULL`
+    );
+  } catch (err: unknown) {
+    const msg = String((err as { message?: string }).message ?? "");
+    if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+  }
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_followup_saved_day_reports ADD COLUMN IF NOT EXISTS snapshot_max_head_submitted_at TIMESTAMPTZ NULL`
+    );
+  } catch (err: unknown) {
+    const msg = String((err as { message?: string }).message ?? "");
+    if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+  }
+  await createIndexSafe(
+    pool,
+    "uq_followup_saved_formation_owner_exam",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_followup_saved_formation_owner_exam
+     ON college_followup_saved_day_reports (owner_user_id, exam_date)
+     WHERE department_scope_key IS NULL`
+  );
+  await createIndexSafe(
+    pool,
+    "uq_followup_saved_department_owner_exam_scope",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_followup_saved_department_owner_exam_scope
+     ON college_followup_saved_day_reports (owner_user_id, exam_date, department_scope_key)
+     WHERE department_scope_key IS NOT NULL`
+  );
 }
 
 /** سجل أحداث بوابة الكلية (تدقيق أمني) — إضافة/تعديل/حذف/رفع/اعتماد وغيرها. */
@@ -1150,6 +1181,25 @@ async function ensureCollegeActivityLogTable(pool: Pool) {
     pool,
     "idx_college_activity_owner_created",
     "CREATE INDEX IF NOT EXISTS idx_college_activity_owner_created ON college_activity_log (owner_user_id, created_at DESC)"
+  );
+}
+
+/** نبض «من يعمل على لوحة التحكم الآن» — صف واحد لكل مستخدم (مفتاح نصي يطابق uid الجلسة). */
+async function ensureDashboardUserPresenceTable(pool: Pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dashboard_user_presence (
+      user_id TEXT PRIMARY KEY,
+      username VARCHAR(120) NOT NULL,
+      role VARCHAR(40) NOT NULL,
+      college_account_kind VARCHAR(24) NULL,
+      display_label VARCHAR(280) NOT NULL,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await createIndexSafe(
+    pool,
+    "idx_dashboard_user_presence_last_seen",
+    "CREATE INDEX IF NOT EXISTS idx_dashboard_user_presence_last_seen ON dashboard_user_presence (last_seen_at DESC)"
   );
 }
 

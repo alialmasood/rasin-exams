@@ -30,17 +30,28 @@ function generatedAtLabelAr(): string {
 
 export type DailyFinalReportResult = { ok: true; html: string } | { ok: false; message: string };
 
+export type FollowupReportDataScope = {
+  /** تقييد بمادة الكلية (بوابة القسم) */
+  restrictCollegeSubjectId?: string | null;
+  /** تقييد باسم فرع/قسم؛ بدونها عند وجود المادة = كل أقسام المادة */
+  restrictBranchName?: string | null;
+};
+
 /**
  * تقرير نهائي لوجبة (نفس منطق صفحة متابعة المواقف) لمالك تشكيل محدد.
  */
-export async function buildDailyFinalSituationReportHtmlForOwner(params: {
-  ownerUserId: string;
-  examDate: string;
-  mealSlot: 1 | 2;
-  collegeLabel: string;
-  deanName: string;
-}): Promise<DailyFinalReportResult> {
+export async function buildDailyFinalSituationReportHtmlForOwner(
+  params: {
+    ownerUserId: string;
+    examDate: string;
+    mealSlot: 1 | 2;
+    collegeLabel: string;
+    deanName: string;
+  } & FollowupReportDataScope
+): Promise<DailyFinalReportResult> {
   const { ownerUserId, examDate, mealSlot, collegeLabel, deanName } = params;
+  const rid = params.restrictCollegeSubjectId?.trim();
+  const branch = params.restrictBranchName?.trim();
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     return { ok: false, message: "صيغة التاريخ غير صالحة." };
@@ -49,7 +60,11 @@ export async function buildDailyFinalSituationReportHtmlForOwner(params: {
     return { ok: false, message: "رقم الوجبة غير صالح." };
   }
 
-  const summaries = await listExamDayUploadSummariesForOwner(ownerUserId);
+  const summaries = await listExamDayUploadSummariesForOwner(
+    ownerUserId,
+    rid || undefined,
+    branch && branch.length > 0 ? branch : undefined
+  );
   const seg = summaries.find((x) => x.exam_date === d && x.meal_slot === mealSlot);
   if (!seg || seg.total_sessions === 0) {
     return {
@@ -66,7 +81,11 @@ export async function buildDailyFinalSituationReportHtmlForOwner(params: {
   }
 
   const [details, logoDataUri] = await Promise.all([
-    listUploadedExamSituationDetailsForOwnerExamDate(ownerUserId, d, mealSlot),
+    listUploadedExamSituationDetailsForOwnerExamDate(ownerUserId, d, {
+      mealSlot,
+      restrictCollegeSubjectId: rid || null,
+      restrictBranchName: branch && branch.length > 0 ? branch : null,
+    }),
     loadUobLogoDataUriForReport(),
   ]);
 
@@ -85,19 +104,27 @@ export async function buildDailyFinalSituationReportHtmlForOwner(params: {
 /**
  * تقرير نهائي واحد يجمع جلسات الوجبتين ليوم واحد — بعد التحقق من اكتمال رفع موقف كل جلسة في كلتا الوجبتين.
  */
-export async function buildDailyFinalFullDayBothMealsReportHtmlForOwner(params: {
-  ownerUserId: string;
-  examDate: string;
-  collegeLabel: string;
-  deanName: string;
-}): Promise<DailyFinalReportResult> {
+export async function buildDailyFinalFullDayBothMealsReportHtmlForOwner(
+  params: {
+    ownerUserId: string;
+    examDate: string;
+    collegeLabel: string;
+    deanName: string;
+  } & FollowupReportDataScope
+): Promise<DailyFinalReportResult> {
   const { ownerUserId, examDate, collegeLabel, deanName } = params;
+  const rid = params.restrictCollegeSubjectId?.trim();
+  const branch = params.restrictBranchName?.trim();
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     return { ok: false, message: "صيغة التاريخ غير صالحة." };
   }
 
-  const summaries = await listExamDayUploadSummariesForOwner(ownerUserId);
+  const summaries = await listExamDayUploadSummariesForOwner(
+    ownerUserId,
+    rid || undefined,
+    branch && branch.length > 0 ? branch : undefined
+  );
   const okDates = listExamDatesWithBothMealsFullyComplete(summaries);
   if (!okDates.includes(d)) {
     return {
@@ -107,7 +134,10 @@ export async function buildDailyFinalFullDayBothMealsReportHtmlForOwner(params: 
     };
   }
 
-  let details = await listUploadedExamSituationDetailsForOwnerExamDate(ownerUserId, d);
+  let details = await listUploadedExamSituationDetailsForOwnerExamDate(ownerUserId, d, {
+    restrictCollegeSubjectId: rid || null,
+    restrictBranchName: branch && branch.length > 0 ? branch : null,
+  });
   details = [...details].sort((a, b) => {
     const ma = a.meal_slot ?? 1;
     const mb = b.meal_slot ?? 1;
@@ -131,13 +161,19 @@ export type SavableFollowupDayReports = {
   both: string | null;
 };
 
-export async function buildSavableFollowupDayReportsForOwner(params: {
-  ownerUserId: string;
-  examDate: string;
-  collegeLabel: string;
-  deanName: string;
-}): Promise<{ ok: true; reports: SavableFollowupDayReports } | { ok: false; message: string }> {
+export async function buildSavableFollowupDayReportsForOwner(
+  params: {
+    ownerUserId: string;
+    examDate: string;
+    collegeLabel: string;
+    deanName: string;
+  } & FollowupReportDataScope
+): Promise<{ ok: true; reports: SavableFollowupDayReports } | { ok: false; message: string }> {
   const { ownerUserId, examDate, collegeLabel, deanName } = params;
+  const scope: FollowupReportDataScope = {
+    restrictCollegeSubjectId: params.restrictCollegeSubjectId,
+    restrictBranchName: params.restrictBranchName,
+  };
   const d = examDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     return { ok: false, message: "صيغة التاريخ غير صالحة." };
@@ -150,6 +186,7 @@ export async function buildSavableFollowupDayReportsForOwner(params: {
       mealSlot: 1,
       collegeLabel,
       deanName,
+      ...scope,
     }),
     buildDailyFinalSituationReportHtmlForOwner({
       ownerUserId,
@@ -157,12 +194,14 @@ export async function buildSavableFollowupDayReportsForOwner(params: {
       mealSlot: 2,
       collegeLabel,
       deanName,
+      ...scope,
     }),
     buildDailyFinalFullDayBothMealsReportHtmlForOwner({
       ownerUserId,
       examDate: d,
       collegeLabel,
       deanName,
+      ...scope,
     }),
   ]);
 

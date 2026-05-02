@@ -9,8 +9,10 @@ import {
 } from "@/lib/daily-final-exam-report";
 import {
   deleteFollowupSavedDayReportForOwner,
+  followupDepartmentScopeKey,
   getFollowupSavedDayReportHtmlForOwner,
-  insertFollowupSavedDayReport,
+  getMaxHeadSubmittedAtForOwnerExamDate,
+  upsertFollowupSavedDayReport,
 } from "@/lib/college-followup-saved-reports";
 import type { SavedReportPart } from "@/lib/college-followup-saved-reports";
 import { deleteSituationFormSubmissionForOwner } from "@/lib/college-situation-form-submissions";
@@ -82,7 +84,7 @@ export async function getDailyFullDayBothMealsReportHtmlAction(examDate: string)
 
 export async function saveFollowupDayReportsAction(
   examDate: string
-): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+): Promise<{ ok: true; id: string; merged: boolean } | { ok: false; message: string }> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
@@ -95,31 +97,52 @@ export async function saveFollowupDayReportsAction(
   const collegeLabel = collegePortalDisplayLabel(profile);
   const deanName = profile?.dean_name ?? "";
 
+  const deptScopeKey =
+    profile.account_kind === "DEPARTMENT" && profile.college_subject_id?.trim()
+      ? followupDepartmentScopeKey(profile.college_subject_id, profile.scoped_branch_name)
+      : null;
   const built = await buildSavableFollowupDayReportsForOwner({
     ownerUserId,
     examDate: d,
     collegeLabel,
     deanName,
+    ...(deptScopeKey
+      ? {
+          restrictCollegeSubjectId: profile.college_subject_id!.trim(),
+          restrictBranchName: profile.scoped_branch_name?.trim() || null,
+        }
+      : {}),
   });
   if (!built.ok) return built;
 
-  const ins = await insertFollowupSavedDayReport({
+  const maxHead = await getMaxHeadSubmittedAtForOwnerExamDate(
+    ownerUserId,
+    d,
+    deptScopeKey ? profile.college_subject_id!.trim() : null,
+    deptScopeKey ? profile.scoped_branch_name?.trim() || null : null
+  );
+
+  const ins = await upsertFollowupSavedDayReport({
     ownerUserId,
     examDate: d,
     meal1Html: built.reports.meal1,
     meal2Html: built.reports.meal2,
     bothMealsHtml: built.reports.both,
+    snapshotMaxHeadSubmittedAt: maxHead,
+    departmentScopeKey: deptScopeKey ?? undefined,
   });
   if (!ins.ok) return ins;
   void recordCollegeActivityEvent({
     ownerUserId,
     action: "save",
     resource: "followup_saved_report",
-    summary: `حفظ تقارير متابعة المواقف ليوم الامتحان ${d} في الأرشيف.`,
-    details: { examDate: d, reportId: ins.id },
+    summary: ins.merged
+      ? `تحديث أرشيف متابعة المواقف ليوم الامتحان ${d}.`
+      : `حفظ تقارير متابعة المواقف ليوم الامتحان ${d} في الأرشيف.`,
+    details: { examDate: d, reportId: ins.id, merged: ins.merged },
   });
   revalidateCollegePortalSegment("status-followup");
-  return { ok: true, id: ins.id };
+  return { ok: true, id: ins.id, merged: ins.merged };
 }
 
 export async function getSavedFollowupDayReportHtmlAction(
@@ -130,7 +153,13 @@ export async function getSavedFollowupDayReportHtmlAction(
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
-  return getFollowupSavedDayReportHtmlForOwner(ownerUserId, reportId.trim(), part);
+  const profile = await getCollegeProfileByUserId(session.uid);
+  if (!profile) return { ok: false, message: "تعذر تحميل الملف التعريفي." };
+  const deptScopeKey =
+    profile.account_kind === "DEPARTMENT" && profile.college_subject_id?.trim()
+      ? followupDepartmentScopeKey(profile.college_subject_id, profile.scoped_branch_name)
+      : undefined;
+  return getFollowupSavedDayReportHtmlForOwner(ownerUserId, reportId.trim(), part, deptScopeKey);
 }
 
 export async function deleteSavedFollowupDayReportAction(
@@ -140,8 +169,14 @@ export async function deleteSavedFollowupDayReportAction(
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
+  const profile = await getCollegeProfileByUserId(session.uid);
+  if (!profile) return { ok: false, message: "تعذر تحميل الملف التعريفي." };
+  const deptScopeKey =
+    profile.account_kind === "DEPARTMENT" && profile.college_subject_id?.trim()
+      ? followupDepartmentScopeKey(profile.college_subject_id, profile.scoped_branch_name)
+      : undefined;
   const rid = reportId.trim();
-  const res = await deleteFollowupSavedDayReportForOwner(ownerUserId, rid);
+  const res = await deleteFollowupSavedDayReportForOwner(ownerUserId, rid, deptScopeKey);
   if (res.ok) {
     void recordCollegeActivityEvent({
       ownerUserId,

@@ -374,7 +374,7 @@ export function SituationDetailClient({
   const canSubmitHeadByWorkflow =
     detail.workflow_status === "SUBMITTED" || detail.workflow_status === "APPROVED";
 
-  /** اعتماد العميد/المعاون وتأكيد الرفع اكتملا — إخفاء كتلة «الاعتماد النهائي» (عرض أرشيفي من متابعة المواقف وغيرها) */
+  /** اعتماد رئيس القسم/الفرع وتأكيد رفع عميد التشكيل اكتملا — إخفاء كتلة «الاعتماد النهائي» (عرض أرشيفي من متابعة المواقف وغيرها) */
   const hideFinalSituationWorkflowCard =
     detail.is_uploaded && detail.dean_status === "APPROVED";
 
@@ -466,9 +466,22 @@ export function SituationDetailClient({
     return !isSituationExamBookletsBalanced(bookletRecN, bookletUsedN, bookletDmgN);
   }, [bookletRecN, bookletUsedN, bookletDmgN, bookletsInvalidInput]);
 
+  /** نسبة الحضور فقط (قد تكون أقل من 100٪ عند وجود غياب) — للعرض التوضيحي. */
   const attendanceRate =
     detail.capacity_total > 0 && !Number.isNaN(attTotalNum)
       ? Math.min(100, Math.max(0, Math.round((attTotalNum / detail.capacity_total) * 100)))
+      : null;
+
+  /**
+   * تقدّم مطابقة أعداد الحضور+الغياب مع السعة (يكتمل عند 100٪ عندما المجموع = السعة).
+   * الشريط الأخضر يعرض هذا وليس «نسبة الحضور» حتى لا يبقى دون 100٪ رغم اكتمال الإدخال الصحيح.
+   */
+  const capacityAccountedProgressPct =
+    detail.capacity_total > 0 && !Number.isNaN(attTotalNum) && !Number.isNaN(absTotalNum)
+      ? Math.min(
+          100,
+          Math.max(0, Math.round(((attTotalNum + absTotalNum) / detail.capacity_total) * 100))
+        )
       : null;
 
   const parsedAbsenceNameCount = useMemo(
@@ -757,24 +770,7 @@ export function SituationDetailClient({
     const fd = new FormData();
     fd.set("schedule_id", detail.schedule_id);
     startTransition(async () => {
-      const saved = await runAttendancePatch({ silentSuccess: true });
-      if (!saved) return;
-      const staffV = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
-      if (!staffV.ok) {
-        setToast({ type: "err", msg: staffV.message });
-        return;
-      }
-      const savedStaff = await runStaffAbsencesPatch({ silentSuccess: true });
-      if (!savedStaff) return;
-      const cheatV = validateSituationCheatingCases(cheatingCases);
-      if (!cheatV.ok) {
-        setToast({ type: "err", msg: cheatV.message });
-        return;
-      }
-      const savedCheating = await runCheatingCasesPatch({ silentSuccess: true });
-      if (!savedCheating) return;
-      const savedBooklets = await runExamBookletsPatch();
-      if (!savedBooklets) return;
+      /** تأكيد الرفع من حساب التشكيل فقط — حفظ الحضور/الدفاتر يتم من بوابة القسم؛ لا نستدعي إجراءات القسم هنا */
       const res = await submitHeadSituationAction(null, fd);
       if (!res) return;
       if (res.ok) {
@@ -985,7 +981,11 @@ export function SituationDetailClient({
             <span className="font-extrabold text-slate-800 select-none" aria-hidden>
               |
             </span>
-            <span className="min-w-0">عميد الكلية : السيد ({deanName.trim() || "—"})</span>
+            <span className="min-w-0">
+              {!isDepartmentPortal
+                ? `عميد التشكيل : السيد (${deanName.trim() || "—"})`
+                : `رئاسة القسم/الفرع : السيد (${deanName.trim() || "—"})`}
+            </span>
             <span className="font-extrabold text-slate-800 select-none" aria-hidden>
               |
             </span>
@@ -1028,7 +1028,7 @@ export function SituationDetailClient({
         <div className="grid grid-cols-12 gap-5 lg:gap-6">
           {!isDepartmentPortal ? (
             <div className="col-span-12 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 text-sm font-semibold text-[#1E3A8A]">
-              هذه الصفحة للعرض فقط من حساب العميد. تعديل البيانات يتم من صفحة القسم/الفرع.
+              هذه الصفحة للعرض فقط من حساب عميد التشكيل. تعديل البيانات واعتماد الموقف يتم من بوابة القسم/الفرع.
             </div>
           ) : null}
           <fieldset className="col-span-12 contents" disabled={!isDepartmentPortal}>
@@ -1521,19 +1521,21 @@ export function SituationDetailClient({
                 <div
                   className="relative w-full py-0.5"
                   role="progressbar"
-                  aria-valuenow={attendanceRate ?? 0}
+                  aria-valuenow={capacityAccountedProgressPct ?? 0}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-label={
-                    attendanceRate !== null
-                      ? `نسبة الحضور الإجمالية ${attendanceRate}٪ من سعة ${detail.capacity_total}`
-                      : "نسبة الحضور غير محسوبة"
+                    capacityAccountedProgressPct !== null
+                      ? `اكتمال مطابقة الحضور والغياب مع السعة ${capacityAccountedProgressPct}٪ من أصل 100٪ — السعة ${detail.capacity_total}`
+                      : "تقدم مطابقة الحضور والغياب غير محسوب"
                   }
                 >
                   <div className="h-[14px] w-full overflow-hidden rounded-full bg-slate-200/90 shadow-[inset_0_1px_3px_rgba(15,23,42,0.12)] ring-1 ring-slate-300/50 sm:h-4">
                     <div
                       className="h-full rounded-full bg-gradient-to-l from-emerald-700 via-emerald-500 to-cyan-400 shadow-[0_1px_4px_rgba(5,150,105,0.35)] transition-[width] duration-500 ease-out"
-                      style={{ width: `${Math.min(100, Math.max(0, attendanceRate ?? 0))}%` }}
+                      style={{
+                        width: `${Math.min(100, Math.max(0, capacityAccountedProgressPct ?? 0))}%`,
+                      }}
                     />
                   </div>
                   <div
@@ -1541,10 +1543,18 @@ export function SituationDetailClient({
                     aria-hidden
                   >
                     <span className="text-[12px] font-extrabold tabular-nums tracking-tight text-slate-900 [text-shadow:0_0_6px_#fff,0_0_10px_#fff,0_1px_0_#fff] sm:text-[13px]">
-                      {attendanceRate !== null ? `${attendanceRate}%` : "—"}
+                      {capacityAccountedProgressPct !== null ? `${capacityAccountedProgressPct}%` : "—"}
                     </span>
                   </div>
                 </div>
+                {attendanceRate !== null ? (
+                  <p className="mt-1.5 text-center text-[11px] font-medium text-slate-600">
+                    نسبة الحضور الفعلية من السعة: {attendanceRate}%
+                    {capacityAccountedProgressPct === 100 && attendanceRate < 100
+                      ? " — الطلبة الباقون مُسجَّلون كغياب."
+                      : null}
+                  </p>
+                ) : null}
               </div>
 
               {!dualShift ? (
@@ -1781,7 +1791,7 @@ export function SituationDetailClient({
                       تأكيد الموقف الامتحاني
                     </h2>
                     <p className="relative mb-6 text-sm font-semibold leading-relaxed text-slate-700">
-                      بعد اكتمال اعتماد القسم/الفرع، استخدم الزر التالي لتأكيد رفع الموقف.
+                      بعد اعتماد الموقف من رئيس القسم أو الفرع عبر بوابة القسم، يُسمح لعميد التشكيل فقط بالضغط على الزر التالي لتأكيد رفع الموقف للمتابعة الرسمية.
                     </p>
                   </>
                 ) : null}
@@ -1792,7 +1802,7 @@ export function SituationDetailClient({
                       className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
                     >
                       <p className="text-sm font-semibold leading-relaxed text-slate-700">
-                        اعتماد الموقف الامتحاني من العميد / المعاون العلمي.
+                        اعتماد الموقف الامتحاني من رئيس القسم أو الفرع (حساب بوابة القسم/الفرع).
                       </p>
                       <button
                         type="button"
@@ -1822,7 +1832,7 @@ export function SituationDetailClient({
                       className={`rounded-[20px] border border-slate-200/90 bg-white/95 p-5 shadow-sm backdrop-blur-sm sm:p-6 ${cardLift}`}
                     >
                       <p className="text-sm font-semibold text-slate-700">
-                        تأكيد رفع الموقف الامتحاني للمتابعة الرسمية.
+                        تأكيد رفع الموقف الامتحاني للمتابعة الرسمية — من حساب عميد التشكيل فقط وبعد اعتماد رئيس القسم أو الفرع.
                       </p>
 
                       <button
@@ -1842,7 +1852,7 @@ export function SituationDetailClient({
                       </button>
                       {detail.dean_status !== "APPROVED" ? (
                         <p className="mt-2 text-xs font-medium text-slate-600">
-                          بانتظار الاعتماد من صفحة القسم/الفرع.
+                          بانتظار اعتماد الموقف من رئيس القسم أو الفرع عبر بوابة القسم/الفرع.
                         </p>
                       ) : null}
                     </div>

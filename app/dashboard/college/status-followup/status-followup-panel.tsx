@@ -2,11 +2,18 @@
 
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import { useRouter } from "next/navigation";
-import { useMemo, useTransition } from "react";
-import type { ExamDayUploadSummary, StatusFollowupRow } from "@/lib/college-exam-situations";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import type {
+  ExamDayUploadSummary,
+  FormationFollowupAlerts,
+  StatusFollowupRow,
+} from "@/lib/college-exam-situations";
 import type { StudyType } from "@/lib/college-study-subjects";
 import { formatExamScheduleStudyLevelTierStageOnly } from "@/lib/college-study-stage-display";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
+import { buildFollowupDayReportBundles } from "@/lib/followup-day-bundles";
+import type { FollowupDaySaveHint } from "@/lib/followup-day-save-hint";
+import { normalizeFollowupExamDateKey } from "@/lib/followup-exam-date-key";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
 import {
   deleteSavedFollowupDayReportAction,
@@ -94,36 +101,15 @@ function openHtmlPreviewWindow(html: string): boolean {
   }
 }
 
-type DayReportBundle = {
-  examDate: string;
-  meal1: boolean;
-  meal2: boolean;
-  both: boolean;
-};
-
-function buildDayReportBundles(
-  completedDays: ExamDayUploadSummary[],
-  fullDayBothMealsReadyDates: string[]
-): DayReportBundle[] {
-  const map = new Map<string, { meal1: boolean; meal2: boolean; both: boolean }>();
-  for (const d of completedDays) {
-    if (d.total_sessions <= 0 || d.uploaded_sessions < d.total_sessions) continue;
-    if (!map.has(d.exam_date)) {
-      map.set(d.exam_date, { meal1: false, meal2: false, both: false });
-    }
-    const b = map.get(d.exam_date)!;
-    if (d.meal_slot === 1) b.meal1 = true;
-    if (d.meal_slot === 2) b.meal2 = true;
-  }
-  for (const ed of fullDayBothMealsReadyDates) {
-    if (!map.has(ed)) {
-      map.set(ed, { meal1: false, meal2: false, both: false });
-    }
-    map.get(ed)!.both = true;
-  }
-  return [...map.entries()]
-    .map(([examDate, flags]) => ({ examDate, ...flags }))
-    .sort((a, b) => a.examDate.localeCompare(b.examDate));
+/** مفاتيح منفصلة لكل زر في بطاقة «اكتمال مواقف وجبة» حتى لا يعطّل `useTransition` الموحّد وجبةً أثناء عمل الآخرى. */
+function followupDayPrintMealOpId(examDate: string, mealSlot: 1 | 2): string {
+  return `followup-day-print-${examDate}-m${mealSlot}`;
+}
+function followupDayPrintFullOpId(examDate: string): string {
+  return `followup-day-print-fullday-${examDate}`;
+}
+function followupDaySaveOpId(examDate: string): string {
+  return `followup-day-save-${examDate}`;
 }
 
 export type FollowupSavedReportRowProps = {
@@ -134,6 +120,39 @@ export type FollowupSavedReportRowProps = {
   has_meal_2: boolean;
   has_both_meals: boolean;
 };
+
+const DEAN_STATUS_SHORT_AR: Record<string, string> = {
+  NONE: "غير معتمد من القسم",
+  PENDING: "قيد اعتماد القسم",
+  APPROVED: "معتمد من رئيس القسم/الفرع",
+  REJECTED: "مرفوض من القسم",
+};
+
+function BranchCountChips({
+  label,
+  pairs,
+}: {
+  label: string;
+  pairs: { branch_name: string; count: number }[];
+}) {
+  if (pairs.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-[#64748B]">{label}</p>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {pairs.map((p) => (
+          <span
+            key={`${label}-${p.branch_name}`}
+            className="inline-flex items-center rounded-full border border-[#CBD5E1] bg-white/90 px-2.5 py-0.5 text-[11px] font-semibold text-[#0F172A]"
+          >
+            {p.branch_name}
+            <span className="mr-1.5 text-[#64748B]">({p.count})</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function FollowupScheduleStudyLevelCell({ stageLevel, studyType }: { stageLevel: number; studyType: StudyType }) {
   return (
@@ -159,19 +178,35 @@ export function StatusFollowupPanel({
   /** يُحسب على الخادم — لا تستورد `college-exam-situations` في العميل (يربط حزمة `pg`). */
   fullDayBothMealsReadyDates,
   savedReports,
-  examDatesAlreadySaved,
+  /** تلميحات زر «حفظ الموقف» لكل يوم (مفتاح التاريخ موحّد YYYY-MM-DD). */
+  followupDaySaveHints,
+  /**
+   * نفس منطق «تعطيل الدمج» المحسوب على الخادم لكل `dayKey` — يُستخدم حتى اكتمال الترطيب
+   * ليتطابق `disabled` مع HTML القادم من SSR (يُتجاهل بعد `useEffect` الأول).
+   */
+  followupInitialMergeBlockedByDayKey,
+  /** لحساب التشكيل فقط — جلسات لم يُؤكد رفع موقفها بعد، مجمّعة حسب القسم وحالة اعتماد القسم. */
+  formationFollowupAlerts = null,
 }: {
   rows: StatusFollowupRow[];
   collegeLabel: string;
   daySummaries: ExamDayUploadSummary[];
   fullDayBothMealsReadyDates: string[];
   savedReports: FollowupSavedReportRowProps[];
-  /** تواريخ امتحان سبق حفظ موقفها (منع التكرار في الواجهة). */
-  examDatesAlreadySaved: string[];
+  followupDaySaveHints: Record<string, FollowupDaySaveHint>;
+  followupInitialMergeBlockedByDayKey: Record<string, boolean>;
+  formationFollowupAlerts?: FormationFollowupAlerts | null;
 }) {
   const portalBase = useCollegePortalBasePath();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  /** عملية نشطة داخل بطاقات «اكتمال مواقف وجبة» فقط — لا تُربَط بـ isPending العام. */
+  const [followupDayPendingOpId, setFollowupDayPendingOpId] = useState<string | null>(null);
+  /** بعد الترطيب نعتمد `followupDaySaveHints` المحلّي فقط (مثلاً بعد `router.refresh`). */
+  const [followupSaveHintsClientReady, setFollowupSaveHintsClientReady] = useState(false);
+  useEffect(() => {
+    setFollowupSaveHintsClientReady(true);
+  }, []);
 
   const completedDays = daySummaries.filter(
     (d) => d.total_sessions > 0 && d.uploaded_sessions >= d.total_sessions
@@ -181,51 +216,70 @@ export function StatusFollowupPanel({
   );
 
   const dayBundles = useMemo(
-    () => buildDayReportBundles(completedDays, fullDayBothMealsReadyDates),
+    () => buildFollowupDayReportBundles(completedDays, fullDayBothMealsReadyDates),
     [completedDays, fullDayBothMealsReadyDates]
   );
 
-  const savedDatesSet = useMemo(
-    () => new Set(examDatesAlreadySaved),
-    [examDatesAlreadySaved]
-  );
+  const defaultHint: FollowupDaySaveHint = { hasArchivedRow: false, allowMergeSave: true };
 
   function onPrintDailyReport(examDate: string, mealSlot: 1 | 2) {
-    startTransition(async () => {
-      const res = await getDailyFinalSituationReportHtmlAction(examDate, mealSlot);
-      if (!res.ok) {
-        window.alert(res.message);
-        return;
+    const opId = followupDayPrintMealOpId(examDate, mealSlot);
+    void (async () => {
+      setFollowupDayPendingOpId(opId);
+      try {
+        const res = await getDailyFinalSituationReportHtmlAction(examDate, mealSlot);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        if (!openHtmlPrintWindow(res.html)) {
+          window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+        }
+      } finally {
+        setFollowupDayPendingOpId(null);
       }
-      if (!openHtmlPrintWindow(res.html)) {
-        window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
-      }
-    });
+    })();
   }
 
   function onPrintFullDayBothMealsReport(examDate: string) {
-    startTransition(async () => {
-      const res = await getDailyFullDayBothMealsReportHtmlAction(examDate);
-      if (!res.ok) {
-        window.alert(res.message);
-        return;
+    const opId = followupDayPrintFullOpId(examDate);
+    void (async () => {
+      setFollowupDayPendingOpId(opId);
+      try {
+        const res = await getDailyFullDayBothMealsReportHtmlAction(examDate);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        if (!openHtmlPrintWindow(res.html)) {
+          window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
+        }
+      } finally {
+        setFollowupDayPendingOpId(null);
       }
-      if (!openHtmlPrintWindow(res.html)) {
-        window.alert("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع.");
-      }
-    });
+    })();
   }
 
   function onSaveFollowupDay(examDate: string) {
-    startTransition(async () => {
-      const res = await saveFollowupDayReportsAction(examDate);
-      if (!res.ok) {
-        window.alert(res.message);
-        return;
+    const opId = followupDaySaveOpId(examDate);
+    void (async () => {
+      setFollowupDayPendingOpId(opId);
+      try {
+        const res = await saveFollowupDayReportsAction(examDate);
+        if (!res.ok) {
+          window.alert(res.message);
+          return;
+        }
+        window.alert(
+          res.merged
+            ? "تم تحديث الأرشيف لنفس يوم الامتحان لتضمين المواقف المكتملة بعد آخر حفظ."
+            : "تم حفظ التقارير المتاحة لهذا اليوم في «التقارير المحفوظة»."
+        );
+        router.refresh();
+      } finally {
+        setFollowupDayPendingOpId(null);
       }
-      window.alert("تم حفظ التقارير المتاحة لهذا اليوم في «التقارير المحفوظة».");
-      router.refresh();
-    });
+    })();
   }
 
   function onViewSavedReport(reportId: string, part: SavedReportPart, printAfter: boolean) {
@@ -286,8 +340,166 @@ export function StatusFollowupPanel({
     });
   }
 
+  const showFormationAlerts =
+    portalBase === "/dashboard/college" &&
+    formationFollowupAlerts &&
+    formationFollowupAlerts.counts.notHeadSubmittedTotal > 0;
+
   return (
     <section className="space-y-6" dir="rtl">
+      {showFormationAlerts ? (
+        <div
+          className="space-y-4 rounded-[22px] border border-amber-300/80 bg-gradient-to-b from-amber-50/95 to-white px-5 py-4 shadow-sm"
+          role="alert"
+        >
+          <div>
+            <p className="text-sm font-extrabold text-amber-950">تنبيهات عميد التشكيل — مواقف لم يُؤكد رفعها بعد</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-amber-900/90">
+              لديك{" "}
+              <span className="font-bold">{formationFollowupAlerts.counts.notHeadSubmittedTotal}</span> جلسة امتحانية
+              من مختلف الأقسام ما زال موقفها بانتظار «تأكيد رفع الموقف» من قبلكم بعد اعتماد القسم (أو بانتظار اعتماد
+              القسم أولاً). منها:{" "}
+              <span className="font-bold text-emerald-800">
+                {formationFollowupAlerts.counts.approvedByDept}
+              </span>{" "}
+              حالة اعتماد الموقف فيها <span className="font-semibold">معتمدة من رئيس القسم/الفرع</span>، و{" "}
+              <span className="font-bold text-rose-800">
+                {formationFollowupAlerts.counts.notApprovedByDept}
+              </span>{" "}
+              <span className="font-semibold">غير معتمدة من القسم بعد</span> (قيد المراجعة أو مرفوضة أو بلا اعتماد).
+            </p>
+            <p className="mt-2 text-[11px] font-semibold text-amber-950/85">
+              جاهزة لتأكيد الرفع (معتمد + بيانات مكتملة):{" "}
+              <span className="font-extrabold text-[#1E3A8A]">
+                {formationFollowupAlerts.counts.readyForHeadConfirm}
+              </span>
+              {" — "}
+              اعتمدها القسم لكن بيانات الموقف غير مكتملة في النظام:{" "}
+              <span className="font-extrabold text-amber-950">
+                {formationFollowupAlerts.counts.approvedButIncomplete}
+              </span>
+            </p>
+          </div>
+
+          {formationFollowupAlerts.waitingDeptApproval.length > 0 ? (
+            <div className="rounded-xl border border-rose-200/90 bg-rose-50/50 px-4 py-3">
+              <p className="text-xs font-extrabold text-rose-950">
+                بانتظار اعتماد رئيس القسم أو الفرع — {formationFollowupAlerts.waitingDeptApproval.length} جلسة
+              </p>
+              <p className="mt-1 text-[11px] text-rose-900/90">
+                هذه الجلسات <span className="font-semibold">غير معتمدة من القسم</span> بعد؛ لا يمكن تأكيد رفع الموقف
+                من التشكيل قبل اعتماد القسم.
+              </p>
+              <BranchCountChips
+                label="توزيع حسب القسم"
+                pairs={formationFollowupAlerts.byBranchWaitingDept}
+              />
+              <details className="mt-3 rounded-lg border border-rose-100 bg-white/80 px-3 py-2">
+                <summary className="cursor-pointer text-[11px] font-bold text-rose-900">
+                  عرض التفاصيل والحالة لكل جلسة
+                </summary>
+                <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-[11px]">
+                  {formationFollowupAlerts.waitingDeptApproval.map((it) => (
+                    <li
+                      key={it.schedule_id}
+                      className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rose-100/80 pb-1.5 last:border-0"
+                    >
+                      <span className="font-semibold text-[#0F172A]">
+                        {it.subject_name} — {it.branch_name}
+                      </span>
+                      <span className="text-[#64748B]">
+                        {formatExamDateAr(it.exam_date)} · {formatExamMealSlotLabel(it.meal_slot)}
+                      </span>
+                      <span className="w-full text-[10px] text-rose-800">
+                        {DEAN_STATUS_SHORT_AR[it.dean_status] ?? it.dean_status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          ) : null}
+
+          {formationFollowupAlerts.approvedButIncomplete.length > 0 ? (
+            <div className="rounded-xl border border-amber-200/90 bg-amber-50/40 px-4 py-3">
+              <p className="text-xs font-extrabold text-amber-950">
+                معتمدة من القسم لكن بيانات الموقف غير مكتملة —{" "}
+                {formationFollowupAlerts.approvedButIncomplete.length} جلسة
+              </p>
+              <p className="mt-1 text-[11px] text-amber-900/90">
+                اعتماد القسم مسجّل، إلا أن النظام يعتبر بيانات الموقف ناقصة؛ يحتاج القسم لاستكمال الحقول قبل أن تظهر
+                جاهزة لتأكيد الرفع.
+              </p>
+              <BranchCountChips
+                label="توزيع حسب القسم"
+                pairs={formationFollowupAlerts.byBranchApprovedIncomplete}
+              />
+              <details className="mt-3 rounded-lg border border-amber-100 bg-white/80 px-3 py-2">
+                <summary className="cursor-pointer text-[11px] font-bold text-amber-950">
+                  عرض الجلسات والانتقال لصفحة الموقف
+                </summary>
+                <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-[11px]">
+                  {formationFollowupAlerts.approvedButIncomplete.map((it) => (
+                    <li key={it.schedule_id}>
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => router.push(`${portalBase}/upload-status/${it.schedule_id}`)}
+                        className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-right font-semibold text-[#0F172A] transition hover:bg-amber-50 disabled:opacity-50"
+                      >
+                        {it.subject_name} — {it.branch_name}
+                        <span className="mt-0.5 block text-[10px] font-normal text-[#64748B]">
+                          {formatExamDateAr(it.exam_date)} · {formatExamMealSlotLabel(it.meal_slot)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          ) : null}
+
+          {formationFollowupAlerts.readyForHeadConfirm.length > 0 ? (
+            <div className="rounded-xl border border-[#1E3A8A]/35 bg-[#EEF2FF]/60 px-4 py-3">
+              <p className="text-xs font-extrabold text-[#1E3A8A]">
+                جاهزة لتأكيد رفع الموقف — {formationFollowupAlerts.readyForHeadConfirm.length} جلسة
+              </p>
+              <p className="mt-1 text-[11px] text-[#1E3A8A]/95">
+                اعتماد القسم <span className="font-semibold">معتمد</span> والبيانات <span className="font-semibold">مكتملة</span>؛
+                يمكنكم فتح الجلسة وتأكيد رفع الموقف من لوحة التشكيل.
+              </p>
+              <BranchCountChips
+                label="توزيع حسب القسم (يحتاج تأكيدكم)"
+                pairs={formationFollowupAlerts.byBranchReadyForConfirm}
+              />
+              <details className="mt-3 rounded-lg border border-[#C7D2FE] bg-white/90 px-3 py-2" open>
+                <summary className="cursor-pointer text-[11px] font-bold text-[#1E3A8A]">
+                  فتح الجلسات والانتقال لرفع/تأكيد الموقف
+                </summary>
+                <ul className="mt-2 max-h-56 space-y-1.5 overflow-y-auto text-[11px]">
+                  {formationFollowupAlerts.readyForHeadConfirm.map((it) => (
+                    <li key={it.schedule_id}>
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => router.push(`${portalBase}/upload-status/${it.schedule_id}`)}
+                        className="w-full rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1.5 text-right font-bold text-white transition hover:bg-[#163170] disabled:opacity-50"
+                      >
+                        {it.subject_name} — القسم: {it.branch_name}
+                        <span className="mt-0.5 block text-[10px] font-normal text-white/90">
+                          {formatExamDateAr(it.exam_date)} · {formatExamMealSlotLabel(it.meal_slot)} ·{" "}
+                          {DEAN_STATUS_SHORT_AR[it.dean_status]}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {dayBundles.length > 0 ? (
         <div
           className="space-y-3 rounded-[22px] border border-emerald-200/90 bg-gradient-to-b from-emerald-50/95 to-white px-5 py-4 shadow-sm"
@@ -296,7 +508,13 @@ export function StatusFollowupPanel({
           <p className="text-sm font-extrabold text-emerald-900">اكتمال مواقف وجبة امتحانية</p>
           <ul className="flex flex-row flex-nowrap items-stretch gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
             {dayBundles.map((bundle) => {
-              const alreadySaved = savedDatesSet.has(bundle.examDate);
+              const dayKey = normalizeFollowupExamDateKey(bundle.examDate);
+              const hint = followupDaySaveHints[dayKey] ?? defaultHint;
+              const saveBusy = followupDayPendingOpId === followupDaySaveOpId(bundle.examDate);
+              const mergeBlocked = followupSaveHintsClientReady
+                ? !hint.allowMergeSave
+                : Boolean(followupInitialMergeBlockedByDayKey[dayKey]);
+              const saveDisabled = saveBusy || mergeBlocked;
               return (
                 <li
                   key={bundle.examDate}
@@ -309,7 +527,7 @@ export function StatusFollowupPanel({
                     {bundle.meal1 ? (
                       <button
                         type="button"
-                        disabled={isPending}
+                        disabled={followupDayPendingOpId === followupDayPrintMealOpId(bundle.examDate, 1)}
                         onClick={() => onPrintDailyReport(bundle.examDate, 1)}
                         className="w-full rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-[#163170] disabled:opacity-50 sm:text-xs"
                       >
@@ -319,7 +537,7 @@ export function StatusFollowupPanel({
                     {bundle.meal2 ? (
                       <button
                         type="button"
-                        disabled={isPending}
+                        disabled={followupDayPendingOpId === followupDayPrintMealOpId(bundle.examDate, 2)}
                         onClick={() => onPrintDailyReport(bundle.examDate, 2)}
                         className="w-full rounded-lg border-2 border-[#1E3A8A] bg-[#1E3A8A] px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-[#163170] disabled:opacity-50 sm:text-xs"
                       >
@@ -329,7 +547,7 @@ export function StatusFollowupPanel({
                     {bundle.both ? (
                       <button
                         type="button"
-                        disabled={isPending}
+                        disabled={followupDayPendingOpId === followupDayPrintFullOpId(bundle.examDate)}
                         onClick={() => onPrintFullDayBothMealsReport(bundle.examDate)}
                         className="w-full rounded-lg border-2 border-emerald-800 bg-emerald-900 px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-emerald-950 disabled:opacity-50 sm:text-xs"
                       >
@@ -338,16 +556,24 @@ export function StatusFollowupPanel({
                     ) : null}
                     <button
                       type="button"
-                      disabled={isPending || alreadySaved}
+                      disabled={!!saveDisabled}
                       title={
-                        alreadySaved
-                          ? "تم حفظ هذا اليوم — احذف من التقارير المحفوظة لإعادة الحفظ"
-                          : undefined
+                        mergeBlocked
+                          ? hint.hasArchivedRow
+                            ? "الأرشيف محدّث — لا توجد مواقف جديدة مؤكدة الرفع لهذا اليوم بعد آخر حفظ."
+                            : undefined
+                          : hint.hasArchivedRow
+                            ? "دمج المواقف المكتملة لاحقاً في نفس سجل الأرشيف لهذا اليوم"
+                            : undefined
                       }
                       onClick={() => onSaveFollowupDay(bundle.examDate)}
-                      className="w-full rounded-lg border-2 border-slate-500 bg-slate-700 px-2 py-1.5 text-[11px] font-bold leading-tight text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45 sm:text-xs"
+                      className={
+                        saveDisabled
+                          ? "w-full rounded-lg border-2 border-slate-400 bg-slate-600 px-2 py-1.5 text-[11px] font-bold leading-tight text-white/90 transition disabled:cursor-not-allowed disabled:opacity-50 sm:text-xs"
+                          : "w-full rounded-lg border-2 border-emerald-700 bg-emerald-800 px-2 py-1.5 text-[11px] font-bold leading-tight text-white shadow-sm transition hover:bg-emerald-900 hover:shadow sm:text-xs"
+                      }
                     >
-                      حفظ الموقف
+                      {hint.hasArchivedRow && !mergeBlocked ? "تحديث حفظ الموقف" : "حفظ الموقف"}
                     </button>
                   </div>
                 </li>

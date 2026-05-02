@@ -833,11 +833,13 @@ function groupExamSituationDetailsForDailyReport(details: ExamSituationDetail[])
   );
 }
 
-const OFFICIAL_DAILY_COLS = 15;
+/** الجدول الرئيسي: بدون أعمدة المشرف/المراقبين (تُنقل للملحق لتخفيف الازدحام) */
+const OFFICIAL_DAILY_COLS = 12;
 /** أعمدة الجدول قبل أعمدة السعة/الحضور/الغياب (لصف الإجمالي الفرعي) */
 const OFFICIAL_DAILY_COLS_BEFORE_COUNTS = 7;
-/** أعمدة ذيل صف الإجمالي (غياب طلاب + مشرف + مراقبون + غياب مشرف/مراقب + غش) */
-const OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN = 5;
+/** ذيل صف الإجمالي: عمود أسماء غياب الطلاب + عمود حالات الغش */
+const OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN = 2;
+const OFFICIAL_DAILY_ANNEX_COLS = 10;
 
 type DailyOfficialTotals = {
   examsUndergraduate: number;
@@ -1148,10 +1150,32 @@ function officialDailyDataRow(
   <td class="tabular">${d.attendance_count}</td>
   <td class="tabular">${d.absence_count}</td>
   <td style="font-size:12px;line-height:1.45">${absenceNamesOfficialCell(d, z)}</td>
-  <td>${formatSupervisorForSituationReport(d.supervisor_name ?? "", d.room_external_staff, z)}</td>
-  <td style="font-size:12px">${formatInvigilatorsForSituationReport(d.invigilators, d.room_external_staff, z, splitLines)}</td>
-  <td style="font-size:11px;line-height:1.45;text-align:right">${situationStaffAbsencesReportBlockHtml(d, z)}</td>
   <td style="font-size:11px;line-height:1.45;text-align:right">${situationCheatingReportBlockHtml(d, z)}</td>
+</tr>`;
+}
+
+/** صف الملحق: نفس تعريف الجلسة (للربط) + المشرف والمراقبون وغيابهم فقط */
+function officialDailyStaffAnnexRow(
+  d: ExamSituationDetail,
+  z: typeof escapeHtml,
+  roomPos: number,
+  roomTotal: number
+): string {
+  const roomCol =
+    roomTotal > 1
+      ? `${z(d.room_name)}<br/><span class="muted" style="font-size:11px">قاعة ${roomPos} من ${roomTotal}</span>`
+      : z(d.room_name);
+  return `<tr>
+  <td>${z(formatCollegeStudyStageLabel(d.stage_level))}</td>
+  <td>${studyLevelTierCell(d, z)}</td>
+  <td>${z(d.branch_name)}</td>
+  <td><strong>${z(d.subject_name)}</strong></td>
+  <td>${z(d.instructor_name)}</td>
+  <td>${z(shiftModeLabel(d))}</td>
+  <td>${roomCol}</td>
+  <td style="font-size:11px;line-height:1.4;text-align:right">${formatSupervisorForSituationReport(d.supervisor_name ?? "", d.room_external_staff, z)}</td>
+  <td style="font-size:11px;line-height:1.4;text-align:right">${formatInvigilatorsForSituationReport(d.invigilators, d.room_external_staff, z, splitLines)}</td>
+  <td style="font-size:11px;line-height:1.45;text-align:right">${situationStaffAbsencesReportBlockHtml(d, z)}</td>
 </tr>`;
 }
 
@@ -1212,6 +1236,7 @@ export function buildDailyExamSituationsFinalReportHtml(
     : "عدد المواد الامتحانية لهذا اليوم أو الوجبة";
   const totalsTableHtml = buildOfficialDailyTotalsTableHtml(dailyTotals, z, materialsTotalsHeader);
   const rowChunks: string[] = [];
+  const annexChunks: string[] = [];
   if (details.length === 0) {
     rowChunks.push(
       `<tr><td colspan="${OFFICIAL_DAILY_COLS}" class="muted">لا توجد جلسات مرفوعة لهذا التقرير.</td></tr>`
@@ -1220,7 +1245,9 @@ export function buildDailyExamSituationsFinalReportHtml(
     for (const group of groups) {
       const n = group.length;
       if (n === 1) {
-        rowChunks.push(officialDailyDataRow(group[0]!, z, 1, 1));
+        const only = group[0]!;
+        rowChunks.push(officialDailyDataRow(only, z, 1, 1));
+        annexChunks.push(officialDailyStaffAnnexRow(only, z, 1, 1));
         continue;
       }
       let cap = 0;
@@ -1236,6 +1263,7 @@ export function buildDailyExamSituationsFinalReportHtml(
         const src = merged.trim() || (d.absence_names ?? "").trim();
         if (src) nameChunks.push(src);
         rowChunks.push(officialDailyDataRow(d, z, i + 1, n));
+        annexChunks.push(officialDailyStaffAnnexRow(d, z, i + 1, n));
       }
       const absenceSorted = sortUniqueAbsenceNamesLocal(nameChunks.join("\n"));
       const head = group[0]!;
@@ -1246,9 +1274,37 @@ export function buildDailyExamSituationsFinalReportHtml(
   <td class="tabular"><strong>${abs}</strong></td>
   <td colspan="${OFFICIAL_DAILY_SUBTOTAL_TAIL_COLSPAN}" style="font-size:12px;line-height:1.45"><strong>أسماء الغياب مفرّزة من كل القاعات:</strong><br/>${z(absenceSorted) || "—"}</td>
 </tr>`);
+      annexChunks.push(`<tr class="annex-subtotal-gap">
+  <td colspan="${OFFICIAL_DAILY_ANNEX_COLS}" style="background:#eff6ff;font-size:11px;font-weight:700;color:#1e3a8a;text-align:center;padding:6px 4px">ملحق — نهاية مجموعة ${n} قاعة لنفس الجلسة (${z(head.subject_name)})</td>
+</tr>`);
     }
   }
   const rows = rowChunks.join("\n");
+  const annexRows = annexChunks.join("\n");
+  const annexSectionHtml =
+    details.length === 0
+      ? ""
+      : `<section class="official-annex-wrap" dir="rtl" aria-label="ملحق المشرفين والمراقبين">
+  <h2 class="official-annex-title">الجدول الملحق — المشرفون والمراقبون وغيابهم</h2>
+  <p class="official-annex-hint muted">نفس ترتيب صفوف الجدول الرئيسي؛ يُفصل الملحق لتوسيع الأعمدة وتقليل الازدحام مع الإبقاء على جميع البيانات.</p>
+  <table class="table-official table-official-annex">
+    <thead>
+      <tr>
+        <th>المرحلة<br/>الدراسية</th>
+        <th>المستوى الدراسي<br/>(أولية / عليا)</th>
+        <th>القسم</th>
+        <th>المادة<br/>الدراسية</th>
+        <th>اسم<br/>التدريسي</th>
+        <th>نوع الدوام<br/>بالقاعة</th>
+        <th>القاعة<br/>الامتحانية</th>
+        <th>مشرف<br/>القاعة</th>
+        <th>المراقبون</th>
+        <th>غياب المشرف أو المراقب<br/><span style="font-weight:600">(السبب والبديل)</span></th>
+      </tr>
+    </thead>
+    <tbody>${annexRows}</tbody>
+  </table>
+</section>`;
   const headerMetaValuesHtml = formatReportHeaderMetaValuesOnlyHtml(details, z);
   const studyTypesHeaderLineHtml = formatStudyTypesHeaderLineHtml(details, z);
   const examTimesHeaderHtml = formatDistinctExamTimesHeaderHtml(details, z);
@@ -1315,6 +1371,15 @@ export function buildDailyExamSituationsFinalReportHtml(
     .table-official .tabular { text-align: center; font-variant-numeric: tabular-nums; }
     .table-official ul.list-dot { width: fit-content; max-width: 100%; margin: 0 auto; padding-inline-start: 1.15em; text-align: start; }
     .subtotal-row td { background: #eff6ff; font-weight: 600; vertical-align: middle; text-align: center; }
+    .official-main-caption { margin: 8px 0 6px; font-size: 12px; font-weight: 700; color: #1e3a8a; text-align: right; }
+    .official-annex-wrap { margin-top: 16px; padding-top: 12px; border-top: 2px dashed #93c5fd; page-break-inside: auto; }
+    .official-annex-title { margin: 0 0 6px; font-size: 15px; font-weight: 800; color: #1e3a8a; text-align: right; }
+    .official-annex-hint { margin: 0 0 10px; font-size: 11px; line-height: 1.45; text-align: right; }
+    .table-official-annex { margin-top: 6px; font-size: 11px; }
+    .table-official-annex thead tr > th,
+    .table-official-annex tbody tr > td { text-align: right; vertical-align: top; }
+    .table-official-annex .tabular { text-align: center; }
+    .annex-subtotal-gap td { border-style: dashed; }
     .muted { color: #6b7280; }
     .list-dot li { margin: 2px 0; }
     .post-table-block { margin-top: 18px; padding-top: 14px; border-top: 2px solid #1e3a8a; }
@@ -1355,6 +1420,7 @@ export function buildDailyExamSituationsFinalReportHtml(
     </div>
   </header>
   ${totalsTableHtml}
+  <p class="official-main-caption">الجدول الرئيسي — المواقف والحضور والغياب وحالات الغش</p>
   <table class="table-official">
     <thead>
       <tr>
@@ -1369,14 +1435,12 @@ export function buildDailyExamSituationsFinalReportHtml(
         <th>الحضور</th>
         <th>الغياب</th>
         <th>الطالب الغائب<br/>(والسبب إن وُجد)</th>
-        <th>مشرف<br/>القاعة</th>
-        <th>المراقبون</th>
-        <th>غياب المشرف أو المراقب<br/><span style="font-weight:600">(السبب والبديل)</span></th>
         <th>حالات الغش<br/><span style="font-weight:600">(الطالب والملاحظات)</span></th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
+  ${annexSectionHtml}
   ${workflowSectionHtml}
   <footer class="footer">نظام رصين لإدارة الامتحانات — جامعة البصرة — للحفظ PDF استخدم الطباعة ثم «حفظ كـ PDF».</footer>
 </body>

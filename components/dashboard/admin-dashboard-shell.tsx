@@ -9,6 +9,7 @@ import {
   getDashboardNavForRole,
   type CollegeNavSection,
 } from "@/components/dashboard/nav-config";
+import { DashboardOnlinePresence } from "@/components/dashboard/dashboard-online-presence";
 import { logoutAction } from "@/app/dashboard/actions";
 
 const C = {
@@ -43,6 +44,10 @@ type Props = {
   collegeNavSections?: CollegeNavSection[];
   /** جذر مسارات القائمة لتمييز الصفحة النشطة (افتراضي: `/dashboard/college`) */
   collegeNavRootPath?: string;
+  /** لتتبّع «من يعمل على النظام الآن» — معرّف المستخدم في الجلسة */
+  presenceUserId: string;
+  /** اسم يظهر لبقية المستخدمين في قائمة المتصلين */
+  presenceDisplayLabel: string;
   children: React.ReactNode;
 };
 
@@ -54,6 +59,8 @@ export function AdminDashboardShell({
   roleDescription,
   collegeNavSections,
   collegeNavRootPath,
+  presenceUserId,
+  presenceDisplayLabel,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -295,6 +302,8 @@ export function AdminDashboardShell({
                 aria-label="بحث"
               />
             </div>
+
+            <DashboardOnlinePresence userId={presenceUserId} displayLabel={presenceDisplayLabel} />
 
             <button
               type="button"

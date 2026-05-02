@@ -30,6 +30,8 @@ export default async function DepartmentLayout({ children }: { children: React.R
           roleDescription="حساب قسم / فرع"
           collegeNavSections={departmentDashboardNavSections}
           collegeNavRootPath="/department"
+          presenceUserId={session.uid}
+          presenceDisplayLabel={`${sidebarTagline} — حساب قسم / فرع (${session.username})`}
         >
           {children}
         </AdminDashboardShell>

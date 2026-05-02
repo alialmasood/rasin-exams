@@ -615,6 +615,106 @@ export type StatusFollowupRow = StatusFollowupScheduleRow | StatusFollowupFormRo
 /** @deprecated استخدم StatusFollowupScheduleRow */
 export type StatusFollowupTableRow = StatusFollowupScheduleRow;
 
+/** عنصر تنبيه لعميد التشكيل — جلسات لم يُؤكد رفع موقفها بعد (`head_submitted_at` فارغ). */
+export type FormationFollowupAlertItem = {
+  schedule_id: string;
+  branch_name: string;
+  subject_name: string;
+  exam_date: string;
+  meal_slot: 1 | 2;
+  dean_status: DeanSituationStatus;
+  is_complete: boolean;
+  /** بانتظار اعتماد رئيس القسم أو الفرع */
+  waiting_department_approval: boolean;
+  /** اعتمد القسم والبيانات مكتملة — يمكن «تأكيد رفع الموقف» من لوحة التشكيل */
+  ready_for_head_confirm: boolean;
+  /** اعتمد القسم لكن بيانات الموقف غير مكتملة في النظام */
+  approved_but_incomplete: boolean;
+};
+
+/** تلخيص يُبنى من `listOfficialExamSituationsForOwner` لصفحة متابعة المواقف (حساب التشكيل فقط). */
+export type FormationFollowupAlerts = {
+  readyForHeadConfirm: FormationFollowupAlertItem[];
+  waitingDeptApproval: FormationFollowupAlertItem[];
+  approvedButIncomplete: FormationFollowupAlertItem[];
+  byBranchReadyForConfirm: { branch_name: string; count: number }[];
+  byBranchWaitingDept: { branch_name: string; count: number }[];
+  byBranchApprovedIncomplete: { branch_name: string; count: number }[];
+  counts: {
+    /** جلسات (مرفوعة/معتمدة في الجدول) ولم يُسجّل تأكيد رفع الموقف من العميد بعد */
+    notHeadSubmittedTotal: number;
+    /** منها: لم يُعتمد الموقف من القسم بعد */
+    notApprovedByDept: number;
+    /** منها: اعتمدها القسم (بغض النظر عن اكتمال البيانات) */
+    approvedByDept: number;
+    /** اعتمد القسم + بيانات مكتملة — جاهزة لتأكيد الرفع */
+    readyForHeadConfirm: number;
+    /** اعتمد القسم لكن البيانات غير مكتملة */
+    approvedButIncomplete: number;
+  };
+};
+
+function countFormationAlertsByBranch(items: FormationFollowupAlertItem[]): { branch_name: string; count: number }[] {
+  const m = new Map<string, number>();
+  for (const x of items) {
+    const b = x.branch_name.trim() || "—";
+    m.set(b, (m.get(b) ?? 0) + 1);
+  }
+  return [...m.entries()]
+    .map(([branch_name, count]) => ({ branch_name, count }))
+    .sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ar"));
+}
+
+/** يُستدعى من صفحة `/dashboard/college/status-followup` لحساب التشكيل فقط. */
+export function buildFormationFollowupAlerts(rows: UploadStatusTableRow[]): FormationFollowupAlerts {
+  const eligible = rows.filter(
+    (r) => r.workflow_status === "SUBMITTED" || r.workflow_status === "APPROVED"
+  );
+  const notUploaded = eligible.filter((r) => !r.is_uploaded);
+
+  const toItem = (r: UploadStatusTableRow): FormationFollowupAlertItem => {
+    const waiting = r.dean_status !== "APPROVED";
+    const approvedIncomplete = r.dean_status === "APPROVED" && !r.is_complete;
+    const ready = r.dean_status === "APPROVED" && r.is_complete;
+    return {
+      schedule_id: r.schedule_id,
+      branch_name: r.branch_name,
+      subject_name: r.subject_name,
+      exam_date: r.exam_date,
+      meal_slot: r.meal_slot,
+      dean_status: r.dean_status,
+      is_complete: r.is_complete,
+      waiting_department_approval: waiting,
+      ready_for_head_confirm: ready,
+      approved_but_incomplete: approvedIncomplete,
+    };
+  };
+
+  const items = notUploaded.map(toItem);
+  const readyForHeadConfirm = items.filter((i) => i.ready_for_head_confirm);
+  const waitingDeptApproval = items.filter((i) => i.waiting_department_approval);
+  const approvedButIncomplete = items.filter((i) => i.approved_but_incomplete);
+
+  const notApprovedByDept = notUploaded.filter((r) => r.dean_status !== "APPROVED").length;
+  const approvedByDept = notUploaded.filter((r) => r.dean_status === "APPROVED").length;
+
+  return {
+    readyForHeadConfirm,
+    waitingDeptApproval,
+    approvedButIncomplete,
+    byBranchReadyForConfirm: countFormationAlertsByBranch(readyForHeadConfirm),
+    byBranchWaitingDept: countFormationAlertsByBranch(waitingDeptApproval),
+    byBranchApprovedIncomplete: countFormationAlertsByBranch(approvedButIncomplete),
+    counts: {
+      notHeadSubmittedTotal: notUploaded.length,
+      notApprovedByDept,
+      approvedByDept,
+      readyForHeadConfirm: readyForHeadConfirm.length,
+      approvedButIncomplete: approvedButIncomplete.length,
+    },
+  };
+}
+
 /** مواقف رُفع موقفها من رئيس القسم — تظهر في «متابعة المواقف». مرتبة من الأحدث رفعاً. */
 export async function listUploadedExamSituationsForFollowup(
   ownerUserId: string,
@@ -1155,29 +1255,51 @@ export async function getExamSituationBundleForOwner(
   return { sessions, active_schedule_id: scheduleId.trim(), aggregates };
 }
 
-/** جلسات يوم امتحاني مرفوع موقفها (للتقرير النهائي اليومي). يُقيَّد بالوجبة عند التمرير `mealSlot`. */
+export type ListUploadedExamSituationDetailsOpts = {
+  mealSlot?: 1 | 2;
+  restrictCollegeSubjectId?: string | null;
+  restrictBranchName?: string | null;
+};
+
+/** جلسات يوم امتحاني مرفوع موقفها (للتقرير النهائي اليومي). يُقيَّد بالوجبة والمادة/القسم عند الحاجة. */
 export async function listUploadedExamSituationDetailsForOwnerExamDate(
   ownerUserId: string,
   examDate: string,
-  mealSlot?: 1 | 2
+  opts?: ListUploadedExamSituationDetailsOpts
 ): Promise<ExamSituationDetail[]> {
   if (!isDatabaseConfigured()) return [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(examDate.trim())) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
-  const mealClause =
-    mealSlot === 1 || mealSlot === 2 ? `AND COALESCE(e.meal_slot, 1) = $3::smallint` : "";
-  const params: unknown[] =
-    mealSlot === 1 || mealSlot === 2
-      ? [ownerUserId, examDate.trim(), mealSlot]
-      : [ownerUserId, examDate.trim()];
+  const mealSlot = opts?.mealSlot;
+  const rid = opts?.restrictCollegeSubjectId?.trim();
+  const branch = opts?.restrictBranchName?.trim();
+  const clauses: string[] = [
+    `e.owner_user_id = $1`,
+    `e.exam_date = $2::date`,
+    `UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')`,
+    `rep.head_submitted_at IS NOT NULL`,
+  ];
+  const params: unknown[] = [ownerUserId, examDate.trim()];
+  let idx = 3;
+  if (mealSlot === 1 || mealSlot === 2) {
+    clauses.push(`COALESCE(e.meal_slot, 1) = $${idx}::smallint`);
+    params.push(mealSlot);
+    idx++;
+  }
+  if (rid) {
+    clauses.push(`e.college_subject_id::text = $${idx}`);
+    params.push(rid);
+    idx++;
+  }
+  if (branch) {
+    clauses.push(`TRIM(COALESCE(c.branch_name::text, '')) = $${idx}`);
+    params.push(branch);
+    idx++;
+  }
   const r = await pool.query<ExamSituationDetailDbRow>(
     `${EXAM_SITUATION_DETAIL_SQL_BASE}
-     WHERE e.owner_user_id = $1
-       AND e.exam_date = $2::date
-       AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
-       AND rep.head_submitted_at IS NOT NULL
-       ${mealClause}
+     WHERE ${clauses.join("\n       AND ")}
      ORDER BY e.start_time ASC, e.created_at ASC`,
     params
   );
@@ -1217,12 +1339,14 @@ export function listExamDatesWithBothMealsFullyComplete(summaries: ExamDayUpload
 /** عدد جلسات كل يوم ولكل وجبة (المرسلة/المعتمدة في الجدول) مقابل المرفوع موقفها — للمتابعة والتقرير لكل وجبة على حدة. */
 export async function listExamDayUploadSummariesForOwner(
   ownerUserId: string,
-  restrictCollegeSubjectId?: string | null
+  restrictCollegeSubjectId?: string | null,
+  restrictBranchName?: string | null
 ): Promise<ExamDayUploadSummary[]> {
   if (!isDatabaseConfigured()) return [];
   await ensureCoreSchema();
   const pool = getDbPool();
   const rid = restrictCollegeSubjectId?.trim();
+  const branch = restrictBranchName?.trim();
   const r = await pool.query<{
     exam_date: string;
     meal_slot: number | string | null;
@@ -1230,18 +1354,33 @@ export async function listExamDayUploadSummariesForOwner(
     uploaded_sessions: string;
   }>(
     rid
-      ? `SELECT e.exam_date::text AS exam_date,
-                COALESCE(e.meal_slot, 1) AS meal_slot,
-                COUNT(*)::text AS total_sessions,
-                SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
-         FROM college_exam_schedules e
-         LEFT JOIN college_exam_situation_reports rep
-                ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
-         WHERE e.owner_user_id = $1
-           AND e.college_subject_id = $2::bigint
-           AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
-         GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
-         ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`
+      ? branch
+        ? `SELECT e.exam_date::text AS exam_date,
+                  COALESCE(e.meal_slot, 1) AS meal_slot,
+                  COUNT(*)::text AS total_sessions,
+                  SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
+           FROM college_exam_schedules e
+           INNER JOIN college_subjects csub ON csub.id = e.college_subject_id
+           LEFT JOIN college_exam_situation_reports rep
+                  ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+           WHERE e.owner_user_id = $1
+             AND e.college_subject_id = $2::bigint
+             AND TRIM(COALESCE(csub.branch_name::text, '')) = $3
+             AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
+           GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
+           ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`
+        : `SELECT e.exam_date::text AS exam_date,
+                  COALESCE(e.meal_slot, 1) AS meal_slot,
+                  COUNT(*)::text AS total_sessions,
+                  SUM(CASE WHEN rep.head_submitted_at IS NOT NULL THEN 1 ELSE 0 END)::text AS uploaded_sessions
+           FROM college_exam_schedules e
+           LEFT JOIN college_exam_situation_reports rep
+                  ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+           WHERE e.owner_user_id = $1
+             AND e.college_subject_id = $2::bigint
+             AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
+           GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
+           ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`
       : `SELECT e.exam_date::text AS exam_date,
                 COALESCE(e.meal_slot, 1) AS meal_slot,
                 COUNT(*)::text AS total_sessions,
@@ -1253,7 +1392,7 @@ export async function listExamDayUploadSummariesForOwner(
            AND UPPER(TRIM(COALESCE(e.workflow_status::text, 'DRAFT'))) IN ('SUBMITTED', 'APPROVED')
          GROUP BY e.exam_date, COALESCE(e.meal_slot, 1)
          ORDER BY e.exam_date ASC, COALESCE(e.meal_slot, 1) ASC`,
-    rid ? [ownerUserId, rid] : [ownerUserId]
+    rid ? (branch ? [ownerUserId, rid, branch] : [ownerUserId, rid]) : [ownerUserId]
   );
   return r.rows.map((row) => ({
     exam_date: row.exam_date,
@@ -1310,7 +1449,7 @@ export async function submitHeadExamSituation(input: {
     return {
       ok: false,
       message:
-        "يجب اعتماد الموقف من العميد أو المعاون العلمي أولاً (زر «اعتماد الموقف») ثم يُفعّل «تأكيد رفع الموقف».",
+        "يجب اعتماد الموقف من رئيس القسم أو الفرع أولاً (زر «اعتماد الموقف» في بوابة القسم) ثم يُفعّل «تأكيد رفع الموقف» لعميد التشكيل.",
     };
   }
   const situation = await getExamSituationDetailForOwner(input.ownerUserId, input.scheduleId.trim());

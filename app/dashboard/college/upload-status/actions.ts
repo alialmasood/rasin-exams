@@ -229,7 +229,7 @@ export async function submitHeadSituationAction(
     return {
       ok: false,
       message:
-        "تأكيد رفع الموقف الرسمي متاح فقط من حساب عميد الكلية/التشكيل عبر صفحة /dashboard/college.",
+        "تأكيد رفع الموقف الرسمي متاح فقط من حساب عميد التشكيل (حساب التشكيل) عبر لوحة الكلية، وبعد اعتماد رئيس القسم أو الفرع للموقف.",
     };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
@@ -275,7 +275,7 @@ export async function approveDeanSituationAction(
     ownerUserId,
     action: "approve",
     resource: "situation_report",
-    summary: `اعتماد الموقف الامتحاني من عميد/معاون (جدول ${scheduleId}).`,
+    summary: `اعتماد الموقف الامتحاني من رئيس قسم/فرع (جدول ${scheduleId}).`,
     details: { scheduleId },
   });
   revalidateCollegePortalSegment("upload-status");

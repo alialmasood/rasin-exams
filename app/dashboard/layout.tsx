@@ -30,6 +30,11 @@ export default async function DashboardLayout({
       profile?.account_kind === "FOLLOWUP" ? "متابعة مركزية" : "حساب كلية";
   }
 
+  const presenceDisplayLabel =
+    session.role === "COLLEGE"
+      ? `${sidebarTagline} — ${roleDescription} (${session.username})`
+      : `${displayName} — ${roleDescription} (${session.username})`;
+
   return (
     <AdminDashboardShell
       username={session.username}
@@ -37,6 +42,8 @@ export default async function DashboardLayout({
       displayName={displayName}
       sidebarTagline={sidebarTagline}
       roleDescription={roleDescription}
+      presenceUserId={session.uid}
+      presenceDisplayLabel={presenceDisplayLabel}
     >
       {children}
     </AdminDashboardShell>
