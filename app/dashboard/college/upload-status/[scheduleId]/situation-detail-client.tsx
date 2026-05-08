@@ -378,6 +378,29 @@ export function SituationDetailClient({
   const hideFinalSituationWorkflowCard =
     detail.is_uploaded && detail.dean_status === "APPROVED";
 
+  /** بعد تأكيد عميد التشكيل لرفع الموقف — لا تعديل من بوابة القسم حتى لو بقيت الكتلة ظاهرة لحالات نادرة. */
+  const departmentSituationReadOnly = isDepartmentPortal && detail.is_uploaded;
+
+  useEffect(() => {
+    if (!departmentSituationReadOnly) return;
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (staffSaveTimer.current) {
+      clearTimeout(staffSaveTimer.current);
+      staffSaveTimer.current = null;
+    }
+    if (cheatingSaveTimer.current) {
+      clearTimeout(cheatingSaveTimer.current);
+      cheatingSaveTimer.current = null;
+    }
+    if (bookletsSaveTimer.current) {
+      clearTimeout(bookletsSaveTimer.current);
+      bookletsSaveTimer.current = null;
+    }
+  }, [departmentSituationReadOnly]);
+
   const capM = detail.capacity_morning;
   const capE = detail.capacity_evening;
   const dualShift = capM > 0 && capE > 0;
@@ -564,6 +587,15 @@ export function SituationDetailClient({
 
   const runAttendancePatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (departmentSituationReadOnly) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "لا يمكن تعديل الموقف بعد تأكيد رفع الموقف من عميد التشكيل.",
+          });
+        }
+        return false;
+      }
       const fd = new FormData();
       fd.set("schedule_id", detail.schedule_id);
       if (detail.capacity_morning > 0 && detail.capacity_evening > 0) {
@@ -604,11 +636,21 @@ export function SituationDetailClient({
       detail.capacity_morning,
       detail.schedule_id,
       router,
+      departmentSituationReadOnly,
     ]
   );
 
   const runStaffAbsencesPatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (departmentSituationReadOnly) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "لا يمكن تعديل الموقف بعد تأكيد رفع الموقف من عميد التشكيل.",
+          });
+        }
+        return false;
+      }
       const v = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
       if (!v.ok) return false;
       const fd = new FormData();
@@ -627,7 +669,7 @@ export function SituationDetailClient({
       router.refresh();
       return true;
     },
-    [detail.schedule_id, invigilatorNameOptions, router, staffAbsences]
+    [detail.schedule_id, invigilatorNameOptions, router, staffAbsences, departmentSituationReadOnly]
   );
 
   const flushStaffAbsencesSave = useCallback(() => {
@@ -645,6 +687,15 @@ export function SituationDetailClient({
 
   const runCheatingCasesPatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (departmentSituationReadOnly) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "لا يمكن تعديل الموقف بعد تأكيد رفع الموقف من عميد التشكيل.",
+          });
+        }
+        return false;
+      }
       const v = validateSituationCheatingCases(cheatingCases);
       if (!v.ok) return false;
       const fd = new FormData();
@@ -661,7 +712,7 @@ export function SituationDetailClient({
       router.refresh();
       return true;
     },
-    [cheatingCases, detail.schedule_id, router]
+    [cheatingCases, detail.schedule_id, router, departmentSituationReadOnly]
   );
 
   const flushCheatingCasesSave = useCallback(() => {
@@ -679,6 +730,15 @@ export function SituationDetailClient({
 
   const runExamBookletsPatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (departmentSituationReadOnly) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "لا يمكن تعديل الموقف بعد تأكيد رفع الموقف من عميد التشكيل.",
+          });
+        }
+        return false;
+      }
       if (bookletsInvalidInput) {
         if (!opts?.silentSuccess) {
           setToast({ type: "err", msg: "أدخل أعداد الدفاتر كأرقام صحيحة غير سالبة." });
@@ -717,6 +777,7 @@ export function SituationDetailClient({
       bookletsUsed,
       detail.schedule_id,
       router,
+      departmentSituationReadOnly,
     ]
   );
 
@@ -784,6 +845,7 @@ export function SituationDetailClient({
   }
 
   function onApproveDean() {
+    if (departmentSituationReadOnly) return;
     startTransition(async () => {
       const saved = await runAttendancePatch({ silentSuccess: true });
       if (!saved) return;
@@ -1031,7 +1093,13 @@ export function SituationDetailClient({
               هذه الصفحة للعرض فقط من حساب عميد التشكيل. تعديل البيانات واعتماد الموقف يتم من بوابة القسم/الفرع.
             </div>
           ) : null}
-          <fieldset className="col-span-12 contents" disabled={!isDepartmentPortal}>
+          {departmentSituationReadOnly ? (
+            <div className="col-span-12 rounded-xl border border-emerald-200/90 bg-emerald-50/95 px-4 py-3 text-sm font-semibold text-emerald-950">
+              تم تأكيد رفع الموقف من عميد التشكيل. هذه الصفحة للعرض فقط — لا يمكن تعديل بيانات الموقف من بوابة
+              القسم/الفرع بعد المصادقة على الرفع.
+            </div>
+          ) : null}
+          <fieldset className="col-span-12 contents" disabled={!isDepartmentPortal || departmentSituationReadOnly}>
           {/* المشرفون والمراقبون: مقاعد القاعة + القاعة والمشرف والمراقبون */}
           <div className="col-span-12">
             <SectionCard icon={<IconSeal className="h-5 w-5" />} title="المشرفون والمراقبون" titleBarStyle="sidebar">

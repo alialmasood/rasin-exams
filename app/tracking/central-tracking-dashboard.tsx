@@ -1019,12 +1019,20 @@ export function CentralTrackingDashboard({
               </select>
             </label>
             <div className="flex items-end">
-              <Link
-                href="/tracking/exam-calendar"
-                className="flex w-full items-center justify-center rounded border border-[#1a3052] bg-[#1e4976] px-3 py-1.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 sm:py-2"
-              >
-                التقويم الامتحاني
-              </Link>
+              <div className="flex w-full items-center gap-2">
+                <Link
+                  href="/tracking/monitoring"
+                  className="flex flex-1 items-center justify-center rounded border border-emerald-800 bg-emerald-700 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 sm:py-2"
+                >
+                  مراقبة القاعات
+                </Link>
+                <Link
+                  href="/tracking/exam-calendar"
+                  className="flex flex-1 items-center justify-center rounded border border-[#1a3052] bg-[#1e4976] px-3 py-1.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#1a3052] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 sm:py-2"
+                >
+                  التقويم الامتحاني
+                </Link>
+              </div>
             </div>
           </div>
         </section>

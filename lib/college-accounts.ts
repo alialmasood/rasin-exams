@@ -123,6 +123,27 @@ export async function listCollegeAccounts(): Promise<CollegeAccountRow[]> {
   }));
 }
 
+/**
+ * أسماء التشكيلات ذات حساب «تشكيل» نشط في النظام — لعرضها في لوحة المراقبة المركزية
+ * حتى في أيام بلا جلسات مسجّلة في الجدول الامتحاني لذلك اليوم.
+ */
+export async function listActiveFormationAccountNames(): Promise<string[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{ formation_name: string }>(
+    `SELECT DISTINCT TRIM(p.formation_name::text) AS formation_name
+     FROM college_account_profiles p
+     INNER JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+     WHERE COALESCE(p.account_kind::text, 'FORMATION') = 'FORMATION'
+       AND UPPER(TRIM(u.status::text)) = 'ACTIVE'
+       AND p.formation_name IS NOT NULL
+       AND TRIM(p.formation_name::text) <> ''
+     ORDER BY formation_name ASC`
+  );
+  return r.rows.map((row) => row.formation_name.trim()).filter(Boolean);
+}
+
 export type CollegeProfileRow = {
   account_kind: CollegeAccountKind;
   formation_name: string | null;

@@ -518,7 +518,7 @@ export async function listCentralTrackingExamRowsForDate(examDate: string): Prom
             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
      WHERE e.exam_date = $1::date
        AND COALESCE(e.workflow_status, 'DRAFT') = 'APPROVED'
-       AND COALESCE(UPPER(p.account_kind::text), 'FORMATION') = 'FORMATION'
+       AND COALESCE(UPPER(p.account_kind::text), 'FORMATION') IN ('FORMATION', 'DEPARTMENT')
      ORDER BY formation_label ASC, c.branch_name ASC, s.subject_name ASC, e.start_time ASC, e.created_at ASC`,
     [d]
   );

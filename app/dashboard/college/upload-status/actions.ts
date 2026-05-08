@@ -5,6 +5,7 @@ import { patchCollegeExamRoomAttendance, type PatchCollegeExamRoomAttendanceInpu
 import {
   approveDeanExamSituation,
   getExamSituationDetailForOwner,
+  type ExamSituationDetail,
   patchScheduleExamBooklets,
   patchScheduleSituationCheatingCases,
   patchScheduleSituationStaffAbsences,
@@ -19,6 +20,18 @@ import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal"
 import { getSession } from "@/lib/session";
 
 export type SituationActionState = { ok: true; message: string } | { ok: false; message: string } | null;
+
+/** بعد تأكيد رفع الموقف من عميد التشكيل — لا تعديل ولا اعتماد إضافي من بوابة القسم. */
+function rejectIfDepartmentSituationFinalized(detail: ExamSituationDetail): SituationActionState | null {
+  if (detail.is_uploaded) {
+    return {
+      ok: false,
+      message:
+        "لا يمكن تعديل الموقف من بوابة القسم/الفرع بعد تأكيد رفع الموقف من عميد التشكيل. الصفحة للعرض فقط.",
+    };
+  }
+  return null;
+}
 
 export async function patchRoomAttendanceForSituationAction(
   _prev: SituationActionState,
@@ -38,6 +51,8 @@ export async function patchRoomAttendanceForSituationAction(
   if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
     return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
   }
+  const blocked = rejectIfDepartmentSituationFinalized(detail);
+  if (blocked) return blocked;
   const cm = detail.capacity_morning;
   const ce = detail.capacity_evening;
   const base = {
@@ -97,6 +112,8 @@ export async function patchSituationExamBookletsAction(
   if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
     return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
   }
+  const blockedBooklets = rejectIfDepartmentSituationFinalized(detail);
+  if (blockedBooklets) return blockedBooklets;
   const res = await patchScheduleExamBooklets({
     ownerUserId,
     scheduleId,
@@ -135,6 +152,8 @@ export async function patchSituationStaffAbsencesAction(
   if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
     return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
   }
+  const blockedStaff = rejectIfDepartmentSituationFinalized(detail);
+  if (blockedStaff) return blockedStaff;
   const supervisorAbsent = String(formData.get("supervisor_absent") ?? "") === "1";
   const supervisorAbsenceReason = String(formData.get("supervisor_absence_reason") ?? "");
   const supervisorSubstituteName = String(formData.get("supervisor_substitute_name") ?? "");
@@ -190,6 +209,8 @@ export async function patchSituationCheatingCasesAction(
   if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
     return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
   }
+  const blockedCheating = rejectIfDepartmentSituationFinalized(detail);
+  if (blockedCheating) return blockedCheating;
   const cheatingReported = String(formData.get("cheating_reported") ?? "") === "1";
   const casesJson = String(formData.get("cheating_cases_json") ?? "[]");
   let cases: { student_name: string; notes: string }[] = [];
@@ -265,6 +286,8 @@ export async function approveDeanSituationAction(
   if (!detail || !departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
     return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
   }
+  const blockedApprove = rejectIfDepartmentSituationFinalized(detail);
+  if (blockedApprove) return blockedApprove;
   const res = await approveDeanExamSituation({
     ownerUserId,
     scheduleId,
