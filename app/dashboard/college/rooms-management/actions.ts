@@ -34,6 +34,39 @@ function mergeAbsenceNames(morning: string, evening: string): string {
 
 const MAX_ROOMS_BULK = 80;
 
+type RoomWithStaffPayload = {
+  roomName: string;
+  supervisorName: string;
+  invigilators: string;
+};
+
+/** JSON من العميل: قاعة + مشرف + مراقبون لكل صف */
+function parseRoomsWithStaffJson(raw: string): RoomWithStaffPayload[] | null {
+  const s = raw.trim();
+  if (!s) return null;
+  try {
+    const parsed = JSON.parse(s) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const out: RoomWithStaffPayload[] = [];
+    const seen = new Set<string>();
+    for (const x of parsed) {
+      if (!x || typeof x !== "object") return null;
+      const roomName = String((x as { roomName?: string }).roomName ?? "").trim();
+      if (roomName.length < 2) return null;
+      if (seen.has(roomName)) continue;
+      seen.add(roomName);
+      out.push({
+        roomName,
+        supervisorName: String((x as { supervisorName?: string }).supervisorName ?? "").trim(),
+        invigilators: String((x as { invigilators?: string }).invigilators ?? "").trim(),
+      });
+    }
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /** سطر لكل قاعة؛ إزالة التكرار مع الحفاظ على الترتيب */
 function parseBulkRoomNames(raw: string): string[] {
   const lines = raw
@@ -145,17 +178,32 @@ export async function createCollegeExamRoomAction(
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const fromJson = parseRoomsWithStaffJson(fdStr(formData, "rooms_with_staff_json"));
   const bulkRaw = fdStr(formData, "room_names_bulk").trim();
   const singleRoom = fdStr(formData, "room_name").trim();
-  const roomNames = bulkRaw ? parseBulkRoomNames(bulkRaw) : singleRoom.length >= 2 ? [singleRoom] : [];
-  if (roomNames.length === 0) {
+  const sharedSupervisor = fdStr(formData, "supervisor_name");
+  const sharedInvigilators = fdStr(formData, "invigilators");
+
+  let roomEntries: RoomWithStaffPayload[];
+  if (fromJson && fromJson.length > 0) {
+    roomEntries = fromJson;
+  } else {
+    const roomNames = bulkRaw ? parseBulkRoomNames(bulkRaw) : singleRoom.length >= 2 ? [singleRoom] : [];
+    roomEntries = roomNames.map((roomName) => ({
+      roomName,
+      supervisorName: sharedSupervisor.trim(),
+      invigilators: sharedInvigilators.trim(),
+    }));
+  }
+
+  if (roomEntries.length === 0) {
     return {
       ok: false,
       message:
-        "أدخل اسم قاعة واحد على الأقل (حرفان فأكثر)، أو املأ خانة «أسماء القاعات» بسطر لكل قاعة.",
+        "أدخل اسم قاعة واحد على الأقل (حرفان فأكثر) في قائمة أسماء القاعات، ثم املأ مشرفاً ومراقبين لكل قاعة إن رغبت.",
     };
   }
-  if (roomNames.length > MAX_ROOMS_BULK) {
+  if (roomEntries.length > MAX_ROOMS_BULK) {
     return { ok: false, message: `يمكن إضافة ${MAX_ROOMS_BULK} قاعة كحد أقصى في عملية واحدة.` };
   }
   const useSplitAttendance = formData.has("s1_att_m");
@@ -166,8 +214,6 @@ export async function createCollegeExamRoomAction(
     ownerUserId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
-    supervisorName: fdStr(formData, "supervisor_name"),
-    invigilators: fdStr(formData, "invigilators"),
     capacityMorning: fdStr(formData, "capacity_morning"),
     capacityEvening: s1.capacityEvening,
     capacityMorning2: hasSecondExam ? fdStr(formData, "capacity_morning_2") : "0",
@@ -186,10 +232,12 @@ export async function createCollegeExamRoomAction(
   };
   let created = 0;
   let lastErr: string | null = null;
-  for (const roomName of roomNames) {
+  for (const entry of roomEntries) {
     const result = await createCollegeExamRoom({
       ...basePayload,
-      roomName,
+      roomName: entry.roomName,
+      supervisorName: entry.supervisorName,
+      invigilators: entry.invigilators,
       serialNo: "",
     });
     if (!result.ok) {
@@ -206,6 +254,7 @@ export async function createCollegeExamRoomAction(
       message: `تم إنشاء ${created} قاعة ثم توقف الحفظ: ${lastErr}`,
     };
   }
+  const roomNames = roomEntries.map((e) => e.roomName);
   if (roomNames.length === 1) {
     void recordCollegeActivityEvent({
       ownerUserId,

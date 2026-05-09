@@ -344,6 +344,93 @@ function RoomFields({
     [invPickSlots]
   );
 
+  /** إضافة جماعية: أسماء القاعات + مشرف ومراقبون لكل قاعة */
+  const [roomNamesText, setRoomNamesText] = useState("");
+  const bulkRoomOrder = useMemo(() => {
+    const lines = roomNamesText
+      .split(/\r?\n/u)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const line of lines) {
+      if (seen.has(line)) continue;
+      seen.add(line);
+      out.push(line);
+    }
+    return out;
+  }, [roomNamesText]);
+  const [perRoomSupervisor, setPerRoomSupervisor] = useState<Record<string, string>>({});
+  const [perRoomInvSlots, setPerRoomInvSlots] = useState<Record<string, [string, string, string, string]>>({});
+  const [perRoomInvFree, setPerRoomInvFree] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!multiRoomNames) return;
+    setPerRoomSupervisor((prev) => {
+      const next: Record<string, string> = {};
+      for (const name of bulkRoomOrder) next[name] = prev[name] ?? "";
+      return next;
+    });
+    setPerRoomInvSlots((prev) => {
+      const next: Record<string, [string, string, string, string]> = {};
+      const empty: [string, string, string, string] = ["", "", "", ""];
+      for (const name of bulkRoomOrder) {
+        next[name] = prev[name] ? ([...prev[name]!] as [string, string, string, string]) : [...empty];
+      }
+      return next;
+    });
+    setPerRoomInvFree((prev) => {
+      const next: Record<string, string> = {};
+      for (const name of bulkRoomOrder) next[name] = prev[name] ?? "";
+      return next;
+    });
+  }, [multiRoomNames, bulkRoomOrder]);
+
+  const supervisorSelectOptionsMulti = useMemo(() => {
+    if (!staffRegistryPicklist?.supervisors.length) return [];
+    const set = new Set(staffRegistryPicklist.supervisors);
+    for (const rn of bulkRoomOrder) {
+      const cur = (perRoomSupervisor[rn] ?? "").trim();
+      if (cur) set.add(cur);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [staffRegistryPicklist?.supervisors, bulkRoomOrder, perRoomSupervisor]);
+
+  const invSelectOptionsMulti = useMemo(() => {
+    if (!staffRegistryPicklist?.invigilators.length) return [];
+    const set = new Set(staffRegistryPicklist.invigilators);
+    for (const rn of bulkRoomOrder) {
+      for (const t of perRoomInvSlots[rn] ?? ["", "", "", ""]) {
+        const x = t.trim();
+        if (x) set.add(x);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [staffRegistryPicklist?.invigilators, bulkRoomOrder, perRoomInvSlots]);
+
+  const roomsWithStaffJson = useMemo(() => {
+    if (!multiRoomNames) return "";
+    return JSON.stringify(
+      bulkRoomOrder.map((roomName) => ({
+        roomName,
+        supervisorName: perRoomSupervisor[roomName] ?? "",
+        invigilators: hasStaffInvigilatorPick
+          ? (perRoomInvSlots[roomName] ?? ["", "", "", ""])
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+              .join("، ")
+          : (perRoomInvFree[roomName] ?? "").trim(),
+      })),
+    );
+  }, [
+    multiRoomNames,
+    bulkRoomOrder,
+    perRoomSupervisor,
+    perRoomInvSlots,
+    perRoomInvFree,
+    hasStaffInvigilatorPick,
+  ]);
+
   const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
 
   useEffect(() => {
@@ -412,29 +499,131 @@ function RoomFields({
       ) : null}
 
       {multiRoomNames ? (
-        <div className="w-full rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
-          <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
-          <textarea
-            name="room_names_bulk"
-            rows={8}
-            defaultValue=""
-            placeholder={"قاعة 101\nقاعة 102\nمعمل الحاسوب"}
-            className="min-h-[9rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-          />
-          <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
-            أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية ونفس السعة والمشرف والمراقبون على{" "}
-            <span className="font-bold">كل</span> القاعات؛ يمكنك لاحقاً تعديل أي قاعة على حدة من جدول القاعات. تُزال الأسطر
-            الفارغة، ولا يُكرر اسم القاعة مرتين في نفس الطلب.
-          </p>
-        </div>
-      ) : null}
-
-      <div
-        className={`grid grid-cols-1 gap-4 ${
-          multiRoomNames ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_minmax(0,1.45fr)]"
-        }`}
-      >
-        {!multiRoomNames ? (
+        <>
+          <div className="w-full rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
+            <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
+            <textarea
+              value={roomNamesText}
+              onChange={(e) => setRoomNamesText(e.target.value)}
+              rows={8}
+              placeholder={"قاعة 101\nقاعة 102\nمعمل الحاسوب"}
+              className="min-h-[9rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+            <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
+              أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية ونفس السعة على كل القاعات؛ أما{" "}
+              <span className="font-bold">مشرف القاعة والمراقبون</span> فتُحدَّد لكل قاعة في بطاقتها أدناه. تُزال الأسطر الفارغة،
+              ولا يُكرر اسم القاعة مرتين في نفس الطلب.
+            </p>
+          </div>
+          <input type="hidden" name="rooms_with_staff_json" value={roomsWithStaffJson} readOnly />
+          {bulkRoomOrder.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm text-[#64748B]">
+              بعد كتابة أسماء القاعات أعلاه ستظهر هنا بطاقة لكل قاعة لاختيار المشرف والمراقبين.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-bold text-[#0F172A]">مشرف ومراقبون لكل قاعة</p>
+              {bulkRoomOrder.map((roomName, idx) => (
+                <div
+                  key={roomName}
+                  className="rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 shadow-sm"
+                >
+                  <p className="mb-3 border-b border-[#E2E8F0] pb-2 text-sm font-extrabold text-[#0F172A]">
+                    <span className="me-2 tabular-nums text-[#64748B]">{idx + 1}.</span>
+                    {roomName}
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <div className="min-w-0">
+                      <label className="mb-1 block text-xs font-semibold text-[#334155]">مشرف القاعة</label>
+                      {hasStaffSupervisorPick ? (
+                        <>
+                          <select
+                            value={perRoomSupervisor[roomName] ?? ""}
+                            onChange={(e) =>
+                              setPerRoomSupervisor((prev) => ({ ...prev, [roomName]: e.target.value }))
+                            }
+                            className={stageSelectClass}
+                          >
+                            <option value="">— بدون / لاحقاً —</option>
+                            {supervisorSelectOptionsMulti.map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-[10px] font-medium text-[#64748B]">من السجل المرجعي لكل قاعة على حدة.</p>
+                        </>
+                      ) : (
+                        <input
+                          value={perRoomSupervisor[roomName] ?? ""}
+                          onChange={(e) =>
+                            setPerRoomSupervisor((prev) => ({ ...prev, [roomName]: e.target.value }))
+                          }
+                          placeholder="يمكن تركه فارغًا"
+                          autoComplete="off"
+                          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0 lg:col-span-2">
+                      <label className="mb-1 block text-xs font-semibold text-[#334155]">
+                        المراقبون
+                        <span className="ms-1 font-normal text-[#64748B]">
+                          {hasStaffInvigilatorPick ? "حتى أربعة من القائمة." : "بحد أقصى 4 أسماء، افصل بفاصلة (، أو ,)."}
+                        </span>
+                      </label>
+                      {hasStaffInvigilatorPick ? (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {([0, 1, 2, 3] as const).map((slotIdx) => (
+                            <div key={slotIdx} className="min-w-0">
+                              <label className="mb-0.5 block text-[10px] font-bold text-[#64748B]">مراقب {slotIdx + 1}</label>
+                              <select
+                                value={perRoomInvSlots[roomName]?.[slotIdx] ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setPerRoomInvSlots((prev) => {
+                                    const cur = [...(prev[roomName] ?? ["", "", "", ""])] as [
+                                      string,
+                                      string,
+                                      string,
+                                      string,
+                                    ];
+                                    cur[slotIdx] = v;
+                                    return { ...prev, [roomName]: cur };
+                                  });
+                                }}
+                                className={stageSelectClass}
+                              >
+                                <option value="">— فارغ —</option>
+                                {invSelectOptionsMulti.map((n) => (
+                                  <option key={`${roomName}-${slotIdx}-${n}`} value={n}>
+                                    {n}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <input
+                          value={perRoomInvFree[roomName] ?? ""}
+                          onChange={(e) =>
+                            setPerRoomInvFree((prev) => ({ ...prev, [roomName]: e.target.value }))
+                          }
+                          placeholder="مثال: أحمد علي، محمد حسن، …"
+                          autoComplete="off"
+                          className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_minmax(0,1.45fr)]">
           <div className="min-w-0">
             <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القاعة</label>
             <input
@@ -445,107 +634,107 @@ function RoomFields({
               className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
             />
           </div>
-        ) : null}
-        <div className="min-w-0">
-          <label className="mb-1 block text-sm font-semibold text-[#334155]">مشرف القاعة</label>
-          {hasStaffSupervisorPick ? (
-            <>
-              <select
-                key={`sup-${(d as Partial<CollegeExamRoomRow>).id ?? "new"}-${(d.supervisor_name ?? "").slice(0, 48)}`}
+          <div className="min-w-0">
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">مشرف القاعة</label>
+            {hasStaffSupervisorPick ? (
+              <>
+                <select
+                  key={`sup-${(d as Partial<CollegeExamRoomRow>).id ?? "new"}-${(d.supervisor_name ?? "").slice(0, 48)}`}
+                  name="supervisor_name"
+                  defaultValue={(d.supervisor_name ?? "").trim()}
+                  className={stageSelectClass}
+                >
+                  <option value="">— بدون / لاحقاً —</option>
+                  {supervisorSelectOptions.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
+                  قائمة منسدلة من السجل المرجعي. لإظهار اسم جديد هنا أضفه من «إدارة المشرفين والمراقبين».
+                </p>
+              </>
+            ) : (
+              <input
                 name="supervisor_name"
-                defaultValue={(d.supervisor_name ?? "").trim()}
-                className={stageSelectClass}
-              >
-                <option value="">— بدون / لاحقاً —</option>
-                {supervisorSelectOptions.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
-                قائمة منسدلة من السجل المرجعي. لإظهار اسم جديد هنا أضفه من «إدارة المشرفين والمراقبين».
-              </p>
-            </>
-          ) : (
-            <input
-              name="supervisor_name"
-              placeholder="يمكن تركه فارغًا وإكماله لاحقًا"
-              defaultValue={d.supervisor_name ?? ""}
-              autoComplete="off"
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-            />
-          )}
+                placeholder="يمكن تركه فارغًا وإكماله لاحقًا"
+                defaultValue={d.supervisor_name ?? ""}
+                autoComplete="off"
+                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+              />
+            )}
+          </div>
+          <div className="min-w-0">
+            <label
+              htmlFor={hasStaffInvigilatorPick ? invSlot1FieldId : invigilatorsFieldId}
+              className="mb-1 block text-sm text-[#334155]"
+            >
+              <span className="font-semibold">المراقبون</span>
+              <span className="ms-2 text-xs font-normal text-[#64748B]">
+                {hasStaffInvigilatorPick ? "حتى أربعة مراقبين من القائمة." : "بحد أقصى 4 أسماء، افصل بينها بفاصلة (، أو ,)."}
+              </span>
+            </label>
+            {hasStaffInvigilatorPick ? (
+              <>
+                <input type="hidden" name="invigilators" value={invigilatorsHiddenValue} readOnly />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([0, 1, 2, 3] as const).map((idx) => (
+                    <div key={idx} className="min-w-0">
+                      <label
+                        htmlFor={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
+                        className="mb-0.5 block text-[10px] font-bold text-[#64748B]"
+                      >
+                        مراقب {idx + 1}
+                      </label>
+                      <select
+                        id={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
+                        value={invPickSlots[idx] ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setInvPickSlots((prev) => {
+                            const next = [...prev];
+                            next[idx] = v;
+                            return next;
+                          });
+                        }}
+                        className={stageSelectClass}
+                      >
+                        <option value="">— فارغ —</option>
+                        {invSelectOptions.map((n) => (
+                          <option key={`${idx}-${n}`} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
+                  قوائم من السجل المرجعي. لإضافة أسماء جديدة استخدم نفس الصفحة المرجعية ثم أعد فتح المودال إن لزم.
+                </p>
+              </>
+            ) : (
+              <input
+                id={invigilatorsFieldId}
+                name="invigilators"
+                placeholder="مثال: أحمد علي، محمد حسن، …"
+                defaultValue={d.invigilators ?? ""}
+                autoComplete="off"
+                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+              />
+            )}
+          </div>
         </div>
-        <div className="min-w-0">
-          <label
-            htmlFor={hasStaffInvigilatorPick ? invSlot1FieldId : invigilatorsFieldId}
-            className="mb-1 block text-sm text-[#334155]"
-          >
-            <span className="font-semibold">المراقبون</span>
-            <span className="ms-2 text-xs font-normal text-[#64748B]">
-              {hasStaffInvigilatorPick ? "حتى أربعة مراقبين من القائمة." : "بحد أقصى 4 أسماء، افصل بينها بفاصلة (، أو ,)."}
-            </span>
-          </label>
-          {hasStaffInvigilatorPick ? (
-            <>
-              <input type="hidden" name="invigilators" value={invigilatorsHiddenValue} readOnly />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {([0, 1, 2, 3] as const).map((idx) => (
-                  <div key={idx} className="min-w-0">
-                    <label
-                      htmlFor={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
-                      className="mb-0.5 block text-[10px] font-bold text-[#64748B]"
-                    >
-                      مراقب {idx + 1}
-                    </label>
-                    <select
-                      id={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
-                      value={invPickSlots[idx] ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setInvPickSlots((prev) => {
-                          const next = [...prev];
-                          next[idx] = v;
-                          return next;
-                        });
-                      }}
-                      className={stageSelectClass}
-                    >
-                      <option value="">— فارغ —</option>
-                      {invSelectOptions.map((n) => (
-                        <option key={`${idx}-${n}`} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
-                قوائم من السجل المرجعي. لإضافة أسماء جديدة استخدم نفس الصفحة المرجعية ثم أعد فتح المودال إن لزم.
-              </p>
-            </>
-          ) : (
-            <input
-              id={invigilatorsFieldId}
-              name="invigilators"
-              placeholder="مثال: أحمد علي، محمد حسن، …"
-              defaultValue={d.invigilators ?? ""}
-              autoComplete="off"
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-            />
-          )}
-        </div>
-      </div>
+      )}
 
       <input type="hidden" name="external_room_staff_json" value={JSON.stringify(extStaff)} readOnly />
 
       <div className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/40 px-4 py-3">
         <p className="text-sm font-bold text-amber-950">مشرف أو مراقبون من خارج تشكيل الكلية (اختياري)</p>
         <p className="text-xs leading-relaxed text-amber-900/85">
-          إن وُجد مشرف أو مراقب من تشكيل آخر، حدّد ذلك هنا مع اسم التشكيل التابع له. أسماء المشرف والمراقبين الداخليين تُعرَف في
-          الحقول أعلاه.
+          إن وُجد مشرف أو مراقب من تشكيل آخر، حدّد ذلك هنا مع اسم التشكيل التابع له. أسماء المشرف والمراقبين الداخليين تُعرَف في{" "}
+          {multiRoomNames ? "بطاقة كل قاعة أعلاه." : "الحقول أعلاه."}
         </p>
         <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-[#334155]">
           <input
