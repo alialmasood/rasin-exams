@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { listAllSituationFormSubmissionsForAdmin } from "@/lib/college-situation-form-submissions";
+import { listAllOfficialExamSituationsForAdmin } from "@/lib/college-exam-situations";
 import { getSession } from "@/lib/session";
 import { AdminSituationsFollowupView } from "./admin-situations-followup-view";
 
@@ -12,7 +12,7 @@ export default async function SituationsFollowupHubPage() {
     redirect("/dashboard/college/status-followup");
   }
 
-  const rows = await listAllSituationFormSubmissionsForAdmin();
+  const rows = await listAllOfficialExamSituationsForAdmin();
 
   return <AdminSituationsFollowupView rows={rows} />;
 }

@@ -1541,3 +1541,225 @@ export async function deleteExamSituationReportForOwner(input: {
   }
   return { ok: true };
 }
+
+export type AdminOfficialSituationFollowupRow = {
+  schedule_id: string;
+  owner_user_id: string;
+  owner_username: string;
+  formation_label: string;
+  branch_name: string;
+  subject_name: string;
+  stage_level: number;
+  exam_date: string;
+  meal_slot: 1 | 2;
+  schedule_type: "FINAL" | "SEMESTER";
+  workflow_status: CollegeExamScheduleRow["workflow_status"];
+  dean_status: DeanSituationStatus;
+  dean_reviewed_at_iso: string | null;
+  is_uploaded: boolean;
+  head_submitted_at_iso: string | null;
+  is_complete: boolean;
+};
+
+/**
+ * كل المواقف الرسمية الظاهرة في صفحة «رفع الموقف» لحسابات التشكيل/القسم — لواجهة الأدمن.
+ * تُرجع الجلسات المرفوعة للمتابعة أو المعتمدة في الجدول، مع حالة اعتماد رئيس القسم/الفرع
+ * وحالة مصادقة (تأكيد رفع) حساب العميد.
+ */
+export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOfficialSituationFollowupRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<{
+    schedule_id: string | number;
+    owner_user_id: string | number;
+    owner_username: string;
+    formation_label: string;
+    branch_name: string;
+    subject_name: string;
+    stage_level: number;
+    exam_date: string;
+    meal_slot: number | string | null;
+    schedule_type: string;
+    workflow_status: string;
+    head_submitted_at: Date | null;
+    dean_status: string | null;
+    dean_reviewed_at: Date | null;
+    capacity_total: number;
+    capacity_morning: number;
+    capacity_evening: number;
+    attendance_count: number;
+    absence_count: number;
+    attendance_morning: number;
+    absence_morning: number;
+    attendance_evening: number;
+    absence_evening: number;
+    absence_names: string | null;
+    absence_names_morning: string | null;
+    absence_names_evening: string | null;
+    exam_booklets_received: number;
+    exam_booklets_used: number;
+    exam_booklets_damaged: number;
+  }>(
+    `SELECT
+        e.id AS schedule_id,
+        e.owner_user_id,
+        u.username::text AS owner_username,
+        COALESCE(
+          NULLIF(TRIM(
+            CASE
+              WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                THEN COALESCE(p.holder_name, '')
+              ELSE COALESCE(p.formation_name, '')
+            END
+          ), ''),
+          u.username::text
+        ) AS formation_label,
+        c.branch_name,
+        s.subject_name,
+        e.stage_level,
+        e.exam_date::text,
+        COALESCE(e.meal_slot, 1) AS meal_slot,
+        e.schedule_type,
+        COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
+        rep.head_submitted_at,
+        rep.dean_status,
+        rep.dean_reviewed_at,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.capacity_total
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.capacity_total_2, 0)
+          ELSE r2.capacity_total
+        END AS capacity_total,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.capacity_morning
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.capacity_morning_2, 0)
+          ELSE r2.capacity_morning
+        END AS capacity_morning,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.capacity_evening
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.capacity_evening_2, 0)
+          ELSE r2.capacity_evening
+        END AS capacity_evening,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.attendance_count
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.attendance_count_2, 0)
+          ELSE r2.attendance_count
+        END AS attendance_count,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_count
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.absence_count_2, 0)
+          ELSE r2.absence_count
+        END AS absence_count,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.attendance_morning
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.attendance_morning_2, 0)
+          ELSE r2.attendance_morning
+        END AS attendance_morning,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_morning
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.absence_morning_2, 0)
+          ELSE r2.absence_morning
+        END AS absence_morning,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.attendance_evening
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.attendance_evening_2, 0)
+          ELSE r2.attendance_evening
+        END AS attendance_evening,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_evening
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(r2.absence_evening_2, 0)
+          ELSE r2.absence_evening
+        END AS absence_evening,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_names
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN r2.absence_names_2
+          ELSE r2.absence_names
+        END AS absence_names,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_names_morning
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN r2.absence_names_morning_2
+          ELSE r2.absence_names_morning
+        END AS absence_names_morning,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_names_evening
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN r2.absence_names_evening_2
+          ELSE r2.absence_names_evening
+        END AS absence_names_evening,
+        COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
+        COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
+        COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
+      FROM college_exam_schedules e
+      INNER JOIN users u ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+      LEFT JOIN college_account_profiles p ON p.user_id = u.id
+      INNER JOIN college_subjects c ON c.id = e.college_subject_id AND c.owner_user_id = e.owner_user_id
+      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id AND s.owner_user_id = e.owner_user_id
+      INNER JOIN college_exam_rooms r2 ON r2.id = e.room_id AND r2.owner_user_id = e.owner_user_id
+      LEFT JOIN college_exam_situation_reports rep
+             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id
+      WHERE COALESCE(e.workflow_status, 'DRAFT') IN ('SUBMITTED', 'APPROVED')
+        AND COALESCE(UPPER(p.account_kind::text), 'FORMATION') IN ('FORMATION', 'DEPARTMENT')
+      ORDER BY e.exam_date DESC, formation_label ASC, c.branch_name ASC, e.start_time ASC, e.id ASC`
+  );
+
+  return r.rows.map((row) => {
+    const dean = normalizeDean(row.dean_status);
+    const cap = Number(row.capacity_total ?? 0);
+    const capM = Number(row.capacity_morning ?? 0);
+    const capE = Number(row.capacity_evening ?? 0);
+    const att = Number(row.attendance_count ?? 0);
+    const abs = Number(row.absence_count ?? 0);
+    const attM = Number(row.attendance_morning ?? 0);
+    const absM = Number(row.absence_morning ?? 0);
+    const attE = Number(row.attendance_evening ?? 0);
+    const absE = Number(row.absence_evening ?? 0);
+    const useShift = capM > 0 || capE > 0;
+    const bRec = Number(row.exam_booklets_received ?? 0);
+    const bUsed = Number(row.exam_booklets_used ?? 0);
+    const bDmg = Number(row.exam_booklets_damaged ?? 0);
+    const bookletsOk = isSituationExamBookletsDatasetComplete(bRec, bUsed, bDmg);
+    const is_complete =
+      (useShift
+        ? isSituationShiftAttendanceComplete(
+            capM,
+            capE,
+            attM,
+            absM,
+            attE,
+            absE,
+            row.absence_names_morning,
+            row.absence_names_evening
+          )
+        : isSituationAttendanceDatasetComplete(cap, att, abs, row.absence_names)) && bookletsOk;
+    const headSubmitted = row.head_submitted_at?.toISOString() ?? null;
+    return {
+      schedule_id: String(row.schedule_id),
+      owner_user_id: String(row.owner_user_id),
+      owner_username: row.owner_username,
+      formation_label: row.formation_label?.trim() || row.owner_username,
+      branch_name: row.branch_name ?? "—",
+      subject_name: row.subject_name ?? "—",
+      stage_level: Number(row.stage_level ?? 1),
+      exam_date: row.exam_date,
+      meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
+      schedule_type: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
+      workflow_status: normalizeWorkflowStatusDb(row.workflow_status),
+      dean_status: dean,
+      dean_reviewed_at_iso: row.dean_reviewed_at?.toISOString() ?? null,
+      is_uploaded: Boolean(headSubmitted),
+      head_submitted_at_iso: headSubmitted,
+      is_complete,
+    };
+  });
+}

@@ -1,4 +1,4 @@
-import type { AdminSituationFormSubmissionView } from "@/lib/college-situation-form-submissions";
+import type { AdminOfficialSituationFollowupRow } from "@/lib/college-exam-situations";
 
 function formatNum(n: number): string {
   try {
@@ -31,18 +31,13 @@ function formatSubmittedAt(iso: string): string {
   }
 }
 
-function parseIntSafe(s: string): number {
-  const n = parseInt(String(s ?? "").trim(), 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function buildGroups(rows: AdminSituationFormSubmissionView[]) {
-  const byDate = new Map<string, Map<string, AdminSituationFormSubmissionView[]>>();
+function buildGroups(rows: AdminOfficialSituationFollowupRow[]) {
+  const byDate = new Map<string, Map<string, AdminOfficialSituationFollowupRow[]>>();
   for (const row of rows) {
-    const d = row.payload.examDate.trim() || "—";
+    const d = row.exam_date.trim() || "—";
     if (!byDate.has(d)) byDate.set(d, new Map());
     const inner = byDate.get(d)!;
-    const f = row.formationLabel.trim() || "—";
+    const f = row.formation_label.trim() || "—";
     if (!inner.has(f)) inner.set(f, []);
     inner.get(f)!.push(row);
   }
@@ -51,30 +46,44 @@ function buildGroups(rows: AdminSituationFormSubmissionView[]) {
   return { byDate, dates };
 }
 
-function computeStats(rows: AdminSituationFormSubmissionView[]) {
+function computeStats(rows: AdminOfficialSituationFollowupRow[]) {
   const formationSet = new Set<string>();
   const daySet = new Set<string>();
-  let totalStudents = 0;
-  let totalAbsent = 0;
-  let totalRooms = 0;
+  let deptApproved = 0;
+  let deptNotApproved = 0;
+  let deanAuthenticated = 0;
+  let deanNotAuthenticated = 0;
   for (const r of rows) {
-    formationSet.add(r.formationLabel);
-    daySet.add(r.payload.examDate);
-    totalStudents += parseIntSafe(r.payload.studentCount);
-    totalAbsent += parseIntSafe(r.payload.absentCount);
-    totalRooms += parseIntSafe(r.payload.roomCount);
+    formationSet.add(r.formation_label);
+    daySet.add(r.exam_date);
+    if (r.dean_status === "APPROVED") deptApproved++;
+    else deptNotApproved++;
+    if (r.is_uploaded) deanAuthenticated++;
+    else deanNotAuthenticated++;
   }
   return {
-    totalSubmissions: rows.length,
+    totalRows: rows.length,
     distinctFormations: formationSet.size,
     distinctExamDays: daySet.size,
-    totalStudents,
-    totalAbsent,
-    totalRooms,
+    deptApproved,
+    deptNotApproved,
+    deanAuthenticated,
+    deanNotAuthenticated,
   };
 }
 
-export function AdminSituationsFollowupView({ rows }: { rows: AdminSituationFormSubmissionView[] }) {
+function deptApprovalLabel(s: AdminOfficialSituationFollowupRow["dean_status"]): string {
+  if (s === "APPROVED") return "معتمد من رئيس القسم/الفرع";
+  if (s === "REJECTED") return "مرفوض من رئيس القسم/الفرع";
+  if (s === "PENDING") return "قيد مراجعة رئيس القسم/الفرع";
+  return "غير معتمد من رئيس القسم/الفرع";
+}
+
+function deanAuthLabel(uploaded: boolean): string {
+  return uploaded ? "مصادق من حساب العميد" : "غير مصادق من حساب العميد";
+}
+
+export function AdminSituationsFollowupView({ rows }: { rows: AdminOfficialSituationFollowupRow[] }) {
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
 
@@ -87,24 +96,25 @@ export function AdminSituationsFollowupView({ rows }: { rows: AdminSituationForm
         />
         <h1 className="text-2xl font-extrabold text-[#0F172A]">متابعة المواقف الامتحانية</h1>
         <p className="mt-1 text-sm text-[#64748B]">
-          مواقف النموذج المُرسلة من صفحة «رفع الموقف الامتحاني» لحسابات التشكيل، مجمّعة حسب{" "}
+          كل المواقف الرسمية من صفحة «رفع الموقف الامتحاني» في حسابات الأقسام والفروع، مجمّعة حسب{" "}
           <strong className="font-semibold text-[#475569]">يوم الامتحان</strong> ثم{" "}
           <strong className="font-semibold text-[#475569]">التشكيل</strong>.
         </p>
       </header>
 
       <section aria-label="إحصائيات موجزة" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard title="مواقف مسجّلة" value={formatNum(stats.totalSubmissions)} hint="إجمالي الإرسالات" accent="blue" />
+        <StatCard title="مواقف مسجّلة" value={formatNum(stats.totalRows)} hint="إجمالي الجلسات" accent="blue" />
         <StatCard title="تشكيلات شاركت" value={formatNum(stats.distinctFormations)} hint="حسابات مالكة" accent="slate" />
         <StatCard title="أيام امتحان" value={formatNum(stats.distinctExamDays)} hint="تواريخ مميّزة" accent="slate" />
-        <StatCard title="مجموع الطلبة (مدرج)" value={formatNum(stats.totalStudents)} hint="من حقول النموذج" accent="emerald" />
-        <StatCard title="مجموع الغياب (مدرج)" value={formatNum(stats.totalAbsent)} hint="من حقول النموذج" accent="amber" />
-        <StatCard title="مجموع القاعات (مدرج)" value={formatNum(stats.totalRooms)} hint="من حقول النموذج" accent="blue" />
+        <StatCard title="معتمد من رئيس القسم/الفرع" value={formatNum(stats.deptApproved)} hint="حالة الاعتماد الداخلي" accent="emerald" />
+        <StatCard title="غير معتمد من رئيس القسم/الفرع" value={formatNum(stats.deptNotApproved)} hint="تحتاج اعتماد رئيس القسم/الفرع" accent="amber" />
+        <StatCard title="مصادق من حساب العميد" value={formatNum(stats.deanAuthenticated)} hint="تم تأكيد رفع الموقف" accent="blue" />
+        <StatCard title="غير مصادق من حساب العميد" value={formatNum(stats.deanNotAuthenticated)} hint="لم يتم تأكيد الرفع بعد" accent="slate" />
       </section>
 
       {rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-6 py-14 text-center text-sm text-[#64748B]">
-          لا توجد مواقف مُرسلة من النموذج بعد. عند تأكيد الإرسال من صفحة التشكيل تظهر هنا تلقائياً.
+          لا توجد مواقف رسمية بعد. تظهر هنا تلقائياً بعد إرسال/اعتماد جداول الامتحان ورفع الموقف من صفحات الأقسام والفروع.
         </div>
       ) : (
         <div className="space-y-10">
@@ -136,37 +146,72 @@ export function AdminSituationsFollowupView({ rows }: { rows: AdminSituationForm
                         <div className="border-b border-[#E2E8F0] bg-white px-3 py-2">
                           <h3 className="text-sm font-extrabold text-[#1E3A8A]">{formationKey}</h3>
                           <p className="text-[11px] text-[#64748B]">
-                            {formatNum(list.length)} موقفاً · المستخدم: {list[0]?.ownerUsername ?? "—"}
+                            {formatNum(list.length)} موقفاً · المستخدم: {list[0]?.owner_username ?? "—"}
                           </p>
                         </div>
                         <div className="overflow-x-auto p-2">
-                          <table className="w-full min-w-[720px] border-collapse text-right text-sm">
+                          <table className="w-full min-w-[980px] border-collapse text-right text-sm">
                             <thead>
                               <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[11px] font-bold text-[#475569]">
                                 <th className="px-2 py-2">ت</th>
+                                <th className="px-2 py-2">اليوم الامتحاني</th>
+                                <th className="px-2 py-2">الوجبة</th>
                                 <th className="px-2 py-2">المادة</th>
-                                <th className="px-2 py-2">القسم</th>
+                                <th className="px-2 py-2">القسم / الفرع</th>
                                 <th className="px-2 py-2">المرحلة</th>
                                 <th className="px-2 py-2">الامتحان</th>
-                                <th className="px-2 py-2">طلبة / غياب</th>
-                                <th className="px-2 py-2">وقت التسجيل</th>
+                                <th className="px-2 py-2">اعتماد رئيس القسم/الفرع</th>
+                                <th className="px-2 py-2">مصادقة العميد</th>
+                                <th className="px-2 py-2">وقت المصادقة</th>
+                                <th className="px-2 py-2">التقرير</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[#F1F5F9]">
                               {list.map((item, idx) => (
-                                <tr key={item.id} className="bg-white hover:bg-[#F0F9FF]/60">
+                                <tr key={item.schedule_id} className="bg-white hover:bg-[#F0F9FF]/60">
                                   <td className="px-2 py-2 font-bold tabular-nums text-[#94A3B8]" lang="en">
                                     {idx + 1}
                                   </td>
-                                  <td className="px-2 py-2 font-semibold text-[#0F172A]">{item.payload.subject}</td>
-                                  <td className="px-2 py-2 text-[#334155]">{item.payload.department}</td>
-                                  <td className="px-2 py-2 text-xs text-[#64748B]">{item.payload.stage}</td>
-                                  <td className="px-2 py-2 text-xs text-[#64748B]">{item.payload.examType}</td>
-                                  <td className="px-2 py-2 font-mono tabular-nums text-xs text-[#334155]" lang="en">
-                                    {item.payload.studentCount || "—"} / {item.payload.absentCount || "—"}
+                                  <td className="px-2 py-2 text-xs text-[#334155]">{formatExamDateAr(item.exam_date)}</td>
+                                  <td className="px-2 py-2 text-xs text-[#334155]">{item.meal_slot === 2 ? "الثانية" : "الأولى"}</td>
+                                  <td className="px-2 py-2 font-semibold text-[#0F172A]">{item.subject_name}</td>
+                                  <td className="px-2 py-2 text-[#334155]">{item.branch_name}</td>
+                                  <td className="px-2 py-2 text-xs text-[#64748B]">المرحلة {item.stage_level}</td>
+                                  <td className="px-2 py-2 text-xs text-[#64748B]">{item.schedule_type === "SEMESTER" ? "نصفي" : "نهائي"}</td>
+                                  <td className="px-2 py-2 text-xs">
+                                    <span
+                                      className={`inline-flex rounded-full px-2 py-1 font-bold ${
+                                        item.dean_status === "APPROVED"
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : item.dean_status === "REJECTED"
+                                            ? "bg-rose-100 text-rose-800"
+                                            : "bg-amber-100 text-amber-800"
+                                      }`}
+                                    >
+                                      {deptApprovalLabel(item.dean_status)}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-xs">
+                                    <span
+                                      className={`inline-flex rounded-full px-2 py-1 font-bold ${
+                                        item.is_uploaded ? "bg-blue-100 text-blue-800" : "bg-slate-200 text-slate-700"
+                                      }`}
+                                    >
+                                      {deanAuthLabel(item.is_uploaded)}
+                                    </span>
                                   </td>
                                   <td className="px-2 py-2 text-[11px] text-[#64748B]" lang="en" dir="ltr">
-                                    {formatSubmittedAt(item.submittedAtIso)}
+                                    {item.head_submitted_at_iso ? formatSubmittedAt(item.head_submitted_at_iso) : "—"}
+                                  </td>
+                                  <td className="px-2 py-2 text-xs">
+                                    <a
+                                      href={`/dashboard/situations-followup/report?ownerUserId=${encodeURIComponent(item.owner_user_id)}&scheduleId=${encodeURIComponent(item.schedule_id)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex rounded-lg border border-[#1E3A8A] bg-white px-2 py-1 font-bold text-[#1E3A8A] transition hover:bg-[#EFF6FF]"
+                                    >
+                                      تقرير الموقف
+                                    </a>
                                   </td>
                                 </tr>
                               ))}
