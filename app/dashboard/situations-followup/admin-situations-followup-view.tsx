@@ -1,4 +1,5 @@
 import type { AdminOfficialSituationFollowupRow } from "@/lib/college-exam-situations";
+import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
 
 function formatNum(n: number): string {
   try {
@@ -83,7 +84,15 @@ function deanAuthLabel(uploaded: boolean): string {
   return uploaded ? "مصادق من حساب العميد" : "غير مصادق من حساب العميد";
 }
 
-export function AdminSituationsFollowupView({ rows }: { rows: AdminOfficialSituationFollowupRow[] }) {
+export function AdminSituationsFollowupView({
+  rows,
+  availableExamDates,
+  defaultExamDate,
+}: {
+  rows: AdminOfficialSituationFollowupRow[];
+  availableExamDates: string[];
+  defaultExamDate: string;
+}) {
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
 
@@ -110,6 +119,40 @@ export function AdminSituationsFollowupView({ rows }: { rows: AdminOfficialSitua
         <StatCard title="غير معتمد من رئيس القسم/الفرع" value={formatNum(stats.deptNotApproved)} hint="تحتاج اعتماد رئيس القسم/الفرع" accent="amber" />
         <StatCard title="مصادق من حساب العميد" value={formatNum(stats.deanAuthenticated)} hint="تم تأكيد رفع الموقف" accent="blue" />
         <StatCard title="غير مصادق من حساب العميد" value={formatNum(stats.deanNotAuthenticated)} hint="لم يتم تأكيد الرفع بعد" accent="slate" />
+      </section>
+
+      <section className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm" aria-label="تقرير يومي رسمي">
+        <h2 className="text-base font-extrabold text-[#0F172A]">التقرير اليومي الرسمي (A4 PDF)</h2>
+        <p className="mt-1 text-xs text-[#64748B]">
+          اطبع تقريرًا رسميًا جدولياً لليوم المحدد يتضمن: التشكيل، القسم/الفرع، المادة، المرحلة، الوجبة، نوع الامتحان، الاعتماد، والمصادقة.
+        </p>
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          method="get"
+          action="/dashboard/situations-followup/daily-report"
+          target="_blank"
+        >
+          <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+            اليوم الامتحاني
+            <select
+              name="examDate"
+              defaultValue={defaultExamDate}
+              className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+            >
+              {availableExamDates.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center rounded-lg border border-[#1E3A8A] bg-[#1E3A8A] px-3 text-sm font-bold text-white transition hover:bg-[#163170]"
+          >
+            طباعة التقرير اليومي / حفظ PDF
+          </button>
+        </form>
       </section>
 
       {rows.length === 0 ? (
@@ -176,7 +219,9 @@ export function AdminSituationsFollowupView({ rows }: { rows: AdminOfficialSitua
                                   <td className="px-2 py-2 text-xs text-[#334155]">{item.meal_slot === 2 ? "الثانية" : "الأولى"}</td>
                                   <td className="px-2 py-2 font-semibold text-[#0F172A]">{item.subject_name}</td>
                                   <td className="px-2 py-2 text-[#334155]">{item.branch_name}</td>
-                                  <td className="px-2 py-2 text-xs text-[#64748B]">المرحلة {item.stage_level}</td>
+                                  <td className="px-2 py-2 text-xs text-[#64748B]">
+                                    {formatCollegeStudyStageLabel(item.stage_level)}
+                                  </td>
                                   <td className="px-2 py-2 text-xs text-[#64748B]">{item.schedule_type === "SEMESTER" ? "نصفي" : "نهائي"}</td>
                                   <td className="px-2 py-2 text-xs">
                                     <span
