@@ -4,6 +4,7 @@ import { AdminDashboardShell } from "@/components/dashboard/admin-dashboard-shel
 import { departmentDashboardNavSections } from "@/components/dashboard/nav-config";
 import { CollegeQuickActionsProvider } from "@/app/dashboard/college/college-quick-actions";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
+import { listDepartmentPortalMotivationFeed } from "@/lib/college-activity-log";
 import { collegePortalDisplayLabel, loadCollegeWorkspaceForPages } from "@/lib/college-portal-scope";
 import { getSession } from "@/lib/session";
 
@@ -20,6 +21,7 @@ export default async function DepartmentLayout({ children }: { children: React.R
   const sidebarTagline = profile ? collegePortalDisplayLabel(profile) : ws.collegeLabel;
   const deptRoleLabel =
     profile?.account_kind === "CENTRAL" ? "حساب كلية مركزي (جميع الفروع)" : "حساب قسم / فرع";
+  const departmentMotivationFeed = await listDepartmentPortalMotivationFeed(ws.dataOwnerUserId, 6);
 
   return (
     <CollegePortalBasePathProvider value="/department">
@@ -32,6 +34,7 @@ export default async function DepartmentLayout({ children }: { children: React.R
           roleDescription={deptRoleLabel}
           collegeNavSections={departmentDashboardNavSections}
           collegeNavRootPath="/department"
+          departmentMotivationFeed={departmentMotivationFeed}
           presenceUserId={session.uid}
           presenceDisplayLabel={`${sidebarTagline} — ${deptRoleLabel} (${session.username})`}
         >

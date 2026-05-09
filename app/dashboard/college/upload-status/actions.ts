@@ -303,6 +303,17 @@ export async function submitHeadSituationAction(
   }
   const res = await submitHeadExamSituation({ ownerUserId, scheduleId });
   if (!res.ok) return res;
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "submit",
+    resource: "situation_official_upload",
+    summary: `تأكيد رفع الموقف الامتحاني رسمياً (عميد التشكيل) — جدول ${scheduleId}.`,
+    details: {
+      scheduleId,
+      branchName: detail.branch_name,
+      collegeSubjectId: detail.college_subject_id,
+    },
+  });
   revalidateCollegePortalSegment("upload-status");
   revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
   revalidateCollegePortalSegment("status-followup");
@@ -340,7 +351,11 @@ export async function approveDeanSituationAction(
     action: "approve",
     resource: "situation_report",
     summary: `اعتماد الموقف الامتحاني من رئيس قسم/فرع (جدول ${scheduleId}).`,
-    details: { scheduleId },
+    details: {
+      scheduleId,
+      branchName: detail.branch_name,
+      collegeSubjectId: detail.college_subject_id,
+    },
   });
   revalidateCollegePortalSegment("upload-status");
   revalidateCollegePortalSegment(`upload-status/${scheduleId}`);

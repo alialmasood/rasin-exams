@@ -9,6 +9,7 @@ import {
   getDashboardNavForRole,
   type CollegeNavSection,
 } from "@/components/dashboard/nav-config";
+import type { DepartmentPortalMotivationLine } from "@/lib/college-activity-log";
 import { DashboardOnlinePresence } from "@/components/dashboard/dashboard-online-presence";
 import { DashboardChatFab } from "@/components/dashboard/dashboard-chat-fab";
 import { logoutAction } from "@/app/dashboard/actions";
@@ -45,6 +46,8 @@ type Props = {
   collegeNavSections?: CollegeNavSection[];
   /** جذر مسارات القائمة لتمييز الصفحة النشطة (افتراضي: `/dashboard/college`) */
   collegeNavRootPath?: string;
+  /** بوابة القسم فقط: آخر اعتمادات موقف / تأكيدات رفع لتحفيز العمل */
+  departmentMotivationFeed?: DepartmentPortalMotivationLine[];
   /** لتتبّع «من يعمل على النظام الآن» — معرّف المستخدم في الجلسة */
   presenceUserId: string;
   /** اسم يظهر لبقية المستخدمين في قائمة المتصلين */
@@ -60,6 +63,7 @@ export function AdminDashboardShell({
   roleDescription,
   collegeNavSections,
   collegeNavRootPath,
+  departmentMotivationFeed,
   presenceUserId,
   presenceDisplayLabel,
   children,
@@ -74,6 +78,8 @@ export function AdminDashboardShell({
   const isCollegePortal = role === "COLLEGE";
   const collegeNavResolved = collegeNavSections ?? collegeDashboardNavSections;
   const collegeNavRoot = collegeNavRootPath ?? "/dashboard/college";
+  const showDeptMotivation =
+    isCollegePortal && collegeNavRoot === "/department" && (departmentMotivationFeed?.length ?? 0) > 0;
   /** أسفل الشريط: للكلية اسم التشكيل/الكلية فقط؛ لغيرها اسم العرض في الواجهة. */
   const sidebarFooterLabel =
     (isCollegePortal ? sidebarTagline : displayName).trim() || username.trim();
@@ -217,6 +223,42 @@ export function AdminDashboardShell({
           })
         )}
       </nav>
+
+      {showDeptMotivation ? (
+        <div
+          className="shrink-0 border-t border-white/15 px-3 py-2.5"
+          aria-label="تحديثات تشجيعية — إنجازات المواقف الامتحانية"
+        >
+          <p className="mb-1.5 px-1 text-[10px] font-bold tracking-tight text-amber-200/95">
+            إنجازات حديثة في التشكيل
+          </p>
+          <ul className="max-h-[10rem] space-y-2 overflow-y-auto overscroll-contain pr-0.5 [scrollbar-color:rgba(255,255,255,0.35)_transparent]">
+            {departmentMotivationFeed!.map((line) => (
+              <li key={line.id}>
+                {line.scheduleId ? (
+                  <Link
+                    href={`/department/upload-status/${line.scheduleId}`}
+                    className="block rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold leading-snug text-white/95 transition hover:bg-white/12 hover:text-white"
+                  >
+                    <span
+                      className={`mb-0.5 block text-[9px] font-bold uppercase tracking-wide opacity-80 ${
+                        line.kind === "dean_confirmed" ? "text-amber-200" : "text-sky-200"
+                      }`}
+                    >
+                      {line.kind === "dean_confirmed" ? "مصادقة رفع" : "اعتماد موقف"}
+                    </span>
+                    {line.message}
+                  </Link>
+                ) : (
+                  <span className="block rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold leading-snug text-white/90">
+                    {line.message}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="shrink-0 border-t border-white/15">
         <div className="flex items-center gap-3 px-4 py-4">

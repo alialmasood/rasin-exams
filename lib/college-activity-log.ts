@@ -73,3 +73,61 @@ export async function listCollegeActivityLogForOwner(
         : null,
   }));
 }
+
+/** سطر يُعرَض في الشريط الجانبي لبوابة القسم — تحفيز بإنجازات الأقسام/مصادقة العميد */
+export type DepartmentPortalMotivationLine = {
+  id: string;
+  kind: "branch_approved" | "dean_confirmed";
+  message: string;
+  scheduleId: string | null;
+  createdAtIso: string;
+};
+
+function detailString(d: Record<string, unknown> | null, key: string): string {
+  if (!d) return "";
+  const v = d[key];
+  return typeof v === "string" ? v.trim() : "";
+}
+
+export function motivationLineFromActivityRow(row: CollegeActivityLogRow): DepartmentPortalMotivationLine | null {
+  const d = row.details;
+  const scheduleId = detailString(d, "scheduleId");
+  const branchName = detailString(d, "branchName");
+
+  if (row.resource === "situation_report" && row.action === "approve") {
+    const scope = branchName ? `قسم/فرع «${branchName}»` : "أحد الأقسام أو الفروع";
+    return {
+      id: row.id,
+      kind: "branch_approved",
+      message: `${scope} اعتمد الموقف الامتحاني.`,
+      scheduleId: scheduleId || null,
+      createdAtIso: row.created_at.toISOString(),
+    };
+  }
+  if (row.resource === "situation_official_upload" && row.action === "submit") {
+    const scope = branchName ? `جلسة لـ «${branchName}»` : "جلسة امتحانية";
+    return {
+      id: row.id,
+      kind: "dean_confirmed",
+      message: `تم تأكيد رفع الموقف رسمياً (مصادقة عميد التشكيل) — ${scope}.`,
+      scheduleId: scheduleId || null,
+      createdAtIso: row.created_at.toISOString(),
+    };
+  }
+  return null;
+}
+
+/** آخر الأحداث المرتبطة بالموقف الامتحاني لعرضها في بوابة القسم */
+export async function listDepartmentPortalMotivationFeed(
+  ownerUserId: string,
+  limit = 6
+): Promise<DepartmentPortalMotivationLine[]> {
+  const rows = await listCollegeActivityLogForOwner(ownerUserId, 200);
+  const out: DepartmentPortalMotivationLine[] = [];
+  for (const r of rows) {
+    const line = motivationLineFromActivityRow(r);
+    if (line) out.push(line);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
