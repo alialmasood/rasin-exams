@@ -1120,39 +1120,30 @@ export function ExamSchedulesPanel({
                 <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                   لا توجد قاعة مُعرَّفة لهذه المادة. أضف قاعة أو أكثر من «إدارة القاعات» واربطها بنفس المادة الدراسية.
                 </p>
-              ) : form.id ? (
-                <select
-                  value={form.roomIds[0] ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, roomIds: e.target.value ? [e.target.value] : [] }))}
-                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="">اختر القاعة</option>
-                  {roomsForSelectedSubject.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {roomSelectOptionLabel(r)}
-                    </option>
-                  ))}
-                </select>
               ) : (
                 <div className="max-h-52 space-y-2 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2">
-                  <div className="mb-1 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-[#1D4ED8] underline"
-                      onClick={() =>
-                        setForm((f) => ({ ...f, roomIds: roomsForSelectedSubject.map((r) => r.id) }))
-                      }
-                    >
-                      تحديد كل القاعات المعروضة
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-[#64748B] underline"
-                      onClick={() => setForm((f) => ({ ...f, roomIds: [] }))}
-                    >
-                      إلغاء التحديد
-                    </button>
-                  </div>
+                  {form.id ? (
+                    <p className="mb-1 text-xs text-[#64748B]">عند التعديل يُسمح بقاعة واحدة؛ اختر المربع المناسب.</p>
+                  ) : (
+                    <div className="mb-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-[#1D4ED8] underline"
+                        onClick={() =>
+                          setForm((f) => ({ ...f, roomIds: roomsForSelectedSubject.map((r) => r.id) }))
+                        }
+                      >
+                        تحديد كل القاعات المعروضة
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-[#64748B] underline"
+                        onClick={() => setForm((f) => ({ ...f, roomIds: [] }))}
+                      >
+                        إلغاء التحديد
+                      </button>
+                    </div>
+                  )}
                   {roomsForSelectedSubject.map((r) => (
                     <label
                       key={r.id}
@@ -1163,12 +1154,19 @@ export function ExamSchedulesPanel({
                         className="mt-1"
                         checked={form.roomIds.includes(r.id)}
                         onChange={() =>
-                          setForm((f) => ({
-                            ...f,
-                            roomIds: f.roomIds.includes(r.id)
-                              ? f.roomIds.filter((x) => x !== r.id)
-                              : [...f.roomIds, r.id],
-                          }))
+                          setForm((f) => {
+                            if (f.id) {
+                              const next =
+                                f.roomIds.includes(r.id) && f.roomIds.length === 1 ? [] : [r.id];
+                              return { ...f, roomIds: next };
+                            }
+                            return {
+                              ...f,
+                              roomIds: f.roomIds.includes(r.id)
+                                ? f.roomIds.filter((x) => x !== r.id)
+                                : [...f.roomIds, r.id],
+                            };
+                          })
                         }
                       />
                       <span className="text-sm text-[#334155]">{roomSelectOptionLabel(r)}</span>

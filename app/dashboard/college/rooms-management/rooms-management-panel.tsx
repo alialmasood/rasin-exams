@@ -188,6 +188,33 @@ function roomStageExportLabel(level: number): string {
   return `${formatCollegeStudyLevelTierLabel(lv)} — ${formatCollegeStudyStageLabel(lv)}`;
 }
 
+/** نص واحد للبحث النصي في القاعة (بدون اعتماد على تطبيع أحرف عربية متقدم) */
+function buildRoomRowSearchHaystack(r: CollegeExamRoomRow): string {
+  const ext = r.external_room_staff;
+  const extBits = [
+    ext.supervisor_formation_name,
+    ...ext.external_invigilators.flatMap((x) => [x.name, x.formation_name]),
+  ];
+  const parts = [
+    r.room_name,
+    r.supervisor_name,
+    r.supervisor_name_2 ?? "",
+    r.invigilators,
+    r.invigilators_2 ?? "",
+    r.study_subject_name,
+    r.study_subject_name_2 ?? "",
+    roomStageExportLabel(r.stage_level ?? 1),
+    r.study_subject_id_2 ? roomStageExportLabel(Number(r.stage_level_2 ?? 1)) : "",
+    r.absence_names,
+    r.absence_names_2 ?? "",
+    r.study_subject_instructor_name,
+    r.study_subject_instructor_name_2 ?? "",
+    String(r.serial_no),
+    ...extBits,
+  ];
+  return parts.join(" ");
+}
+
 function RoomFields({
   subjects,
   collegeLabel,
@@ -1259,6 +1286,103 @@ export function RoomsManagementPanel({
   /** تفاصيل القاعة مثبتة أسفل الشاشة حتى يغلقها المستخدم */
   const [pinnedDetailRowId, setPinnedDetailRowId] = useState<string | null>(null);
   const [reportRow, setReportRow] = useState<CollegeExamRoomRow | null>(null);
+  const [roomSearchQuery, setRoomSearchQuery] = useState("");
+  /** فلترة: فارغ = كل القاعات */
+  const [filterRoomId, setFilterRoomId] = useState("");
+  /** فلترة: فارغ = كل المواد */
+  const [filterSubjectId, setFilterSubjectId] = useState("");
+  /** فلترة: فارغ = كل المراحل (قيمة نصية لرقم المرحلة كما في قاعدة البيانات) */
+  const [filterStageLevel, setFilterStageLevel] = useState("");
+  const roomSearchFieldId = useId();
+
+  const roomFilterOptions = useMemo(
+    () =>
+      [...rows]
+        .sort((a, b) =>
+          a.serial_no !== b.serial_no ? a.serial_no - b.serial_no : String(a.id).localeCompare(String(b.id), "ar"),
+        )
+        .map((r) => ({ id: r.id, label: `${r.serial_no}. ${r.room_name}` })),
+    [rows],
+  );
+
+  const subjectFilterOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      if (!m.has(r.study_subject_id)) m.set(r.study_subject_id, r.study_subject_name);
+      if (r.study_subject_id_2 && !m.has(r.study_subject_id_2)) {
+        m.set(r.study_subject_id_2, r.study_subject_name_2 ?? "");
+      }
+    }
+    return [...m.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ar"));
+  }, [rows]);
+
+  const stageFilterOptions = useMemo(() => {
+    const levels = new Set<number>();
+    for (const r of rows) {
+      levels.add(Number(r.stage_level));
+      if (r.stage_level_2 != null) levels.add(Number(r.stage_level_2));
+    }
+    return [...levels]
+      .sort((a, b) => a - b)
+      .map((lv) => ({ value: String(lv), label: roomStageExportLabel(lv) }));
+  }, [rows]);
+
+  const displayRows = useMemo(() => {
+    const q = roomSearchQuery.trim().toLowerCase();
+    const stageN = filterStageLevel === "" ? null : Number(filterStageLevel);
+    return rows.filter((r) => {
+      if (filterRoomId && r.id !== filterRoomId) return false;
+      if (filterSubjectId && r.study_subject_id !== filterSubjectId && r.study_subject_id_2 !== filterSubjectId) {
+        return false;
+      }
+      if (stageN != null && Number.isFinite(stageN)) {
+        const m1 = Number(r.stage_level);
+        const m2 = r.stage_level_2 != null ? Number(r.stage_level_2) : NaN;
+        if (m1 !== stageN && m2 !== stageN) return false;
+      }
+      if (q && !buildRoomRowSearchHaystack(r).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [rows, roomSearchQuery, filterRoomId, filterSubjectId, filterStageLevel]);
+
+  const clearRoomTableFilters = useCallback(() => {
+    setRoomSearchQuery("");
+    setFilterRoomId("");
+    setFilterSubjectId("");
+    setFilterStageLevel("");
+  }, []);
+
+  useEffect(() => {
+    if (filterRoomId && !rows.some((r) => r.id === filterRoomId)) setFilterRoomId("");
+  }, [rows, filterRoomId]);
+
+  useEffect(() => {
+    if (!filterSubjectId) return;
+    const ok = rows.some(
+      (r) => r.study_subject_id === filterSubjectId || r.study_subject_id_2 === filterSubjectId,
+    );
+    if (!ok) setFilterSubjectId("");
+  }, [rows, filterSubjectId]);
+
+  useEffect(() => {
+    if (filterStageLevel === "") return;
+    const n = Number(filterStageLevel);
+    if (!Number.isFinite(n)) {
+      setFilterStageLevel("");
+      return;
+    }
+    const ok = rows.some((r) => r.stage_level === n || r.stage_level_2 === n);
+    if (!ok) setFilterStageLevel("");
+  }, [rows, filterStageLevel]);
+
+  useEffect(() => {
+    if (!pinnedDetailRowId) return;
+    if (!displayRows.some((r) => r.id === pinnedDetailRowId)) {
+      setPinnedDetailRowId(null);
+    }
+  }, [pinnedDetailRowId, displayRows]);
 
   const stats = useMemo(() => {
     const totalRooms = rows.length;
@@ -1525,6 +1649,104 @@ export function RoomsManagementPanel({
           المرتبطة بتلك المادة، مع توضيح أن أعمدة السعة والحضور في الصف تمثّل <strong>هذه القاعة فقط</strong>.
         </p>
 
+        <div className="space-y-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
+          <p className="text-xs font-bold text-[#334155]">تصفية القاعات والبحث</p>
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+            <div className="min-w-0 flex-1 lg:min-w-[14rem]">
+              <label htmlFor={roomSearchFieldId} className="mb-1 block text-xs font-bold text-[#334155]">
+                بحث نصي
+              </label>
+              <input
+                id={roomSearchFieldId}
+                type="search"
+                value={roomSearchQuery}
+                onChange={(e) => setRoomSearchQuery(e.target.value)}
+                placeholder="قاعة، مادة، مشرف، مراقب، تدريسي…"
+                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none placeholder:text-[#94A3B8] focus:border-[#274092] focus:ring-2 focus:ring-[#274092]/20"
+                autoComplete="off"
+              />
+            </div>
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-3 lg:max-w-4xl">
+              <div className="min-w-0">
+                <label htmlFor={`${roomSearchFieldId}-room`} className="mb-1 block text-xs font-bold text-[#334155]">
+                  القاعة
+                </label>
+                <select
+                  id={`${roomSearchFieldId}-room`}
+                  value={filterRoomId}
+                  onChange={(e) => setFilterRoomId(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-[#274092]"
+                >
+                  <option value="">كل القاعات</option>
+                  {roomFilterOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="min-w-0">
+                <label htmlFor={`${roomSearchFieldId}-subject`} className="mb-1 block text-xs font-bold text-[#334155]">
+                  المادة الامتحانية
+                </label>
+                <select
+                  id={`${roomSearchFieldId}-subject`}
+                  value={filterSubjectId}
+                  onChange={(e) => setFilterSubjectId(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-[#274092]"
+                >
+                  <option value="">كل المواد</option>
+                  {subjectFilterOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="min-w-0">
+                <label htmlFor={`${roomSearchFieldId}-stage`} className="mb-1 block text-xs font-bold text-[#334155]">
+                  المرحلة الدراسية
+                </label>
+                <select
+                  id={`${roomSearchFieldId}-stage`}
+                  value={filterStageLevel}
+                  onChange={(e) => setFilterStageLevel(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-[#274092]"
+                >
+                  <option value="">كل المراحل</option>
+                  {stageFilterOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-end">
+              <button
+                type="button"
+                onClick={clearRoomTableFilters}
+                disabled={
+                  !roomSearchQuery.trim() &&
+                  !filterRoomId &&
+                  !filterSubjectId &&
+                  !filterStageLevel
+                }
+                className="h-11 rounded-xl border border-[#CBD5E1] bg-white px-4 text-sm font-semibold text-[#475569] transition hover:bg-[#F1F5F9] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                مسح التصفية
+              </button>
+            </div>
+          </div>
+        </div>
+        {rows.length > 0 ? (
+          <p className="border-b border-[#E2E8F0] bg-white px-5 py-2 text-xs text-[#64748B]">
+            {displayRows.length === rows.length
+              ? `عرض جميع القاعات (${rows.length}).`
+              : `عرض ${displayRows.length} من أصل ${rows.length} قاعة بعد التصفية.`}
+          </p>
+        ) : null}
+
         <div className="w-full min-w-0 overflow-x-hidden">
           <table className="w-full table-fixed border-collapse text-right">
             <colgroup>
@@ -1625,8 +1847,14 @@ export function RoomsManagementPanel({
                     لا توجد قاعات امتحانية بعد.
                   </td>
                 </tr>
+              ) : displayRows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-[11px] text-[#64748B]" colSpan={11}>
+                    لا توجد نتائج تطابق البحث. جرّب كلمات أخرى أو امسح حقل البحث.
+                  </td>
+                </tr>
               ) : (
-                rows.map((row) => {
+                displayRows.map((row) => {
                   const isMultiDistributed =
                     multiRoomAggSlot1.has(row.study_subject_id) ||
                     (Boolean(row.study_subject_id_2) && multiRoomAggSlot2.has(row.study_subject_id_2!));
