@@ -43,6 +43,11 @@ function splitNameList(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+function parseBulkCapNum(raw: string): number {
+  const n = Number(String(raw).trim());
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
 function StackedNamesCell({ value }: { value: string }) {
   const items = splitNameList(value);
   if (items.length === 0) {
@@ -363,6 +368,8 @@ function RoomFields({
   const [perRoomSupervisor, setPerRoomSupervisor] = useState<Record<string, string>>({});
   const [perRoomInvSlots, setPerRoomInvSlots] = useState<Record<string, [string, string, string, string]>>({});
   const [perRoomInvFree, setPerRoomInvFree] = useState<Record<string, string>>({});
+  const [perRoomCap1, setPerRoomCap1] = useState<Record<string, { m: string; e: string }>>({});
+  const [perRoomCap2, setPerRoomCap2] = useState<Record<string, { m: string; e: string }>>({});
 
   useEffect(() => {
     if (!multiRoomNames) return;
@@ -382,6 +389,20 @@ function RoomFields({
     setPerRoomInvFree((prev) => {
       const next: Record<string, string> = {};
       for (const name of bulkRoomOrder) next[name] = prev[name] ?? "";
+      return next;
+    });
+    setPerRoomCap1((prev) => {
+      const next: Record<string, { m: string; e: string }> = {};
+      for (const name of bulkRoomOrder) {
+        next[name] = prev[name] ?? { m: "0", e: "0" };
+      }
+      return next;
+    });
+    setPerRoomCap2((prev) => {
+      const next: Record<string, { m: string; e: string }> = {};
+      for (const name of bulkRoomOrder) {
+        next[name] = prev[name] ?? { m: "0", e: "0" };
+      }
       return next;
     });
   }, [multiRoomNames, bulkRoomOrder]);
@@ -408,30 +429,71 @@ function RoomFields({
     return [...set].sort((a, b) => a.localeCompare(b, "ar"));
   }, [staffRegistryPicklist?.invigilators, bulkRoomOrder, perRoomInvSlots]);
 
+  const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
+
   const roomsWithStaffJson = useMemo(() => {
     if (!multiRoomNames) return "";
     return JSON.stringify(
-      bulkRoomOrder.map((roomName) => ({
-        roomName,
-        supervisorName: perRoomSupervisor[roomName] ?? "",
-        invigilators: hasStaffInvigilatorPick
-          ? (perRoomInvSlots[roomName] ?? ["", "", "", ""])
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0)
-              .join("، ")
-          : (perRoomInvFree[roomName] ?? "").trim(),
-      })),
+      bulkRoomOrder.map((roomName) => {
+        const cap1 = perRoomCap1[roomName] ?? { m: "0", e: "0" };
+        const cap2 = perRoomCap2[roomName] ?? { m: "0", e: "0" };
+        const base = {
+          roomName,
+          supervisorName: perRoomSupervisor[roomName] ?? "",
+          invigilators: hasStaffInvigilatorPick
+            ? (perRoomInvSlots[roomName] ?? ["", "", "", ""])
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+                .join("، ")
+            : (perRoomInvFree[roomName] ?? "").trim(),
+          capacityMorning: cap1.m,
+          capacityEvening: cap1.e,
+        };
+        return dualExam
+          ? {
+              ...base,
+              capacityMorning2: cap2.m,
+              capacityEvening2: cap2.e,
+            }
+          : base;
+      }),
     );
   }, [
     multiRoomNames,
     bulkRoomOrder,
+    dualExam,
     perRoomSupervisor,
     perRoomInvSlots,
     perRoomInvFree,
+    perRoomCap1,
+    perRoomCap2,
     hasStaffInvigilatorPick,
   ]);
 
-  const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
+  const bulkCapacityTotals = useMemo(() => {
+    if (!multiRoomNames || bulkRoomOrder.length === 0) return null;
+    let sumM1 = 0;
+    let sumE1 = 0;
+    let sumM2 = 0;
+    let sumE2 = 0;
+    for (const name of bulkRoomOrder) {
+      const c1 = perRoomCap1[name] ?? { m: "0", e: "0" };
+      sumM1 += parseBulkCapNum(c1.m);
+      sumE1 += parseBulkCapNum(c1.e);
+      const c2 = perRoomCap2[name] ?? { m: "0", e: "0" };
+      sumM2 += parseBulkCapNum(c2.m);
+      sumE2 += parseBulkCapNum(c2.e);
+    }
+    return {
+      slot1Morning: sumM1,
+      slot1Evening: sumE1,
+      slot1Total: sumM1 + sumE1,
+      slot2Morning: sumM2,
+      slot2Evening: sumE2,
+      slot2Total: sumM2 + sumE2,
+      roomCount: bulkRoomOrder.length,
+    };
+  }, [multiRoomNames, bulkRoomOrder, perRoomCap1, perRoomCap2]);
 
   useEffect(() => {
     if (!dualExam || !exam2SubjectId) return;
@@ -510,11 +572,15 @@ function RoomFields({
               className="min-h-[9rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
             <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
-              أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية ونفس السعة على كل القاعات؛ أما{" "}
-              <span className="font-bold">مشرف القاعة والمراقبون</span> فتُحدَّد لكل قاعة في بطاقتها أدناه. تُزال الأسطر الفارغة،
-              ولا يُكرر اسم القاعة مرتين في نفس الطلب.
+              أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية (والمرحلة) على كل القاعات؛ أما{" "}
+              <span className="font-bold">السعة، ومشرف القاعة، والمراقبون</span> فتُحدَّد لكل قاعة في بطاقتها أدناه. تُزال الأسطر
+              الفارغة، ولا يُكرر اسم القاعة مرتين في نفس الطلب.
             </p>
           </div>
+          <input type="hidden" name="capacity_morning" value="0" readOnly />
+          <input type="hidden" name="capacity_evening" value="0" readOnly />
+          <input type="hidden" name="capacity_morning_2" value="0" readOnly />
+          <input type="hidden" name="capacity_evening_2" value="0" readOnly />
           <input type="hidden" name="rooms_with_staff_json" value={roomsWithStaffJson} readOnly />
           {bulkRoomOrder.length === 0 ? (
             <p className="rounded-lg border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm text-[#64748B]">
@@ -522,7 +588,7 @@ function RoomFields({
             </p>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm font-bold text-[#0F172A]">مشرف ومراقبون لكل قاعة</p>
+              <p className="text-sm font-bold text-[#0F172A]">السعة والمشرف والمراقبون لكل قاعة</p>
               {bulkRoomOrder.map((roomName, idx) => (
                 <div
                   key={roomName}
@@ -617,8 +683,149 @@ function RoomFields({
                       )}
                     </div>
                   </div>
+                  <div className="mt-3 border-t border-[#E2E8F0] pt-3">
+                    <p className="mb-2 text-xs font-bold text-[#334155]">عدد الطلبة المسموح بهم — الامتحان الأول</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold leading-snug text-[#64748B]">
+                          الدوام الصباحي
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={perRoomCap1[roomName]?.m ?? "0"}
+                          onChange={(e) =>
+                            setPerRoomCap1((prev) => ({
+                              ...prev,
+                              [roomName]: {
+                                ...(prev[roomName] ?? { m: "0", e: "0" }),
+                                m: e.target.value,
+                              },
+                            }))
+                          }
+                          className={inputNumberClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold leading-snug text-[#64748B]">
+                          الدوام المسائي
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={perRoomCap1[roomName]?.e ?? "0"}
+                          onChange={(e) =>
+                            setPerRoomCap1((prev) => ({
+                              ...prev,
+                              [roomName]: {
+                                ...(prev[roomName] ?? { m: "0", e: "0" }),
+                                e: e.target.value,
+                              },
+                            }))
+                          }
+                          className={inputNumberClass}
+                        />
+                      </div>
+                    </div>
+                    {dualExam ? (
+                      <>
+                        <p className="mb-2 mt-3 text-xs font-bold text-[#1E3A8A]">عدد الطلبة المسموح بهم — الامتحان الثاني</p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold leading-snug text-[#64748B]">
+                              الدوام الصباحي (المادة الثانية)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={perRoomCap2[roomName]?.m ?? "0"}
+                              onChange={(e) =>
+                                setPerRoomCap2((prev) => ({
+                                  ...prev,
+                                  [roomName]: {
+                                    ...(prev[roomName] ?? { m: "0", e: "0" }),
+                                    m: e.target.value,
+                                  },
+                                }))
+                              }
+                              className={inputNumberClass}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold leading-snug text-[#64748B]">
+                              الدوام المسائي (المادة الثانية)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={perRoomCap2[roomName]?.e ?? "0"}
+                              onChange={(e) =>
+                                setPerRoomCap2((prev) => ({
+                                  ...prev,
+                                  [roomName]: {
+                                    ...(prev[roomName] ?? { m: "0", e: "0" }),
+                                    e: e.target.value,
+                                  },
+                                }))
+                              }
+                              className={inputNumberClass}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               ))}
+              {bulkCapacityTotals ? (
+                <div
+                  className="rounded-xl border border-emerald-300/60 bg-[#ECFDF5] px-4 py-3 shadow-sm"
+                  role="region"
+                  aria-label="ملخص السعة على جميع القاعات"
+                >
+                  <p className="mb-3 text-sm font-extrabold text-[#065F46]">ملخص السعة — مجموع المقاعد على كل القاعات</p>
+                  <p className="mb-2 text-[11px] font-medium text-emerald-900/85">
+                    يعرض النظام مجموع ما أدخلته في بطاقات القاعات أعلاه ({bulkCapacityTotals.roomCount}{" "}
+                    {bulkCapacityTotals.roomCount === 1 ? "قاعة" : "قاعات"}) للتحقق السريع قبل الحفظ.
+                  </p>
+                  <div className="space-y-2 rounded-lg border border-emerald-200/80 bg-white/90 px-3 py-2.5 text-sm text-[#047857]">
+                    <p className="font-bold text-[#0F172A]">الامتحان الأول</p>
+                    <ul className="grid gap-1.5 text-[13px] sm:grid-cols-3">
+                      <li className="flex justify-between gap-2 tabular-nums">
+                        <span className="text-[#64748B]">مجموع الصباحي</span>
+                        <span className="font-bold">{bulkCapacityTotals.slot1Morning}</span>
+                      </li>
+                      <li className="flex justify-between gap-2 tabular-nums">
+                        <span className="text-[#64748B]">مجموع المسائي</span>
+                        <span className="font-bold">{bulkCapacityTotals.slot1Evening}</span>
+                      </li>
+                      <li className="flex justify-between gap-2 border-t border-emerald-100 pt-1.5 tabular-nums sm:border-t-0 sm:pt-0 sm:col-span-1">
+                        <span className="font-extrabold text-[#065F46]">الإجمالي</span>
+                        <span className="text-base font-extrabold text-[#047857]">{bulkCapacityTotals.slot1Total}</span>
+                      </li>
+                    </ul>
+                  </div>
+                  {dualExam ? (
+                    <div className="mt-3 space-y-2 rounded-lg border border-[#93C5FD]/80 bg-[#EFF6FF]/90 px-3 py-2.5 text-sm text-[#1E40AF]">
+                      <p className="font-bold text-[#1E3A8A]">الامتحان الثاني</p>
+                      <ul className="grid gap-1.5 text-[13px] sm:grid-cols-3">
+                        <li className="flex justify-between gap-2 tabular-nums">
+                          <span className="text-[#64748B]">مجموع الصباحي</span>
+                          <span className="font-bold">{bulkCapacityTotals.slot2Morning}</span>
+                        </li>
+                        <li className="flex justify-between gap-2 tabular-nums">
+                          <span className="text-[#64748B]">مجموع المسائي</span>
+                          <span className="font-bold">{bulkCapacityTotals.slot2Evening}</span>
+                        </li>
+                        <li className="flex justify-between gap-2 border-t border-blue-100 pt-1.5 tabular-nums sm:border-t-0 sm:pt-0">
+                          <span className="font-extrabold text-[#1E3A8A]">الإجمالي</span>
+                          <span className="text-base font-extrabold tabular-nums">{bulkCapacityTotals.slot2Total}</span>
+                        </li>
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
         </>
@@ -952,40 +1159,41 @@ function RoomFields({
           )}
         </div>
 
-        <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/90 px-3 py-3">
-          <p className="mb-2 text-sm font-bold text-[#334155]">عدد الطلبة المسموح بهم</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
-                <span className="block text-sm text-[#334155]">الدوام الصباحي</span>
-                عدد الطلبة المسموح بهم (صباحي)
-              </label>
-              <input
-                name="capacity_morning"
-                type="number"
-                min={0}
-                required
-                defaultValue={d.capacity_morning ?? d.capacity_total ?? 0}
-                className={inputNumberClass}
-              />
+        {!multiRoomNames ? (
+          <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC]/90 px-3 py-3">
+            <p className="mb-2 text-sm font-bold text-[#334155]">عدد الطلبة المسموح بهم</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
+                  <span className="block text-sm text-[#334155]">الدوام الصباحي</span>
+                  عدد الطلبة المسموح بهم (صباحي)
+                </label>
+                <input
+                  name="capacity_morning"
+                  type="number"
+                  min={0}
+                  required
+                  defaultValue={d.capacity_morning ?? d.capacity_total ?? 0}
+                  className={inputNumberClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
+                  <span className="block text-sm text-[#334155]">الدوام المسائي</span>
+                  عدد الطلبة المسموح بهم (مسائي)
+                </label>
+                <input
+                  name="capacity_evening"
+                  type="number"
+                  min={0}
+                  required
+                  defaultValue={d.capacity_evening ?? 0}
+                  className={inputNumberClass}
+                />
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
-                <span className="block text-sm text-[#334155]">الدوام المسائي</span>
-                عدد الطلبة المسموح بهم (مسائي)
-              </label>
-              <input
-                name="capacity_evening"
-                type="number"
-                min={0}
-                required
-                defaultValue={d.capacity_evening ?? 0}
-                className={inputNumberClass}
-              />
-            </div>
-          </div>
 
-          {!disableAttendanceFields ? (
+            {!disableAttendanceFields ? (
             <>
               <p className="mb-2 mt-4 text-sm font-bold text-[#334155]">الدوام الصباحي — الحضور والغياب</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1060,14 +1268,30 @@ function RoomFields({
               </div>
             </>
           ) : null}
-        </div>
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed border-[#93C5FD] bg-[#EFF6FF]/50 px-3 py-2 text-xs leading-relaxed text-[#475569]">
+            عند إضافة أكثر من قاعة دفعة واحدة، يُحدَّد عدد الطلبة المسموح بهم (صباحي/مسائي) داخل{" "}
+            <strong>بطاقة كل قاعة</strong> أعلاه لكل امتحان.
+          </p>
+        )}
       </div>
 
       {dualExam ? (
         <div className="space-y-4 rounded-xl border border-dashed border-[#93C5FD] bg-[#EFF6FF]/40 px-4 py-4">
           <p className="text-base font-extrabold text-[#1E3A8A]">الامتحان الثاني</p>
           <p className="text-xs leading-5 text-[#475569]">
-            نفس <strong>مشرف القاعة</strong> و<strong>المراقبون</strong>؛ أدخل المادة الثانية والسعات وحضور كل دوام كما في الامتحان الأول.
+            {multiRoomNames ? (
+              <>
+                نفس <strong>مشرف القاعة</strong> و<strong>المراقبون</strong> لكل قاعة؛ أدخل المادة الثانية والمرحلة أدناه، وأعداد
+                الطلبة لكل قاعة في بطاقتها (قسم «الامتحان الثاني»).
+              </>
+            ) : (
+              <>
+                نفس <strong>مشرف القاعة</strong> و<strong>المراقبون</strong>؛ أدخل المادة الثانية والسعات وحضور كل دوام كما في الامتحان
+                الأول.
+              </>
+            )}
           </p>
 
           <div className="min-w-0">
@@ -1139,40 +1363,41 @@ function RoomFields({
             )}
           </div>
 
-          <div className="rounded-lg border border-[#BFDBFE] bg-white px-3 py-3">
-            <p className="mb-2 text-sm font-bold text-[#334155]">عدد الطلبة المسموح بهم</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
-                  <span className="block text-sm text-[#334155]">الدوام الصباحي</span>
-                  عدد الطلبة المسموح بهم (صباحي)
-                </label>
-                <input
-                  name="capacity_morning_2"
-                  type="number"
-                  min={0}
-                  required
-                  defaultValue={d.capacity_morning_2 ?? 0}
-                  className={inputNumberClass}
-                />
+          {!multiRoomNames ? (
+            <div className="rounded-lg border border-[#BFDBFE] bg-white px-3 py-3">
+              <p className="mb-2 text-sm font-bold text-[#334155]">عدد الطلبة المسموح بهم</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
+                    <span className="block text-sm text-[#334155]">الدوام الصباحي</span>
+                    عدد الطلبة المسموح بهم (صباحي)
+                  </label>
+                  <input
+                    name="capacity_morning_2"
+                    type="number"
+                    min={0}
+                    required
+                    defaultValue={d.capacity_morning_2 ?? 0}
+                    className={inputNumberClass}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
+                    <span className="block text-sm text-[#334155]">الدوام المسائي</span>
+                    عدد الطلبة المسموح بهم (مسائي)
+                  </label>
+                  <input
+                    name="capacity_evening_2"
+                    type="number"
+                    min={0}
+                    required
+                    defaultValue={d.capacity_evening_2 ?? 0}
+                    className={inputNumberClass}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold leading-snug text-[#64748B]">
-                  <span className="block text-sm text-[#334155]">الدوام المسائي</span>
-                  عدد الطلبة المسموح بهم (مسائي)
-                </label>
-                <input
-                  name="capacity_evening_2"
-                  type="number"
-                  min={0}
-                  required
-                  defaultValue={d.capacity_evening_2 ?? 0}
-                  className={inputNumberClass}
-                />
-              </div>
-            </div>
 
-            {!disableAttendanceFields ? (
+              {!disableAttendanceFields ? (
               <>
                 <p className="mb-2 mt-4 text-sm font-bold text-[#334155]">الدوام الصباحي — الحضور والغياب</p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1247,7 +1472,8 @@ function RoomFields({
                 </div>
               </>
             ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

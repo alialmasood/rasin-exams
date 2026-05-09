@@ -38,9 +38,15 @@ type RoomWithStaffPayload = {
   roomName: string;
   supervisorName: string;
   invigilators: string;
+  /** عند الإضافة الجماعية — سعة هذه القاعة (الامتحان الأول) */
+  capacityMorning?: string;
+  capacityEvening?: string;
+  /** عند امتحانين — سعة الامتحان الثاني لهذه القاعة */
+  capacityMorning2?: string;
+  capacityEvening2?: string;
 };
 
-/** JSON من العميل: قاعة + مشرف + مراقبون لكل صف */
+/** JSON من العميل: قاعة + مشرف + مراقبون (+ سعة اختيارية لكل صف) */
 function parseRoomsWithStaffJson(raw: string): RoomWithStaffPayload[] | null {
   const s = raw.trim();
   if (!s) return null;
@@ -55,10 +61,18 @@ function parseRoomsWithStaffJson(raw: string): RoomWithStaffPayload[] | null {
       if (roomName.length < 2) return null;
       if (seen.has(roomName)) continue;
       seen.add(roomName);
+      const cap = (k: string) => {
+        const v = (x as Record<string, unknown>)[k];
+        return typeof v === "string" || typeof v === "number" ? String(v).trim() : undefined;
+      };
       out.push({
         roomName,
         supervisorName: String((x as { supervisorName?: string }).supervisorName ?? "").trim(),
         invigilators: String((x as { invigilators?: string }).invigilators ?? "").trim(),
+        capacityMorning: cap("capacityMorning"),
+        capacityEvening: cap("capacityEvening"),
+        capacityMorning2: cap("capacityMorning2"),
+        capacityEvening2: cap("capacityEvening2"),
       });
     }
     return out.length > 0 ? out : null;
@@ -85,24 +99,27 @@ function parseBulkRoomNames(raw: string): string[] {
 
 const ZERO_SHIFT: ShiftAttendanceSplit = { attM: 0, absM: 0, attE: 0, absE: 0, namesM: "", namesE: "" };
 
+type SlotCapOverride = { capacityMorning: string; capacityEvening: string };
+
 /** عند وجود حقول s1_att_m ندمج صباحي/مسائي؛ وإلا نقرأ attendance_count الكلاسيكي (مثل إضافة قاعة). */
-function slot1FromForm(formData: FormData, useSplitAttendance: boolean) {
+function slot1FromForm(formData: FormData, useSplitAttendance: boolean, capOverride?: SlotCapOverride) {
+  const cmRaw = capOverride?.capacityMorning ?? fdStr(formData, "capacity_morning");
+  const ceRaw = capOverride?.capacityEvening ?? fdStr(formData, "capacity_evening");
   if (!useSplitAttendance) {
-    const capM = toIntStr(fdStr(formData, "capacity_morning"));
-    const capE = toIntStr(fdStr(formData, "capacity_evening"));
+    const capM = toIntStr(cmRaw);
+    const capE = toIntStr(ceRaw);
     const ac = toIntStr(fdStr(formData, "attendance_count"));
     const ab = toIntStr(fdStr(formData, "absence_count"));
     const names = fdStr(formData, "absence_names");
     return {
-      capacityEvening: fdStr(formData, "capacity_evening"),
+      capacityEvening: ceRaw,
       attendanceCount: fdStr(formData, "attendance_count"),
       absenceCount: fdStr(formData, "absence_count"),
       absenceNames: names,
       shiftSplit: inferredShiftFromTotals(capM, capE, ac, ab, names),
     };
   }
-  const capERaw = fdStr(formData, "capacity_evening");
-  const capE = toIntStr(capERaw);
+  const capE = toIntStr(ceRaw);
   const hasEvening = capE > 0;
   const attM = toIntStr(fdStr(formData, "s1_att_m"));
   const attE = hasEvening ? toIntStr(fdStr(formData, "s1_att_e")) : 0;
@@ -119,7 +136,7 @@ function slot1FromForm(formData: FormData, useSplitAttendance: boolean) {
     namesE,
   };
   return {
-    capacityEvening: capERaw || "0",
+    capacityEvening: ceRaw || "0",
     attendanceCount: String(attM + attE),
     absenceCount: String(absM + absE),
     absenceNames: mergeAbsenceNames(namesM, namesE),
@@ -127,7 +144,12 @@ function slot1FromForm(formData: FormData, useSplitAttendance: boolean) {
   };
 }
 
-function slot2FromForm(formData: FormData, useSplitAttendance: boolean, hasSecondExam: boolean) {
+function slot2FromForm(
+  formData: FormData,
+  useSplitAttendance: boolean,
+  hasSecondExam: boolean,
+  capOverride?: SlotCapOverride
+) {
   if (!hasSecondExam) {
     return {
       capacityEvening: "0",
@@ -137,21 +159,23 @@ function slot2FromForm(formData: FormData, useSplitAttendance: boolean, hasSecon
       shiftSplit: ZERO_SHIFT,
     };
   }
+  const cm2Raw = capOverride?.capacityMorning ?? fdStr(formData, "capacity_morning_2");
+  const ce2Raw = capOverride?.capacityEvening ?? fdStr(formData, "capacity_evening_2");
   if (!useSplitAttendance) {
-    const capM = toIntStr(fdStr(formData, "capacity_morning_2"));
-    const capE = toIntStr(fdStr(formData, "capacity_evening_2"));
+    const capM = toIntStr(cm2Raw);
+    const capE = toIntStr(ce2Raw);
     const ac = toIntStr(fdStr(formData, "attendance_count_2"));
     const ab = toIntStr(fdStr(formData, "absence_count_2"));
     const names = fdStr(formData, "absence_names_2");
     return {
-      capacityEvening: fdStr(formData, "capacity_evening_2"),
+      capacityEvening: ce2Raw,
       attendanceCount: fdStr(formData, "attendance_count_2"),
       absenceCount: fdStr(formData, "absence_count_2"),
       absenceNames: names,
       shiftSplit: inferredShiftFromTotals(capM, capE, ac, ab, names),
     };
   }
-  const cap2Raw = fdStr(formData, "capacity_evening_2");
+  const cap2Raw = ce2Raw;
   const cap2 = toIntStr(cap2Raw);
   const hasEvening = cap2 > 0;
   const attM = toIntStr(fdStr(formData, "s2_att_m"));
@@ -208,33 +232,59 @@ export async function createCollegeExamRoomAction(
   }
   const useSplitAttendance = formData.has("s1_att_m");
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
-  const s1 = slot1FromForm(formData, useSplitAttendance);
-  const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam);
-  const basePayload = {
+
+  const sharedBase = {
     ownerUserId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
-    capacityMorning: fdStr(formData, "capacity_morning"),
-    capacityEvening: s1.capacityEvening,
-    capacityMorning2: hasSecondExam ? fdStr(formData, "capacity_morning_2") : "0",
-    capacityEvening2: hasSecondExam ? s2.capacityEvening : "0",
-    attendanceCount: s1.attendanceCount,
-    absenceCount: s1.absenceCount,
-    absenceNames: s1.absenceNames,
-    attendanceCount2: s2.attendanceCount,
-    absenceCount2: s2.absenceCount,
-    absenceNames2: s2.absenceNames,
     stageLevel: fdStr(formData, "stage_level"),
     stageLevel2: fdStr(formData, "stage_level_2"),
-    shift1Attendance: s1.shiftSplit,
-    shift2Attendance: s2.shiftSplit,
     externalRoomStaffJson: fdStr(formData, "external_room_staff_json"),
   };
+
   let created = 0;
   let lastErr: string | null = null;
   for (const entry of roomEntries) {
+    const cap1Ov: SlotCapOverride | undefined = fromJson
+      ? {
+          capacityMorning: entry.capacityMorning ?? fdStr(formData, "capacity_morning"),
+          capacityEvening: entry.capacityEvening ?? fdStr(formData, "capacity_evening"),
+        }
+      : undefined;
+    const cap2Ov: SlotCapOverride | undefined =
+      fromJson && hasSecondExam
+        ? {
+            capacityMorning: entry.capacityMorning2 ?? fdStr(formData, "capacity_morning_2"),
+            capacityEvening: entry.capacityEvening2 ?? fdStr(formData, "capacity_evening_2"),
+          }
+        : undefined;
+
+    const s1 = slot1FromForm(formData, useSplitAttendance, cap1Ov);
+    const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam, cap2Ov);
+
+    const capacityMorning = fromJson
+      ? (entry.capacityMorning ?? fdStr(formData, "capacity_morning"))
+      : fdStr(formData, "capacity_morning");
+    const capacityMorning2 = hasSecondExam
+      ? fromJson
+        ? (entry.capacityMorning2 ?? fdStr(formData, "capacity_morning_2"))
+        : fdStr(formData, "capacity_morning_2")
+      : "0";
+
     const result = await createCollegeExamRoom({
-      ...basePayload,
+      ...sharedBase,
+      capacityMorning,
+      capacityEvening: s1.capacityEvening,
+      capacityMorning2,
+      capacityEvening2: hasSecondExam ? s2.capacityEvening : "0",
+      attendanceCount: s1.attendanceCount,
+      absenceCount: s1.absenceCount,
+      absenceNames: s1.absenceNames,
+      attendanceCount2: s2.attendanceCount,
+      absenceCount2: s2.absenceCount,
+      absenceNames2: s2.absenceNames,
+      shift1Attendance: s1.shiftSplit,
+      shift2Attendance: s2.shiftSplit,
       roomName: entry.roomName,
       supervisorName: entry.supervisorName,
       invigilators: entry.invigilators,
