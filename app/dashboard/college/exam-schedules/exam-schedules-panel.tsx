@@ -66,6 +66,13 @@ const SCHEDULE_TYPE_TABLE_SHORT: Record<ScheduleType, string> = {
   SEMESTER: "فصلي",
 };
 
+/** قيمة القائمة عند اختيار جميع أقسام/فروع التشكيل (بدون قسم ثابت على الحساب) */
+const ALL_COLLEGE_BRANCHES_VALUE = "__ALL_BRANCHES__";
+
+function isAllCollegeBranchesChoice(collegeSubjectId: string): boolean {
+  return collegeSubjectId === ALL_COLLEGE_BRANCHES_VALUE;
+}
+
 function suggestedAcademicYear() {
   const d = new Date();
   const y = d.getFullYear();
@@ -197,8 +204,9 @@ function roomMatchesStudySubject(r: CollegeExamRoomRow, studySubjectId: string):
 }
 
 function buildEmptyExamScheduleForm(fixedCollegeSubjectId: string | null | undefined): FormState {
+  const fixed = fixedCollegeSubjectId?.trim();
   return {
-    collegeSubjectId: fixedCollegeSubjectId?.trim() ?? "",
+    collegeSubjectId: fixed ? fixed : ALL_COLLEGE_BRANCHES_VALUE,
     scheduleType: "FINAL",
     academicYear: suggestedAcademicYear(),
     termLabel: "",
@@ -421,12 +429,18 @@ export function ExamSchedulesPanel({
 
   const availableStudySubjects = useMemo(() => {
     if (!form.collegeSubjectId) return [];
-    const deptId = String(form.collegeSubjectId);
-    return studySubjects.filter((x) => {
-      if (String(x.college_subject_id) !== deptId) return false;
+    const tierFilter = (x: CollegeStudySubjectRow) => {
       const lv = Number(x.study_stage_level);
       const pg = isPostgraduateStudyStageLevel(lv);
       return form.studyTier === "POSTGRAD" ? pg : !pg;
+    };
+    if (isAllCollegeBranchesChoice(form.collegeSubjectId)) {
+      return studySubjects.filter(tierFilter);
+    }
+    const deptId = String(form.collegeSubjectId);
+    return studySubjects.filter((x) => {
+      if (String(x.college_subject_id) !== deptId) return false;
+      return tierFilter(x);
     });
   }, [studySubjects, form.collegeSubjectId, form.studyTier]);
 
@@ -542,6 +556,13 @@ export function ExamSchedulesPanel({
 
   function validateForm(): string | null {
     if (!form.collegeSubjectId) return "يرجى اختيار القسم أو الفرع";
+    if (
+      !branchLockedToDepartment &&
+      !isAllCollegeBranchesChoice(form.collegeSubjectId) &&
+      !subjects.some((s) => s.id === form.collegeSubjectId)
+    ) {
+      return "يرجى اختيار قسم أو فرع صالح.";
+    }
     if (!form.scheduleType) return "يرجى اختيار نوع الجدول";
     if (!form.academicYear.trim()) return "يرجى تحديد العام الدراسي";
     if (!form.termLabel.trim()) return "يرجى اختيار الفصل الدراسي";
@@ -551,6 +572,9 @@ export function ExamSchedulesPanel({
     if (!stageOptionsForForm.includes(stageN)) return "المرحلة المختارة غير متاحة لمستوى الدراسة الحالي";
     const subj = studySubjects.find((s) => s.id === form.studySubjectId);
     if (!subj) return "المادة الدراسية المحددة غير موجودة في القائمة.";
+    if (isAllCollegeBranchesChoice(form.collegeSubjectId) && !subj.college_subject_id?.trim()) {
+      return "لا يمكن تحديد القسم/الفرع من المادة المختارة.";
+    }
     if (subj.study_stage_level !== stageN) {
       return "مرحلة المادة الدراسية المختارة لا تطابق حقل المرحلة — أعد الاختيار أو غيّر المادة.";
     }
@@ -569,9 +593,16 @@ export function ExamSchedulesPanel({
       setToast({ type: "error", msg: err });
       return;
     }
+    const resolvedCollegeSubjectId = isAllCollegeBranchesChoice(form.collegeSubjectId)
+      ? (studySubjects.find((s) => s.id === form.studySubjectId)?.college_subject_id ?? "").trim()
+      : form.collegeSubjectId.trim();
+    if (!resolvedCollegeSubjectId) {
+      setToast({ type: "error", msg: "لا يمكن تحديد القسم/الفرع للجدول." });
+      return;
+    }
     const fd = new FormData();
     if (form.id) fd.set("id", form.id);
-    fd.set("college_subject_id", form.collegeSubjectId);
+    fd.set("college_subject_id", resolvedCollegeSubjectId);
     fd.set("schedule_type", form.scheduleType);
     fd.set("academic_year", form.academicYear.trim());
     fd.set("term_label", form.termLabel);
@@ -917,7 +948,7 @@ export function ExamSchedulesPanel({
                   }
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
                 >
-                  <option value="">اختر القسم/الفرع</option>
+                  <option value={ALL_COLLEGE_BRANCHES_VALUE}>كل الفروع</option>
                   {subjects.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.branch_name} ({s.branch_type === "BRANCH" ? "فرع" : "قسم"})
@@ -1051,16 +1082,24 @@ export function ExamSchedulesPanel({
                 </select>
                 {form.collegeSubjectId ? (
                   <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
-                    {form.studyTier === "POSTGRAD"
-                      ? "تُعرض فقط المواد المعرّفة كدراسات عليا (دبلوم عالي / ماجستير / دكتوراه) ضمن القسم المختار."
-                      : "تُعرض فقط المواد المعرّفة للدراسة الأولية ضمن القسم المختار."}
+                    {isAllCollegeBranchesChoice(form.collegeSubjectId)
+                      ? form.studyTier === "POSTGRAD"
+                        ? "تُعرض مواد الدراسات العليا من جميع أقسام/فروع التشكيل."
+                        : "تُعرض مواد الدراسة الأولية من جميع أقسام/فروع التشكيل."
+                      : form.studyTier === "POSTGRAD"
+                        ? "تُعرض فقط المواد المعرّفة كدراسات عليا (دبلوم عالي / ماجستير / دكتوراه) ضمن القسم المختار."
+                        : "تُعرض فقط المواد المعرّفة للدراسة الأولية ضمن القسم المختار."}
                   </p>
                 ) : null}
                 {form.collegeSubjectId && availableStudySubjects.length === 0 ? (
                   <p className="mt-1.5 text-xs font-medium text-amber-900">
-                    {form.studyTier === "POSTGRAD"
-                      ? "لا توجد مواد دراسية مُعرَّفة للدراسات العليا في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسات العليا (دبلوم / ماجستير / دكتوراه)."
-                      : "لا توجد مواد دراسية مُعرَّفة للدراسة الأولية في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسة الأولية."}
+                    {isAllCollegeBranchesChoice(form.collegeSubjectId)
+                      ? form.studyTier === "POSTGRAD"
+                        ? "لا توجد مواد دراسية مُعرَّفة للدراسات العليا في التشكيل. عرّفها من «المواد الدراسية»."
+                        : "لا توجد مواد دراسية مُعرَّفة للدراسة الأولية في التشكيل. عرّفها من «المواد الدراسية»."
+                      : form.studyTier === "POSTGRAD"
+                        ? "لا توجد مواد دراسية مُعرَّفة للدراسات العليا في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسات العليا (دبلوم / ماجستير / دكتوراه)."
+                        : "لا توجد مواد دراسية مُعرَّفة للدراسة الأولية في هذا القسم. عرّفها من «المواد الدراسية» مع اختيار الدراسة الأولية."}
                   </p>
                 ) : null}
               </div>
@@ -1235,7 +1274,11 @@ export function ExamSchedulesPanel({
         <div className="rounded-3xl border border-[#E2E8F0] bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md">
           <h2 className="text-lg font-bold text-[#0F172A]">التقويم الامتحاني</h2>
           <p className="mt-1 text-xs text-[#64748B]">
-            {SCHEDULE_TYPE_LABEL[form.scheduleType]} | {subjects.find((s) => s.id === form.collegeSubjectId)?.branch_name ?? "—"} | العام: {form.academicYear.trim() || "—"} | الفصل: {form.termLabel ? calendarStripTermLabel(form.termLabel) : "—"}
+            {SCHEDULE_TYPE_LABEL[form.scheduleType]} |{" "}
+            {isAllCollegeBranchesChoice(form.collegeSubjectId)
+              ? "كل الفروع"
+              : subjects.find((s) => s.id === form.collegeSubjectId)?.branch_name ?? "—"}{" "}
+            | العام: {form.academicYear.trim() || "—"} | الفصل: {form.termLabel ? calendarStripTermLabel(form.termLabel) : "—"}
           </p>
           <div className="mt-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
             <div className="mb-3 flex items-center justify-between">

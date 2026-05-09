@@ -12,6 +12,8 @@ import { parseSituationStaffAbsencesFromDb } from "@/lib/situation-staff-absence
 function deserializeSession(s: FollowupExamSituationBundleJson["sessions"][0]): ExamSituationDetail {
   return {
     ...s,
+    room_default_supervisor_name: s.room_default_supervisor_name ?? "",
+    room_default_invigilators: s.room_default_invigilators ?? "",
     head_submitted_at: s.head_submitted_at ? new Date(s.head_submitted_at) : null,
     dean_reviewed_at: s.dean_reviewed_at ? new Date(s.dean_reviewed_at) : null,
     situation_staff_absences: parseSituationStaffAbsencesFromDb(s.situation_staff_absences),

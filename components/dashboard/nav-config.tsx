@@ -30,6 +30,18 @@ function IconUsers() {
   );
 }
 
+function IconStaffRegistry() {
+  return (
+    <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M18 10.5h.008v.008H18V10.5ZM12 12.75c-1.657 0-3-1.343-3-3s1.343-3 3-3 3 1.343 3 3-1.343 3-3 3Zm-7.5 3.75a4.5 4.5 0 0 1 9 0v.75h-9v-.75Z"
+      />
+    </svg>
+  );
+}
+
 function IconBuilding() {
   return (
     <svg className="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -227,6 +239,11 @@ export const departmentDashboardNavSections: CollegeNavSection[] = [
     items: [
       { href: "/department/study-subjects", label: "المواد الدراسية", icon: <IconAcademic /> },
       { href: "/department/rooms-management", label: "إدارة القاعات", icon: <IconBuilding /> },
+      {
+        href: "/department/staff-registry",
+        label: "إدارة المشرفين والمراقبين",
+        icon: <IconStaffRegistry />,
+      },
     ],
   },
   {

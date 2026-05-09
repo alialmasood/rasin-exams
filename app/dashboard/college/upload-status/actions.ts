@@ -8,6 +8,7 @@ import {
   type ExamSituationDetail,
   patchScheduleExamBooklets,
   patchScheduleSituationCheatingCases,
+  patchScheduleSituationRoomStaff,
   patchScheduleSituationStaffAbsences,
   submitHeadExamSituation,
 } from "@/lib/college-exam-situations";
@@ -190,6 +191,45 @@ export async function patchSituationStaffAbsencesAction(
   revalidateCollegePortalSegment("upload-status");
   revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
   return { ok: true, message: "تم حفظ بيانات غياب المشرف والمراقبين." };
+}
+
+export async function patchSituationRoomStaffAction(
+  _prev: SituationActionState,
+  formData: FormData
+): Promise<SituationActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من بوابة القسم/الفرع أو الكلية المركزية." };
+  }
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
+  const scheduleId = String(formData.get("schedule_id") ?? "").trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  const detail = await getExamSituationDetailForOwner(ownerUserId, scheduleId);
+  if (!detail) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  if (!departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
+    return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  }
+  const blocked = rejectIfDepartmentSituationFinalized(detail);
+  if (blocked) return blocked;
+  const res = await patchScheduleSituationRoomStaff({
+    ownerUserId,
+    scheduleId,
+    supervisorRaw: String(formData.get("situation_supervisor") ?? ""),
+    invigilatorsRaw: String(formData.get("situation_invigilators") ?? ""),
+  });
+  if (!res.ok) return res;
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "patch",
+    resource: "situation_room_staff",
+    summary: `تحديث مشرف/مراقبين الموقف للجدول ${scheduleId}.`,
+    details: { scheduleId },
+  });
+  revalidateCollegePortalSegment("upload-status");
+  revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
+  return { ok: true, message: "تم حفظ مشرف القاعة والمراقبين للموقف." };
 }
 
 export async function patchSituationCheatingCasesAction(

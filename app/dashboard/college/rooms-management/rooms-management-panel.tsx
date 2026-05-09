@@ -15,6 +15,7 @@ import {
   POSTGRAD_STUDY_STAGE_MASTER,
 } from "@/lib/college-study-stage-display";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
+import type { StaffRegistryNamePicklist } from "@/lib/staff-registry-shared";
 import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
 import {
   EMPTY_EXTERNAL_ROOM_STAFF,
@@ -223,6 +224,7 @@ function RoomFields({
   defaults,
   showSerial = true,
   disableAttendanceFields = false,
+  staffRegistryPicklist = null,
 }: {
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
@@ -233,6 +235,8 @@ function RoomFields({
   defaults?: Partial<CollegeExamRoomRow>;
   showSerial?: boolean;
   disableAttendanceFields?: boolean;
+  /** من صفحة السجل المرجعي للأسماء (إدارة المشرفين والمراقبين) — اقتراحات للحقول */
+  staffRegistryPicklist?: StaffRegistryNamePicklist | null;
 }) {
   const d = defaults ?? {};
   const undergradStageOptions = useMemo(
@@ -294,6 +298,49 @@ function RoomFields({
   }, [exam1SubjectId, subjects, firstUndergrad, undergradStageOptions]);
 
   const invigilatorsFieldId = useId();
+  const invSlot1FieldId = `${invigilatorsFieldId}-slot1`;
+  const invSplitInit = splitNameList(d.invigilators ?? "");
+  const [invPickSlots, setInvPickSlots] = useState<string[]>(() => [
+    invSplitInit[0] ?? "",
+    invSplitInit[1] ?? "",
+    invSplitInit[2] ?? "",
+    invSplitInit[3] ?? "",
+  ]);
+  useEffect(() => {
+    const s = splitNameList(d.invigilators ?? "");
+    setInvPickSlots([s[0] ?? "", s[1] ?? "", s[2] ?? "", s[3] ?? ""]);
+  }, [d.invigilators]);
+
+  const hasStaffSupervisorPick = Boolean(staffRegistryPicklist?.supervisors.length);
+  const hasStaffInvigilatorPick = Boolean(staffRegistryPicklist?.invigilators.length);
+
+  const supervisorSelectOptions = useMemo(() => {
+    if (!staffRegistryPicklist?.supervisors.length) return [];
+    const set = new Set(staffRegistryPicklist.supervisors);
+    const cur = (d.supervisor_name ?? "").trim();
+    if (cur) set.add(cur);
+    return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [staffRegistryPicklist?.supervisors, d.supervisor_name]);
+
+  const invSelectOptions = useMemo(() => {
+    if (!staffRegistryPicklist?.invigilators.length) return [];
+    const set = new Set(staffRegistryPicklist.invigilators);
+    for (const t of invPickSlots) {
+      const x = t.trim();
+      if (x) set.add(x);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [staffRegistryPicklist?.invigilators, invPickSlots]);
+
+  const invigilatorsHiddenValue = useMemo(
+    () =>
+      invPickSlots
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .join("، "),
+    [invPickSlots]
+  );
+
   const [dualExam, setDualExam] = useState(() => Boolean(d.study_subject_id_2));
 
   useEffect(() => {
@@ -374,28 +421,94 @@ function RoomFields({
         </div>
         <div className="min-w-0">
           <label className="mb-1 block text-sm font-semibold text-[#334155]">مشرف القاعة</label>
-          <input
-            name="supervisor_name"
-            required
-            minLength={2}
-            defaultValue={d.supervisor_name ?? ""}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          />
+          {hasStaffSupervisorPick ? (
+            <>
+              <select
+                key={`sup-${(d as Partial<CollegeExamRoomRow>).id ?? "new"}-${(d.supervisor_name ?? "").slice(0, 48)}`}
+                name="supervisor_name"
+                defaultValue={(d.supervisor_name ?? "").trim()}
+                className={stageSelectClass}
+              >
+                <option value="">— بدون / لاحقاً —</option>
+                {supervisorSelectOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
+                قائمة منسدلة من السجل المرجعي. لإظهار اسم جديد هنا أضفه من «إدارة المشرفين والمراقبين».
+              </p>
+            </>
+          ) : (
+            <input
+              name="supervisor_name"
+              placeholder="يمكن تركه فارغًا وإكماله لاحقًا"
+              defaultValue={d.supervisor_name ?? ""}
+              autoComplete="off"
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            />
+          )}
         </div>
         <div className="min-w-0">
-          <label htmlFor={invigilatorsFieldId} className="mb-1 block text-sm text-[#334155]">
+          <label
+            htmlFor={hasStaffInvigilatorPick ? invSlot1FieldId : invigilatorsFieldId}
+            className="mb-1 block text-sm text-[#334155]"
+          >
             <span className="font-semibold">المراقبون</span>
             <span className="ms-2 text-xs font-normal text-[#64748B]">
-              بحد أقصى 4 أسماء، افصل بينها بفاصلة (، أو ,).
+              {hasStaffInvigilatorPick ? "حتى أربعة مراقبين من القائمة." : "بحد أقصى 4 أسماء، افصل بينها بفاصلة (، أو ,)."}
             </span>
           </label>
-          <input
-            id={invigilatorsFieldId}
-            name="invigilators"
-            placeholder="مثال: أحمد علي، محمد حسن، ..."
-            defaultValue={d.invigilators ?? ""}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          />
+          {hasStaffInvigilatorPick ? (
+            <>
+              <input type="hidden" name="invigilators" value={invigilatorsHiddenValue} readOnly />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {([0, 1, 2, 3] as const).map((idx) => (
+                  <div key={idx} className="min-w-0">
+                    <label
+                      htmlFor={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
+                      className="mb-0.5 block text-[10px] font-bold text-[#64748B]"
+                    >
+                      مراقب {idx + 1}
+                    </label>
+                    <select
+                      id={idx === 0 ? invSlot1FieldId : `${invigilatorsFieldId}-slot${idx + 1}`}
+                      value={invPickSlots[idx] ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setInvPickSlots((prev) => {
+                          const next = [...prev];
+                          next[idx] = v;
+                          return next;
+                        });
+                      }}
+                      className={stageSelectClass}
+                    >
+                      <option value="">— فارغ —</option>
+                      {invSelectOptions.map((n) => (
+                        <option key={`${idx}-${n}`} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
+                قوائم من السجل المرجعي. لإضافة أسماء جديدة استخدم نفس الصفحة المرجعية ثم أعد فتح المودال إن لزم.
+              </p>
+            </>
+          ) : (
+            <input
+              id={invigilatorsFieldId}
+              name="invigilators"
+              placeholder="مثال: أحمد علي، محمد حسن، …"
+              defaultValue={d.invigilators ?? ""}
+              autoComplete="off"
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            />
+          )}
         </div>
       </div>
 
@@ -943,6 +1056,7 @@ function AddRoomDialog({
   collegeLabel,
   fixedCollegeSubjectId,
   scopedBranchName,
+  staffRegistryPicklist,
 }: {
   open: boolean;
   onClose: () => void;
@@ -950,6 +1064,7 @@ function AddRoomDialog({
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
+  staffRegistryPicklist?: StaffRegistryNamePicklist | null;
 }) {
   const [state, formAction, pending] = useActionState(createCollegeExamRoomAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -976,6 +1091,7 @@ function AddRoomDialog({
           scopedBranchName={scopedBranchName}
           showSerial={false}
           disableAttendanceFields
+          staffRegistryPicklist={staffRegistryPicklist ?? null}
         />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
@@ -996,6 +1112,7 @@ function EditRoomDialog({
   collegeLabel,
   fixedCollegeSubjectId,
   scopedBranchName,
+  staffRegistryPicklist,
   row,
 }: {
   open: boolean;
@@ -1004,6 +1121,7 @@ function EditRoomDialog({
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
+  staffRegistryPicklist?: StaffRegistryNamePicklist | null;
   row: CollegeExamRoomRow | null;
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeExamRoomAction, null);
@@ -1035,6 +1153,7 @@ function EditRoomDialog({
           defaults={row ?? undefined}
           showSerial={false}
           disableAttendanceFields
+          staffRegistryPicklist={staffRegistryPicklist ?? null}
         />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
@@ -1255,6 +1374,7 @@ export function RoomsManagementPanel({
   collegeLabel,
   fixedCollegeSubjectId = null,
   scopedBranchName = null,
+  staffRegistryPicklist = null,
 }: {
   rows: CollegeExamRoomRow[];
   studySubjects: CollegeStudySubjectRow[];
@@ -1262,6 +1382,8 @@ export function RoomsManagementPanel({
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
+  /** يُمرَّر من بوابة القسم فقط — أسماء من سجل المشرفين والمراقبين */
+  staffRegistryPicklist?: StaffRegistryNamePicklist | null;
 }) {
   const portalBase = useCollegePortalBasePath();
   const hideAddRoomButton = portalBase === "/dashboard/college";
@@ -2099,6 +2221,7 @@ export function RoomsManagementPanel({
         collegeLabel={collegeLabel}
         fixedCollegeSubjectId={fixedCollegeSubjectId}
         scopedBranchName={scopedBranchName}
+        staffRegistryPicklist={staffRegistryPicklist}
       />
       <EditRoomDialog
         key={`edit-room-${editDialogKey}`}
@@ -2108,6 +2231,7 @@ export function RoomsManagementPanel({
         collegeLabel={collegeLabel}
         fixedCollegeSubjectId={fixedCollegeSubjectId}
         scopedBranchName={scopedBranchName}
+        staffRegistryPicklist={staffRegistryPicklist}
         row={editingRow}
       />
       <RoomReportModal

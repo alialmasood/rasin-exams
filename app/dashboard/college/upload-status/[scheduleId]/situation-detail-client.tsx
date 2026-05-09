@@ -21,6 +21,12 @@ import {
 import type { CheatingCaseEntry, SituationCheatingCasesState } from "@/lib/situation-cheating-cases";
 import { validateSituationCheatingCases } from "@/lib/situation-cheating-cases";
 import { allInvigilatorNamesForAbsenceCheck } from "@/lib/room-external-staff";
+import {
+  computeSituationRoomStaffOverridePayload,
+  normalizeSituationInvigilatorsForSave,
+  normalizeSituationSupervisorForSave,
+  resolveSituationRoomStaffDisplay,
+} from "@/lib/situation-room-staff-override";
 import type { InvigilatorAbsenceEntry, SituationStaffAbsencesState } from "@/lib/situation-staff-absences";
 import { validateSituationStaffAbsences } from "@/lib/situation-staff-absences";
 import {
@@ -28,6 +34,7 @@ import {
   patchRoomAttendanceForSituationAction,
   patchSituationCheatingCasesAction,
   patchSituationExamBookletsAction,
+  patchSituationRoomStaffAction,
   patchSituationStaffAbsencesAction,
   submitHeadSituationAction,
   type SituationActionState,
@@ -292,6 +299,7 @@ export function SituationDetailClient({
   const [absenceNamesE, setAbsenceNamesE] = useState(detail.absence_names_evening);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const staffSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roomStaffSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cheatingSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bookletsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [staffAbsences, setStaffAbsences] = useState<SituationStaffAbsencesState>(() => ({
@@ -305,6 +313,8 @@ export function SituationDetailClient({
   const [bookletsReceived, setBookletsReceived] = useState(String(detail.exam_booklets_received));
   const [bookletsUsed, setBookletsUsed] = useState(String(detail.exam_booklets_used));
   const [bookletsDamaged, setBookletsDamaged] = useState(String(detail.exam_booklets_damaged));
+  const [situationSupervisorInput, setSituationSupervisorInput] = useState(detail.supervisor_name);
+  const [situationInvigilatorsInput, setSituationInvigilatorsInput] = useState(detail.invigilators);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -359,6 +369,11 @@ export function SituationDetailClient({
   }, [detail.schedule_id, detail.exam_booklets_received, detail.exam_booklets_used, detail.exam_booklets_damaged]);
 
   useEffect(() => {
+    setSituationSupervisorInput(detail.supervisor_name);
+    setSituationInvigilatorsInput(detail.invigilators);
+  }, [detail.schedule_id, detail.supervisor_name, detail.invigilators]);
+
+  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
@@ -399,6 +414,10 @@ export function SituationDetailClient({
       clearTimeout(bookletsSaveTimer.current);
       bookletsSaveTimer.current = null;
     }
+    if (roomStaffSaveTimer.current) {
+      clearTimeout(roomStaffSaveTimer.current);
+      roomStaffSaveTimer.current = null;
+    }
   }, [departmentSituationReadOnly]);
 
   const capM = detail.capacity_morning;
@@ -406,8 +425,12 @@ export function SituationDetailClient({
   const dualShift = capM > 0 && capE > 0;
 
   const invigilatorNameOptions = useMemo(
-    () => allInvigilatorNamesForAbsenceCheck(detail.invigilators, detail.room_external_staff),
-    [detail.invigilators, detail.room_external_staff]
+    () =>
+      allInvigilatorNamesForAbsenceCheck(
+        normalizeSituationInvigilatorsForSave(situationInvigilatorsInput, detail.room_default_invigilators),
+        detail.room_external_staff
+      ),
+    [situationInvigilatorsInput, detail.room_default_invigilators, detail.room_external_staff]
   );
 
   const attNumM = useMemo(() => {
@@ -549,8 +572,21 @@ export function SituationDetailClient({
     const bd = bookletDmgN;
     const bookletsOk =
       !Number.isNaN(br) && !Number.isNaN(bu) && !Number.isNaN(bd) && isSituationExamBookletsBalanced(br, bu, bd);
+    const previewOv = computeSituationRoomStaffOverridePayload(
+      detail.room_default_supervisor_name,
+      detail.room_default_invigilators,
+      normalizeSituationSupervisorForSave(situationSupervisorInput, detail.room_default_supervisor_name),
+      normalizeSituationInvigilatorsForSave(situationInvigilatorsInput, detail.room_default_invigilators)
+    );
+    const previewStaff = resolveSituationRoomStaffDisplay(
+      detail.room_default_supervisor_name,
+      detail.room_default_invigilators,
+      previewOv ?? {}
+    );
     return {
       ...detail,
+      supervisor_name: previewStaff.supervisor_name,
+      invigilators: previewStaff.invigilators,
       attendance_count: attAgg,
       absence_count: absAgg,
       absence_names: namesMerged,
@@ -580,6 +616,8 @@ export function SituationDetailClient({
     bookletRecN,
     bookletUsedN,
     bookletDmgN,
+    situationSupervisorInput,
+    situationInvigilatorsInput,
   ]);
 
   /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اختلاف بسيط مع `detail.is_complete`. */
@@ -684,6 +722,53 @@ export function SituationDetailClient({
       flushStaffAbsencesSave();
     }, 700);
   }, [flushStaffAbsencesSave]);
+
+  const runRoomStaffPatch = useCallback(
+    async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
+      if (departmentSituationReadOnly) {
+        if (!opts?.silentSuccess) {
+          setToast({
+            type: "err",
+            msg: "لا يمكن تعديل الموقف بعد تأكيد رفع الموقف من عميد التشكيل.",
+          });
+        }
+        return false;
+      }
+      const fd = new FormData();
+      fd.set("schedule_id", detail.schedule_id);
+      fd.set("situation_supervisor", situationSupervisorInput);
+      fd.set("situation_invigilators", situationInvigilatorsInput);
+      const res: SituationActionState = await patchSituationRoomStaffAction(null, fd);
+      if (!res) return false;
+      if (!res.ok) {
+        setToast({ type: "err", msg: res.message });
+        return false;
+      }
+      if (!opts?.silentSuccess) setToast({ type: "ok", msg: res.message });
+      router.refresh();
+      return true;
+    },
+    [
+      departmentSituationReadOnly,
+      detail.schedule_id,
+      router,
+      situationInvigilatorsInput,
+      situationSupervisorInput,
+    ]
+  );
+
+  const flushRoomStaffSave = useCallback(() => {
+    startTransition(() => {
+      void runRoomStaffPatch({ silentSuccess: true });
+    });
+  }, [runRoomStaffPatch, startTransition]);
+
+  const scheduleDebouncedRoomStaffSave = useCallback(() => {
+    if (roomStaffSaveTimer.current) clearTimeout(roomStaffSaveTimer.current);
+    roomStaffSaveTimer.current = setTimeout(() => {
+      flushRoomStaffSave();
+    }, 700);
+  }, [flushRoomStaffSave]);
 
   const runCheatingCasesPatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
@@ -849,6 +934,8 @@ export function SituationDetailClient({
     startTransition(async () => {
       const saved = await runAttendancePatch({ silentSuccess: true });
       if (!saved) return;
+      const savedRoomStaff = await runRoomStaffPatch({ silentSuccess: true });
+      if (!savedRoomStaff) return;
       const staffV = validateSituationStaffAbsences(staffAbsences, invigilatorNameOptions);
       if (!staffV.ok) {
         setToast({ type: "err", msg: staffV.message });
@@ -1147,15 +1234,29 @@ export function SituationDetailClient({
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[#1E3A8A]/75">مشرف القاعة</p>
-                      <p className="mt-1.5 break-words rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm">
-                        {detail.supervisor_name?.trim() || "—"}
-                        {detail.room_external_staff.supervisor_is_external &&
-                        detail.room_external_staff.supervisor_formation_name.trim() ? (
-                          <span className="mt-2 block border-t border-amber-100 pt-2 text-xs font-semibold text-amber-900">
-                            مشرف خارج التشكيل — التشكيل: {detail.room_external_staff.supervisor_formation_name.trim()}
-                          </span>
-                        ) : null}
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        يُعرض ما في «إدارة القاعات» عند التوفر؛ يمكن إدخال الاسم أو تعديله هنا ليوم الامتحان فقط (لا يغيّر
+                        تعريف القاعة).
                       </p>
+                      <input
+                        type="text"
+                        dir="rtl"
+                        value={situationSupervisorInput}
+                        onChange={(e) => setSituationSupervisorInput(e.target.value)}
+                        onBlur={scheduleDebouncedRoomStaffSave}
+                        className="mt-2 h-10 w-full rounded-lg border border-slate-200/90 bg-white px-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                        placeholder={
+                          detail.room_default_supervisor_name.trim()
+                            ? `من القاعة: ${detail.room_default_supervisor_name.trim()}`
+                            : "اسم مشرف القاعة"
+                        }
+                      />
+                      {detail.room_external_staff.supervisor_is_external &&
+                      detail.room_external_staff.supervisor_formation_name.trim() ? (
+                        <p className="mt-2 rounded-lg border border-amber-100/90 bg-amber-50/50 px-2.5 py-2 text-xs font-semibold text-amber-900">
+                          مشرف خارج التشكيل — التشكيل: {detail.room_external_staff.supervisor_formation_name.trim()}
+                        </p>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
@@ -1222,21 +1323,36 @@ export function SituationDetailClient({
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[#1E3A8A]/75">المراقبون</p>
-                      <p className="mt-1.5 min-h-[2.75rem] whitespace-pre-wrap rounded-xl border border-slate-200/85 bg-gradient-to-b from-white to-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-slate-900 shadow-sm">
-                        {detail.invigilators?.trim() || "—"}
-                        {detail.room_external_staff.external_invigilators.length > 0 ? (
-                          <span className="mt-2 block border-t border-amber-100 pt-2 text-xs font-semibold leading-relaxed text-amber-900">
-                            مراقبون من خارج التشكيل:
-                            <br />
-                            {detail.room_external_staff.external_invigilators.map((x, i) => (
-                              <span key={`${i}-${x.name.slice(0, 32)}`} className="block">
-                                • {x.name}
-                                {x.formation_name.trim() ? ` — التشكيل: ${x.formation_name.trim()}` : null}
-                              </span>
-                            ))}
-                          </span>
-                        ) : null}
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        افصل بين الأسماء بفاصلة أو سطر جديد. إن وُجدت في «إدارة القاعات» تُعرض في الحقل؛ يمكن إكمالها أو
+                        تعديلها لهذا الموقف فقط.
                       </p>
+                      <textarea
+                        dir="rtl"
+                        rows={4}
+                        value={situationInvigilatorsInput}
+                        onChange={(e) => setSituationInvigilatorsInput(e.target.value)}
+                        onBlur={scheduleDebouncedRoomStaffSave}
+                        className="mt-2 min-h-[5.5rem] w-full resize-y rounded-lg border border-slate-200/90 bg-white px-2.5 py-2 text-sm font-medium leading-relaxed text-slate-900 shadow-sm outline-none focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/15"
+                        placeholder={
+                          detail.room_default_invigilators.trim()
+                            ? "يُتاح من القاعة — يمكن التعديل أو الإضافة"
+                            : "أسماء المراقبين"
+                        }
+                      />
+                      {detail.room_external_staff.external_invigilators.length > 0 ? (
+                        <div className="mt-2 rounded-lg border border-amber-100/90 bg-amber-50/50 px-2.5 py-2 text-xs font-semibold leading-relaxed text-amber-900">
+                          مراقبون من خارج التشكيل:
+                          <ul className="mt-1 list-inside list-disc space-y-0.5">
+                            {detail.room_external_staff.external_invigilators.map((x, i) => (
+                              <li key={`${i}-${x.name.slice(0, 32)}`}>
+                                {x.name}
+                                {x.formation_name.trim() ? ` — التشكيل: ${x.formation_name.trim()}` : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       {invigilatorNameOptions.length > 0 ? (
                         <>
                           <button
@@ -1387,7 +1503,7 @@ export function SituationDetailClient({
                         </>
                       ) : (
                         <p className="mt-2 text-[11px] font-medium leading-relaxed text-slate-500">
-                          لتسجيل غياب مراقب، أضف أسماء المراقبين أولاً في «إدارة القاعات» لهذه القاعة.
+                          لتسجيل غياب مراقب، أدخل أسماء المراقبين في الحقل أعلاه (أو من «إدارة القاعات») ثم احفظ.
                         </p>
                       )}
                     </div>

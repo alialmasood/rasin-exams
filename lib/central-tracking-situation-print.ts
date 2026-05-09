@@ -48,6 +48,8 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     branch_head_name: "",
     supervisor_name: "",
     invigilators: "",
+    room_default_supervisor_name: "",
+    room_default_invigilators: "",
     room_external_staff: { ...EMPTY_EXTERNAL_ROOM_STAFF, external_invigilators: [] },
     absence_names: row.absenceDetails.trim() && row.absenceDetails !== "—" ? row.absenceDetails : "",
     notes: notesTrim && notesTrim !== "—" ? notesTrim : null,

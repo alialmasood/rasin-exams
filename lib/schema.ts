@@ -260,6 +260,7 @@ export async function ensureCoreSchema() {
   await migrateCollegeAccountFormationUniqueConstraint(pool);
   await ensureCollegeAccountProfileSubjectLink(pool);
   await ensureCollegeStudySubjectsTable(pool);
+  await ensureCollegeStaffRegistryTable(pool);
   await ensureCollegeExamRoomsTable(pool);
   await ensureCollegeExamSchedulesTable(pool);
   await ensureCollegeHolidaysTable(pool);
@@ -681,6 +682,75 @@ async function ensureCollegeStudySubjectsTable(pool: Pool) {
   }
 }
 
+/** سجل مشرفين ومراقبين على مستوى القسم/الفرع (بوابة القسم) — مرجع إداري مستقل عن القاعات. */
+async function ensureCollegeStaffRegistryTable(pool: Pool) {
+  const userIdType = await getUsersIdSqlType(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS college_staff_registry (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id ${userIdType} NOT NULL,
+      college_subject_id BIGINT NOT NULL,
+      full_name VARCHAR(200) NOT NULL,
+      role_kind VARCHAR(20) NOT NULL CHECK (role_kind IN ('SUPERVISOR', 'INVIGILATOR')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  if (!(await constraintExists(pool, "college_staff_registry_owner_user_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_staff_registry
+        ADD CONSTRAINT college_staff_registry_owner_user_id_fkey
+        FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+
+  if (!(await constraintExists(pool, "college_staff_registry_college_subject_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_staff_registry
+        ADD CONSTRAINT college_staff_registry_college_subject_id_fkey
+        FOREIGN KEY (college_subject_id) REFERENCES public.college_subjects(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+
+  await createIndexSafe(
+    pool,
+    "idx_college_staff_registry_owner_subject",
+    "CREATE INDEX IF NOT EXISTS idx_college_staff_registry_owner_subject ON college_staff_registry (owner_user_id, college_subject_id)"
+  );
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_staff_registry ALTER COLUMN college_subject_id DROP NOT NULL`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_staff_registry DROP CONSTRAINT IF EXISTS college_staff_registry_role_kind_check`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+  try {
+    await pool.query(`ALTER TABLE public.college_staff_registry ALTER COLUMN role_kind DROP NOT NULL`);
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+}
+
 async function ensureCollegeExamRoomsTable(pool: Pool) {
   const userIdType = await getUsersIdSqlType(pool);
   await pool.query(`
@@ -918,6 +988,14 @@ async function ensureCollegeExamSchedulesTable(pool: Pool) {
   try {
     await pool.query(
       `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS situation_cheating_cases JSONB`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+  }
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_schedules ADD COLUMN IF NOT EXISTS situation_room_staff_override JSONB`
     );
   } catch (err: unknown) {
     if (!isPermissionError(err)) throw err;

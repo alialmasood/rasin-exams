@@ -551,7 +551,6 @@ export async function createCollegeExamRoom(
     serialNo = Number(nextSerial.rows[0]?.next_serial ?? 1);
   }
   if (roomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
-  if (supervisorName.length < 2) return { ok: false, message: "اسم المشرف يجب أن يكون حرفين على الأقل." };
   const invigilatorsNorm = normalizeInvigilators(input.invigilators);
   if (!invigilatorsNorm.ok) return invigilatorsNorm;
   const extParsed = parseExternalRoomStaffFromFormJson(String(input.externalRoomStaffJson ?? ""));
@@ -662,7 +661,6 @@ export async function updateCollegeExamRoom(
   if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "اختر مادة دراسية صالحة." };
   if (serialNo < 0) return { ok: false, message: "التسلسل يجب أن يكون رقمًا صحيحًا." };
   if (roomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
-  if (supervisorName.length < 2) return { ok: false, message: "اسم المشرف يجب أن يكون حرفين على الأقل." };
   const slot = buildSlotPayload(input);
   if (slot.id2 && !slot.inv2Norm.ok) return slot.inv2Norm;
   if (slot.id2 && slot.id2 === input.studySubjectId.trim()) {

@@ -25,6 +25,14 @@ import {
 } from "@/lib/room-external-staff";
 import type { DeanSituationStatus, UploadStatusTableRow } from "@/lib/upload-status-display";
 import { isSituationExamBookletsBalanced } from "@/lib/situation-exam-booklets";
+import {
+  computeSituationRoomStaffOverridePayload,
+  normalizeSituationInvigilatorsForSave,
+  normalizeSituationSupervisorForSave,
+  parseSituationRoomStaffOverrideFromDb,
+  resolveSituationRoomStaffDisplay,
+  validateSituationRoomStaffOverrideInput,
+} from "@/lib/situation-room-staff-override";
 
 export type { DeanSituationStatus, UploadStatusListItem, UploadStatusTableRow } from "@/lib/upload-status-display";
 export { isSituationExamBookletsBalanced };
@@ -747,6 +755,9 @@ export type ExamSituationDetail = UploadStatusTableRow & {
   branch_head_name: string;
   supervisor_name: string;
   invigilators: string;
+  /** من القاعة قبل لمسة الموقف (إدارة القاعات) */
+  room_default_supervisor_name: string;
+  room_default_invigilators: string;
   /** مشرف/مراقبون خارج التشكيل (من إدارة القاعات) */
   room_external_staff: ExternalRoomStaffStored;
   /** غياب مشرف/مراقبين مسجّل مع الجدول الامتحاني */
@@ -800,8 +811,9 @@ type ExamSituationDetailDbRow = {
   absence_evening: number;
   absence_names_morning: string | null;
   absence_names_evening: string | null;
-  supervisor_name: string;
-  invigilators: string | null;
+  room_supervisor_name: string;
+  room_invigilators: string | null;
+  situation_room_staff_override: unknown | null;
   subject_name: string;
   study_type: string;
   branch_name: string;
@@ -906,19 +918,19 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
               WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
                 THEN COALESCE(NULLIF(TRIM(r.supervisor_name_2), ''), r.supervisor_name)
               ELSE r.supervisor_name
-            END AS supervisor_name,
+            END AS room_supervisor_name,
             CASE
               WHEN e.study_subject_id = r.study_subject_id THEN r.invigilators
               WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
                 THEN COALESCE(NULLIF(TRIM(r.invigilators_2), ''), r.invigilators)
               ELSE r.invigilators
-            END AS invigilators,
+            END AS room_invigilators,
             r.external_room_staff AS room_external_staff,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
             TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
             c.branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
-            e.notes, e.situation_staff_absences, e.situation_cheating_cases,
+            e.notes, e.situation_room_staff_override, e.situation_staff_absences, e.situation_cheating_cases,
             COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
             COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
             COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
@@ -946,6 +958,10 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
   const bUsed = Math.max(0, Math.floor(Number(row.exam_booklets_used ?? 0)));
   const bDmg = Math.max(0, Math.floor(Number(row.exam_booklets_damaged ?? 0)));
   const bookletsOk = isSituationExamBookletsDatasetComplete(bRec, bUsed, bDmg);
+  const roomSup = String(row.room_supervisor_name ?? "").trim();
+  const roomInv = String(row.room_invigilators ?? "").trim();
+  const staffOv = parseSituationRoomStaffOverrideFromDb(row.situation_room_staff_override);
+  const resolvedStaff = resolveSituationRoomStaffDisplay(roomSup, roomInv, staffOv);
   const complete =
     (useShift
       ? isSituationShiftAttendanceComplete(
@@ -995,8 +1011,10 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     is_uploaded: uploaded,
     is_complete: Boolean(complete),
     branch_head_name: row.branch_head_name,
-    supervisor_name: row.supervisor_name,
-    invigilators: row.invigilators ?? "",
+    supervisor_name: resolvedStaff.supervisor_name,
+    invigilators: resolvedStaff.invigilators,
+    room_default_supervisor_name: roomSup,
+    room_default_invigilators: roomInv,
     room_external_staff: parseExternalRoomStaffFromDb(row.room_external_staff),
     absence_names: row.absence_names ?? "",
     notes: row.notes,
@@ -1033,6 +1051,39 @@ export async function patchScheduleSituationStaffAbsences(input: {
     [payload, scheduleId, input.ownerUserId]
   );
   if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ البيانات." };
+  return { ok: true };
+}
+
+export async function patchScheduleSituationRoomStaff(input: {
+  ownerUserId: string;
+  scheduleId: string;
+  supervisorRaw: string;
+  invigilatorsRaw: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const scheduleId = input.scheduleId.trim();
+  if (!/^\d+$/.test(scheduleId)) return { ok: false, message: "معرّف الجدول غير صالح." };
+  await ensureCoreSchema();
+  const detail = await getExamSituationDetailForOwner(input.ownerUserId, scheduleId);
+  if (!detail) return { ok: false, message: "لا يمكن الوصول لهذا الجدول." };
+  const normS = normalizeSituationSupervisorForSave(input.supervisorRaw, detail.room_default_supervisor_name);
+  const normI = normalizeSituationInvigilatorsForSave(input.invigilatorsRaw, detail.room_default_invigilators);
+  const v = validateSituationRoomStaffOverrideInput(normS, normI);
+  if (!v.ok) return v;
+  const payload = computeSituationRoomStaffOverridePayload(
+    detail.room_default_supervisor_name,
+    detail.room_default_invigilators,
+    normS,
+    normI
+  );
+  const pool = getDbPool();
+  const r = await pool.query(
+    `UPDATE college_exam_schedules
+     SET situation_room_staff_override = $1::jsonb, updated_at = NOW()
+     WHERE id = $2::bigint AND owner_user_id = $3`,
+    [payload ? JSON.stringify(payload) : null, scheduleId, input.ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "تعذّر حفظ بيانات المشرف والمراقبين." };
   return { ok: true };
 }
 
