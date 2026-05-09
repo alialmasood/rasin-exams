@@ -310,7 +310,8 @@ export async function submitHeadSituationAction(
     summary: `تأكيد رفع الموقف الامتحاني رسمياً (عميد التشكيل) — جدول ${scheduleId}.`,
     details: {
       scheduleId,
-      branchName: detail.branch_name,
+      branchName: String(detail.branch_name ?? "").trim(),
+      formationLabel: String(detail.formation_label ?? "").trim(),
       collegeSubjectId: detail.college_subject_id,
     },
   });
@@ -353,7 +354,8 @@ export async function approveDeanSituationAction(
     summary: `اعتماد الموقف الامتحاني من رئيس قسم/فرع (جدول ${scheduleId}).`,
     details: {
       scheduleId,
-      branchName: detail.branch_name,
+      branchName: String(detail.branch_name ?? "").trim(),
+      formationLabel: String(detail.formation_label ?? "").trim(),
       collegeSubjectId: detail.college_subject_id,
     },
   });

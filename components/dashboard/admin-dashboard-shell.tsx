@@ -10,6 +10,7 @@ import {
   type CollegeNavSection,
 } from "@/components/dashboard/nav-config";
 import type { DepartmentPortalMotivationLine } from "@/lib/college-activity-log";
+import { DepartmentMotivationStrip } from "@/components/dashboard/department-motivation-strip";
 import { DashboardOnlinePresence } from "@/components/dashboard/dashboard-online-presence";
 import { DashboardChatFab } from "@/components/dashboard/dashboard-chat-fab";
 import { logoutAction } from "@/app/dashboard/actions";
@@ -78,8 +79,7 @@ export function AdminDashboardShell({
   const isCollegePortal = role === "COLLEGE";
   const collegeNavResolved = collegeNavSections ?? collegeDashboardNavSections;
   const collegeNavRoot = collegeNavRootPath ?? "/dashboard/college";
-  const showDeptMotivation =
-    isCollegePortal && collegeNavRoot === "/department" && (departmentMotivationFeed?.length ?? 0) > 0;
+  const deptMotivationLines = departmentMotivationFeed ?? [];
   /** أسفل الشريط: للكلية اسم التشكيل/الكلية فقط؛ لغيرها اسم العرض في الواجهة. */
   const sidebarFooterLabel =
     (isCollegePortal ? sidebarTagline : displayName).trim() || username.trim();
@@ -171,6 +171,11 @@ export function AdminDashboardShell({
                 >
                   {section.title}
                 </p>
+                {section.id === "insights" && collegeNavRoot === "/department" && deptMotivationLines.length > 0 ? (
+                  <div className="mb-3 px-1">
+                    <DepartmentMotivationStrip lines={deptMotivationLines} />
+                  </div>
+                ) : null}
                 <div className="space-y-0.5" role="group" aria-labelledby={`nav-section-${section.id}`}>
                   {section.items.map((item) => {
                     const active = isNavItemActive(item.href);
@@ -223,42 +228,6 @@ export function AdminDashboardShell({
           })
         )}
       </nav>
-
-      {showDeptMotivation ? (
-        <div
-          className="shrink-0 border-t border-white/15 px-3 py-2.5"
-          aria-label="تحديثات تشجيعية — إنجازات المواقف الامتحانية"
-        >
-          <p className="mb-1.5 px-1 text-[10px] font-bold tracking-tight text-amber-200/95">
-            إنجازات حديثة في التشكيل
-          </p>
-          <ul className="max-h-[10rem] space-y-2 overflow-y-auto overscroll-contain pr-0.5 [scrollbar-color:rgba(255,255,255,0.35)_transparent]">
-            {departmentMotivationFeed!.map((line) => (
-              <li key={line.id}>
-                {line.scheduleId ? (
-                  <Link
-                    href={`/department/upload-status/${line.scheduleId}`}
-                    className="block rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold leading-snug text-white/95 transition hover:bg-white/12 hover:text-white"
-                  >
-                    <span
-                      className={`mb-0.5 block text-[9px] font-bold uppercase tracking-wide opacity-80 ${
-                        line.kind === "dean_confirmed" ? "text-amber-200" : "text-sky-200"
-                      }`}
-                    >
-                      {line.kind === "dean_confirmed" ? "مصادقة رفع" : "اعتماد موقف"}
-                    </span>
-                    {line.message}
-                  </Link>
-                ) : (
-                  <span className="block rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold leading-snug text-white/90">
-                    {line.message}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
 
       <div className="shrink-0 border-t border-white/15">
         <div className="flex items-center gap-3 px-4 py-4">

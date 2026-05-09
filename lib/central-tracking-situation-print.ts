@@ -38,6 +38,7 @@ export function centralTrackingRowToExamSituationDetail(row: CentralTrackingExam
     subject_name: row.subject,
     study_type: row.studyTypeKey,
     branch_name: row.department,
+    formation_label: row.collegeName?.trim() || "—",
     academic_year: row.academicYear,
     stage_level: row.stageLevel,
     head_submitted_at: row.headSubmittedAtIso ? new Date(row.headSubmittedAtIso) : null,

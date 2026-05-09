@@ -79,7 +79,6 @@ export type DepartmentPortalMotivationLine = {
   id: string;
   kind: "branch_approved" | "dean_confirmed";
   message: string;
-  scheduleId: string | null;
   createdAtIso: string;
 };
 
@@ -89,28 +88,36 @@ function detailString(d: Record<string, unknown> | null, key: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** تسمية صريحة للتشكيل و/أو الفرع — بلا صياغات مبهمة */
+function motivationEntityLabelFromDetails(d: Record<string, unknown> | null): string | null {
+  const bRaw = detailString(d, "branchName");
+  const fRaw = detailString(d, "formationLabel");
+  const branch = bRaw && bRaw !== "—" ? bRaw : "";
+  const formation = fRaw && fRaw !== "—" ? fRaw : "";
+  if (formation && branch) return `تشكيل «${formation}» — قسم/فرع «${branch}»`;
+  if (branch) return `قسم/فرع «${branch}»`;
+  if (formation) return `تشكيل «${formation}»`;
+  return null;
+}
+
 export function motivationLineFromActivityRow(row: CollegeActivityLogRow): DepartmentPortalMotivationLine | null {
   const d = row.details;
-  const scheduleId = detailString(d, "scheduleId");
-  const branchName = detailString(d, "branchName");
+  const label = motivationEntityLabelFromDetails(d);
+  if (!label) return null;
 
   if (row.resource === "situation_report" && row.action === "approve") {
-    const scope = branchName ? `قسم/فرع «${branchName}»` : "أحد الأقسام أو الفروع";
     return {
       id: row.id,
       kind: "branch_approved",
-      message: `${scope} اعتمد الموقف الامتحاني.`,
-      scheduleId: scheduleId || null,
+      message: `${label} اعتمد الموقف الامتحاني.`,
       createdAtIso: row.created_at.toISOString(),
     };
   }
   if (row.resource === "situation_official_upload" && row.action === "submit") {
-    const scope = branchName ? `جلسة لـ «${branchName}»` : "جلسة امتحانية";
     return {
       id: row.id,
       kind: "dean_confirmed",
-      message: `تم تأكيد رفع الموقف رسمياً (مصادقة عميد التشكيل) — ${scope}.`,
-      scheduleId: scheduleId || null,
+      message: `تم تأكيد رفع الموقف رسمياً (مصادقة عميد التشكيل): ${label}.`,
       createdAtIso: row.created_at.toISOString(),
     };
   }
@@ -123,8 +130,10 @@ export async function listDepartmentPortalMotivationFeed(
   limit = 6
 ): Promise<DepartmentPortalMotivationLine[]> {
   const rows = await listCollegeActivityLogForOwner(ownerUserId, 200);
+  const cutoffMs = Date.now() - 48 * 60 * 60 * 1000;
   const out: DepartmentPortalMotivationLine[] = [];
   for (const r of rows) {
+    if (r.created_at.getTime() < cutoffMs) continue;
     const line = motivationLineFromActivityRow(r);
     if (line) out.push(line);
     if (out.length >= limit) break;

@@ -752,6 +752,8 @@ export type { SituationCheatingCasesState } from "@/lib/situation-cheating-cases
 export type { SituationStaffAbsencesState } from "@/lib/situation-staff-absences";
 
 export type ExamSituationDetail = UploadStatusTableRow & {
+  /** اسم التشكيل/الكلية كما في الملف الشخصي (للعرض والسجلات) */
+  formation_label: string;
   branch_head_name: string;
   supervisor_name: string;
   invigilators: string;
@@ -832,6 +834,7 @@ type ExamSituationDetailDbRow = {
   exam_booklets_received: number;
   exam_booklets_used: number;
   exam_booklets_damaged: number;
+  formation_label: string;
 };
 
 /** SELECT + JOINs لصف تفاصيل الموقف — يُكمَل بشرط WHERE. */
@@ -933,11 +936,23 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
             e.notes, e.situation_room_staff_override, e.situation_staff_absences, e.situation_cheating_cases,
             COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
             COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
-            COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
+            COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged,
+            COALESCE(
+              NULLIF(TRIM(
+                CASE
+                  WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                    THEN COALESCE(p.holder_name, '')
+                  ELSE COALESCE(p.formation_name, '')
+                END
+              ), ''),
+              u.username::text
+            ) AS formation_label
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
      INNER JOIN college_exam_rooms r ON r.id = e.room_id
+     INNER JOIN users u ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
      LEFT JOIN college_exam_situation_reports rep
             ON rep.exam_schedule_id = e.id AND rep.owner_user_id = e.owner_user_id`;
 
@@ -1003,6 +1018,7 @@ function mapDbRowToExamSituationDetail(row: ExamSituationDetailDbRow): ExamSitua
     subject_name: row.subject_name,
     study_type: normalizeStudyTypeDb(row.study_type),
     branch_name: row.branch_name,
+    formation_label: String(row.formation_label ?? "").trim() || "—",
     academic_year: row.academic_year,
     stage_level: Number(row.stage_level ?? 1),
     head_submitted_at: row.head_submitted_at,
