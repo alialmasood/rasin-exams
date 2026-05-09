@@ -66,13 +66,21 @@ export async function listChatRecipientsForCollege(selfUserId: string): Promise<
     `SELECT u.id AS user_id, u.username,
             p.account_kind, p.formation_name, p.holder_name, s.branch_name
      FROM users u
-     INNER JOIN college_account_profiles p ON p.user_id = u.id
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
      LEFT JOIN college_subjects s ON s.id = p.college_subject_id
      WHERE u.role = 'COLLEGE'
        AND u.deleted_at IS NULL
        AND UPPER(TRIM(COALESCE(u.status::text,'ACTIVE'))) = 'ACTIVE'
        AND u.id::text <> $1
-     ORDER BY COALESCE(p.formation_name, p.holder_name, u.username) ASC, u.username ASC`,
+     ORDER BY
+       CASE
+         WHEN COALESCE(UPPER(TRIM(p.account_kind::text)), '') = 'FOLLOWUP' THEN 0
+         WHEN COALESCE(UPPER(TRIM(p.account_kind::text)), '') = 'FORMATION' THEN 1
+         WHEN COALESCE(UPPER(TRIM(p.account_kind::text)), '') = 'DEPARTMENT' THEN 2
+         ELSE 3
+       END ASC,
+       COALESCE(NULLIF(TRIM(p.formation_name), ''), NULLIF(TRIM(p.holder_name), ''), u.username) ASC,
+       u.username ASC`,
     [selfUserId]
   );
   return r.rows.map((row) => {
