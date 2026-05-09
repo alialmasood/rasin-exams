@@ -32,6 +32,24 @@ function mergeAbsenceNames(morning: string, evening: string): string {
   return `${m}\n--- دوام مسائي ---\n${e}`;
 }
 
+const MAX_ROOMS_BULK = 80;
+
+/** سطر لكل قاعة؛ إزالة التكرار مع الحفاظ على الترتيب */
+function parseBulkRoomNames(raw: string): string[] {
+  const lines = raw
+    .split(/\r?\n/u)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    if (seen.has(line)) continue;
+    seen.add(line);
+    out.push(line);
+  }
+  return out;
+}
+
 const ZERO_SHIFT: ShiftAttendanceSplit = { attM: 0, absM: 0, attE: 0, absE: 0, namesM: "", namesE: "" };
 
 /** عند وجود حقول s1_att_m ندمج صباحي/مسائي؛ وإلا نقرأ attendance_count الكلاسيكي (مثل إضافة قاعة). */
@@ -127,15 +145,27 @@ export async function createCollegeExamRoomAction(
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const bulkRaw = fdStr(formData, "room_names_bulk").trim();
+  const singleRoom = fdStr(formData, "room_name").trim();
+  const roomNames = bulkRaw ? parseBulkRoomNames(bulkRaw) : singleRoom.length >= 2 ? [singleRoom] : [];
+  if (roomNames.length === 0) {
+    return {
+      ok: false,
+      message:
+        "أدخل اسم قاعة واحد على الأقل (حرفان فأكثر)، أو املأ خانة «أسماء القاعات» بسطر لكل قاعة.",
+    };
+  }
+  if (roomNames.length > MAX_ROOMS_BULK) {
+    return { ok: false, message: `يمكن إضافة ${MAX_ROOMS_BULK} قاعة كحد أقصى في عملية واحدة.` };
+  }
   const useSplitAttendance = formData.has("s1_att_m");
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
   const s1 = slot1FromForm(formData, useSplitAttendance);
   const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam);
-  const result = await createCollegeExamRoom({
+  const basePayload = {
     ownerUserId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
-    roomName: fdStr(formData, "room_name"),
     supervisorName: fdStr(formData, "supervisor_name"),
     invigilators: fdStr(formData, "invigilators"),
     capacityMorning: fdStr(formData, "capacity_morning"),
@@ -153,16 +183,51 @@ export async function createCollegeExamRoomAction(
     shift1Attendance: s1.shiftSplit,
     shift2Attendance: s2.shiftSplit,
     externalRoomStaffJson: fdStr(formData, "external_room_staff_json"),
-  });
-  if (!result.ok) return result;
-  void recordCollegeActivityEvent({
-    ownerUserId,
-    action: "create",
-    resource: "exam_room",
-    summary: `إضافة قاعة امتحانية: ${fdStr(formData, "room_name").trim() || "—"}.`,
-  });
+  };
+  let created = 0;
+  let lastErr: string | null = null;
+  for (const roomName of roomNames) {
+    const result = await createCollegeExamRoom({
+      ...basePayload,
+      roomName,
+      serialNo: "",
+    });
+    if (!result.ok) {
+      lastErr = result.message;
+      break;
+    }
+    created += 1;
+  }
+  if (lastErr) {
+    if (created > 0) revalidateCollegePortalSegment("rooms-management");
+    if (created === 0) return { ok: false, message: lastErr };
+    return {
+      ok: false,
+      message: `تم إنشاء ${created} قاعة ثم توقف الحفظ: ${lastErr}`,
+    };
+  }
+  if (roomNames.length === 1) {
+    void recordCollegeActivityEvent({
+      ownerUserId,
+      action: "create",
+      resource: "exam_room",
+      summary: `إضافة قاعة امتحانية: ${roomNames[0]}.`,
+    });
+  } else {
+    const preview = roomNames.slice(0, 5).join("، ");
+    const more = roomNames.length > 5 ? ` … (+${roomNames.length - 5})` : "";
+    void recordCollegeActivityEvent({
+      ownerUserId,
+      action: "create",
+      resource: "exam_room",
+      summary: `إضافة ${roomNames.length} قاعة امتحانية دفعة واحدة: ${preview}${more}.`,
+    });
+  }
   revalidateCollegePortalSegment("rooms-management");
-  return { ok: true, message: "تمت إضافة القاعة بنجاح." };
+  return {
+    ok: true,
+    message: roomNames.length === 1 ? "تمت إضافة القاعة بنجاح." : `تمت إضافة ${roomNames.length} قاعة بنجاح.`,
+  };
 }
 
 export async function updateCollegeExamRoomAction(

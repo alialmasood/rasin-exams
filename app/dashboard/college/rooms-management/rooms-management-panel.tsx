@@ -225,6 +225,8 @@ function RoomFields({
   showSerial = true,
   disableAttendanceFields = false,
   staffRegistryPicklist = null,
+  /** إضافة فقط: عدة أسماء قاعات (سطر لكل قاعة) بنفس المادة والسعة */
+  multiRoomNames = false,
 }: {
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
@@ -237,6 +239,7 @@ function RoomFields({
   disableAttendanceFields?: boolean;
   /** من صفحة السجل المرجعي للأسماء (إدارة المشرفين والمراقبين) — اقتراحات للحقول */
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
+  multiRoomNames?: boolean;
 }) {
   const d = defaults ?? {};
   const undergradStageOptions = useMemo(
@@ -408,17 +411,41 @@ function RoomFields({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_minmax(0,1.45fr)]">
-        <div className="min-w-0">
-          <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القاعة</label>
-          <input
-            name="room_name"
-            required
-            minLength={2}
-            defaultValue={d.room_name ?? ""}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+      {multiRoomNames ? (
+        <div className="w-full rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
+          <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
+          <textarea
+            name="room_names_bulk"
+            rows={8}
+            defaultValue=""
+            placeholder={"قاعة 101\nقاعة 102\nمعمل الحاسوب"}
+            className="min-h-[9rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
+          <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
+            أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية ونفس السعة والمشرف والمراقبون على{" "}
+            <span className="font-bold">كل</span> القاعات؛ يمكنك لاحقاً تعديل أي قاعة على حدة من جدول القاعات. تُزال الأسطر
+            الفارغة، ولا يُكرر اسم القاعة مرتين في نفس الطلب.
+          </p>
         </div>
+      ) : null}
+
+      <div
+        className={`grid grid-cols-1 gap-4 ${
+          multiRoomNames ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_minmax(0,1.45fr)]"
+        }`}
+      >
+        {!multiRoomNames ? (
+          <div className="min-w-0">
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القاعة</label>
+            <input
+              name="room_name"
+              required
+              minLength={2}
+              defaultValue={d.room_name ?? ""}
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            />
+          </div>
+        ) : null}
         <div className="min-w-0">
           <label className="mb-1 block text-sm font-semibold text-[#334155]">مشرف القاعة</label>
           {hasStaffSupervisorPick ? (
@@ -1092,13 +1119,14 @@ function AddRoomDialog({
           showSerial={false}
           disableAttendanceFields
           staffRegistryPicklist={staffRegistryPicklist ?? null}
+          multiRoomNames
         />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3">
           <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
             إلغاء
           </button>
-          <SubmitButton pending={pending} label="حفظ القاعة" />
+          <SubmitButton pending={pending} label="حفظ القاعة أو القاعات" />
         </div>
       </form>
     </dialog>
