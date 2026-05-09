@@ -361,6 +361,10 @@ export function CollegeDashboardOverview({
               أهلًا وسهلًا رئاسة {profile?.scoped_branch_type === "BRANCH" ? "فرع" : "قسم"}{" "}
               <span className="text-[#1E3A8A]">({departmentBranchDisplayName})</span>
             </>
+          ) : isDepartmentPortal && profile?.account_kind === "CENTRAL" ? (
+            <>
+              أهلًا وسهلًا حساب كلية <span className="text-[#1E3A8A]">({collegeLabel})</span> المركزي
+            </>
           ) : (
             <>
               أهلًا وسهلًا السيد عميد الكلية{" "}
