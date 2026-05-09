@@ -10,6 +10,7 @@ import {
   type CollegeNavSection,
 } from "@/components/dashboard/nav-config";
 import { DashboardOnlinePresence } from "@/components/dashboard/dashboard-online-presence";
+import { DashboardChatFab } from "@/components/dashboard/dashboard-chat-fab";
 import { logoutAction } from "@/app/dashboard/actions";
 
 const C = {
@@ -392,6 +393,7 @@ export function AdminDashboardShell({
           © 2026 جامعة البصرة - نظام رصين لإدارة الامتحانات
         </footer>
       </div>
+      <DashboardChatFab currentUserId={presenceUserId} role={role} />
     </div>
   );
 }

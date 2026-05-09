@@ -84,6 +84,61 @@ function deanAuthLabel(uploaded: boolean): string {
   return uploaded ? "مصادق من حساب العميد" : "غير مصادق من حساب العميد";
 }
 
+function toAnchorSlug(v: string): string {
+  return v
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\u0600-\u06FF\w-]+/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function formationDayAnchorId(examDate: string, formationLabel: string): string {
+  const d = toAnchorSlug(examDate) || "day";
+  const f = toAnchorSlug(formationLabel) || "formation";
+  return `goto-${d}-${f}`;
+}
+
+type NavigatorBranchNode = {
+  branchName: string;
+  examDates: string[];
+};
+
+type NavigatorFormationNode = {
+  formationLabel: string;
+  totalRows: number;
+  branches: NavigatorBranchNode[];
+};
+
+function buildNavigator(rows: AdminOfficialSituationFollowupRow[]): NavigatorFormationNode[] {
+  const byFormation = new Map<string, { totalRows: number; byBranch: Map<string, Set<string>> }>();
+  for (const r of rows) {
+    const formation = r.formation_label.trim() || "—";
+    const branch = r.branch_name.trim() || "—";
+    const day = r.exam_date.trim() || "—";
+    if (!byFormation.has(formation)) {
+      byFormation.set(formation, { totalRows: 0, byBranch: new Map() });
+    }
+    const f = byFormation.get(formation)!;
+    f.totalRows += 1;
+    if (!f.byBranch.has(branch)) f.byBranch.set(branch, new Set());
+    f.byBranch.get(branch)!.add(day);
+  }
+  return [...byFormation.entries()]
+    .map(([formationLabel, info]) => ({
+      formationLabel,
+      totalRows: info.totalRows,
+      branches: [...info.byBranch.entries()]
+        .map(([branchName, days]) => ({
+          branchName,
+          examDates: [...days].filter((d) => d !== "—").sort((a, b) => b.localeCompare(a)),
+        }))
+        .sort((a, b) => a.branchName.localeCompare(b.branchName, "ar")),
+    }))
+    .sort((a, b) => a.formationLabel.localeCompare(b.formationLabel, "ar"));
+}
+
 export function AdminSituationsFollowupView({
   rows,
   availableExamDates,
@@ -95,9 +150,10 @@ export function AdminSituationsFollowupView({
 }) {
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
+  const navigator = buildNavigator(rows);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 px-4 py-6" dir="rtl">
+    <div id="top" className="mx-auto max-w-6xl space-y-8 px-4 py-6" dir="rtl">
       <header className="relative overflow-hidden rounded-2xl border border-[#E8EEF7] bg-white px-5 py-4 shadow-sm">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#1E3A8A] via-[#2563EB] to-[#38BDF8]"
@@ -120,6 +176,49 @@ export function AdminSituationsFollowupView({
         <StatCard title="مصادق من حساب العميد" value={formatNum(stats.deanAuthenticated)} hint="تم تأكيد رفع الموقف" accent="blue" />
         <StatCard title="غير مصادق من حساب العميد" value={formatNum(stats.deanNotAuthenticated)} hint="لم يتم تأكيد الرفع بعد" accent="slate" />
       </section>
+
+      {navigator.length > 0 ? (
+        <section className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm" aria-label="التنقل الذكي حسب التشكيل">
+          <h2 className="text-base font-extrabold text-[#0F172A]">التنقل الذكي حسب التشكيل / القسم / اليوم</h2>
+          <p className="mt-1 text-xs text-[#64748B]">
+            افتح التشكيل، ثم اختر القسم/الفرع واليوم الامتحاني للانتقال مباشرة إلى السجلات المطابقة داخل الصفحة.
+          </p>
+          <div className="mt-3 space-y-2">
+            {navigator.map((formation) => (
+              <details key={formation.formationLabel} className="rounded-xl border border-[#E2E8F0] bg-[#FAFBFC]">
+                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-bold text-[#1E3A8A]">
+                  {formation.formationLabel}
+                  <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
+                    ({formatNum(formation.totalRows)} موقفاً · {formatNum(formation.branches.length)} قسم/فرع)
+                  </span>
+                </summary>
+                <div className="space-y-2 border-t border-[#E2E8F0] px-3 py-2">
+                  {formation.branches.map((branch) => (
+                    <div key={`${formation.formationLabel}-${branch.branchName}`} className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-2">
+                      <p className="text-xs font-extrabold text-[#334155]">{branch.branchName}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {branch.examDates.map((d) => (
+                          <a
+                            key={`${formation.formationLabel}-${branch.branchName}-${d}`}
+                            href={`#${formationDayAnchorId(d, formation.formationLabel)}`}
+                            className="inline-flex rounded-md border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1 text-[11px] font-bold text-[#1E3A8A] transition hover:bg-[#DBEAFE]"
+                            title={`الانتقال إلى ${formation.formationLabel} في يوم ${d}`}
+                          >
+                            {d}
+                          </a>
+                        ))}
+                        {branch.examDates.length === 0 ? (
+                          <span className="text-[11px] font-medium text-[#94A3B8]">لا توجد تواريخ صالحة</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm" aria-label="تقرير يومي رسمي">
         <h2 className="text-base font-extrabold text-[#0F172A]">التقرير اليومي الرسمي (A4 PDF)</h2>
@@ -185,7 +284,11 @@ export function AdminSituationsFollowupView({
                   {formationKeys.map((formationKey) => {
                     const list = formationsMap.get(formationKey)!;
                     return (
-                      <div key={`${dateKey}-${formationKey}`} className="rounded-xl border border-[#E8EEF7] bg-[#FAFBFC]">
+                      <div
+                        id={formationDayAnchorId(dateKey, formationKey)}
+                        key={`${dateKey}-${formationKey}`}
+                        className="rounded-xl border border-[#E8EEF7] bg-[#FAFBFC]"
+                      >
                         <div className="border-b border-[#E2E8F0] bg-white px-3 py-2">
                           <h3 className="text-sm font-extrabold text-[#1E3A8A]">{formationKey}</h3>
                           <p className="text-[11px] text-[#64748B]">
@@ -262,6 +365,11 @@ export function AdminSituationsFollowupView({
                               ))}
                             </tbody>
                           </table>
+                        </div>
+                        <div className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-3 py-1.5 text-left">
+                          <a href="#top" className="text-[11px] font-bold text-[#2563EB] hover:underline">
+                            رجوع للأعلى
+                          </a>
                         </div>
                       </div>
                     );

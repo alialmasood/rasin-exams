@@ -268,6 +268,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeFollowupSavedDayReportsTable(pool);
   await ensureCollegeActivityLogTable(pool);
   await ensureDashboardUserPresenceTable(pool);
+  await ensureDashboardChatTables(pool);
 
   await createIndexSafe(
     pool,
@@ -1200,6 +1201,49 @@ async function ensureDashboardUserPresenceTable(pool: Pool) {
     pool,
     "idx_dashboard_user_presence_last_seen",
     "CREATE INDEX IF NOT EXISTS idx_dashboard_user_presence_last_seen ON dashboard_user_presence (last_seen_at DESC)"
+  );
+}
+
+/** رسائل المحادثة العائمة (عامة/خاصة) بين حسابات لوحة التحكم. */
+async function ensureDashboardChatTables(pool: Pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dashboard_chat_messages (
+      id BIGSERIAL PRIMARY KEY,
+      scope VARCHAR(12) NOT NULL CHECK (scope IN ('PUBLIC', 'PRIVATE')),
+      sender_user_id TEXT NOT NULL,
+      recipient_user_id TEXT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await createIndexSafe(
+    pool,
+    "idx_dashboard_chat_created_at",
+    "CREATE INDEX IF NOT EXISTS idx_dashboard_chat_created_at ON dashboard_chat_messages (created_at DESC)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_dashboard_chat_scope_id",
+    "CREATE INDEX IF NOT EXISTS idx_dashboard_chat_scope_id ON dashboard_chat_messages (scope, id DESC)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_dashboard_chat_private_participants",
+    "CREATE INDEX IF NOT EXISTS idx_dashboard_chat_private_participants ON dashboard_chat_messages (sender_user_id, recipient_user_id, id DESC)"
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dashboard_chat_reads (
+      user_id TEXT NOT NULL,
+      peer_user_id TEXT NOT NULL,
+      last_read_message_id BIGINT NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, peer_user_id)
+    );
+  `);
+  await createIndexSafe(
+    pool,
+    "idx_dashboard_chat_reads_user_peer",
+    "CREATE INDEX IF NOT EXISTS idx_dashboard_chat_reads_user_peer ON dashboard_chat_reads (user_id, peer_user_id)"
   );
 }
 
