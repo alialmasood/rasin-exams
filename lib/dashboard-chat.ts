@@ -71,6 +71,7 @@ export async function listChatRecipientsForCollege(selfUserId: string): Promise<
      WHERE u.role = 'COLLEGE'
        AND u.deleted_at IS NULL
        AND UPPER(TRIM(COALESCE(u.status::text,'ACTIVE'))) = 'ACTIVE'
+       AND COALESCE(UPPER(TRIM(p.account_kind::text)), 'FORMATION') IN ('FORMATION', 'DEPARTMENT')
        AND u.id::text <> $1
      ORDER BY
        CASE
