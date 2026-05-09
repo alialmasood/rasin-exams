@@ -11,6 +11,7 @@ export default async function DepartmentUploadStatusPage() {
   const { ws } = await requireDepartmentPortalWorkspace();
   const profile = await getCollegeProfileByUserId(ws.sessionUserId);
   const collegeLabel = profile ? collegePortalDisplayLabel(profile) : ws.collegeLabel;
+  const showBranchInUploadList = profile?.account_kind === "CENTRAL";
 
   const allSituationRows = await listOfficialExamSituationsForOwner(
     ws.dataOwnerUserId,
@@ -27,7 +28,7 @@ export default async function DepartmentUploadStatusPage() {
       collegeLabel={collegeLabel}
       allUploadedPendingNone={allUploadedPendingNone}
       dashboardStats={dashboardStats}
-      hideDepartmentColumn
+      hideDepartmentColumn={!showBranchInUploadList}
     />
   );
 }

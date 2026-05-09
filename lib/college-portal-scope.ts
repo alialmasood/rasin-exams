@@ -2,6 +2,12 @@ import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import type { CollegeProfileRow } from "@/lib/college-accounts";
 import type { SessionPayload } from "@/lib/session";
 
+/** قسم واحد أو كلية مركزية بنفس قالب `/department` */
+export function isDepartmentPortalSession(session: { college_account_kind?: string }): boolean {
+  const k = session.college_account_kind;
+  return k === "DEPARTMENT" || k === "CENTRAL";
+}
+
 export type CollegePortalScope =
   | {
       accountKind: "FORMATION";
@@ -19,6 +25,15 @@ export type CollegePortalScope =
       collegeSubjectId: string;
       formationName: string | null;
       branchName: string | null;
+    }
+  | {
+      /** بوابة بقالب القسم لكن بيانات كل الفروع تحت نفس حساب التشكيل */
+      accountKind: "CENTRAL";
+      sessionUserId: string;
+      dataOwnerUserId: string;
+      collegeSubjectId: null;
+      formationName: string | null;
+      branchName: null;
     }
   | {
       accountKind: "FOLLOWUP";
@@ -46,6 +61,18 @@ export async function resolveCollegePortalScope(sessionUserId: string): Promise<
       branchName: profile.scoped_branch_name,
     };
   }
+  if (kind === "CENTRAL") {
+    const tenant = profile.tenant_owner_user_id?.trim();
+    if (!tenant) return null;
+    return {
+      accountKind: "CENTRAL",
+      sessionUserId,
+      dataOwnerUserId: tenant,
+      collegeSubjectId: null,
+      formationName: profile.formation_name,
+      branchName: null,
+    };
+  }
   return {
     accountKind: "FORMATION",
     sessionUserId,
@@ -64,6 +91,10 @@ export function collegePortalDisplayLabel(profile: CollegeProfileRow): string {
     const f = profile.formation_name?.trim() || "التشكيل";
     const b = profile.scoped_branch_name?.trim() || "القسم";
     return `${f} — ${b}`;
+  }
+  if (profile.account_kind === "CENTRAL") {
+    const f = profile.formation_name?.trim() || "التشكيل";
+    return `${f} — الكلية المركزية`;
   }
   return profile.formation_name?.trim() || "حساب كلية";
 }
@@ -98,6 +129,18 @@ export async function loadCollegeWorkspaceForPages(session: {
       canManageBranches: false,
     };
   }
+  if (profile.account_kind === "CENTRAL") {
+    const tenant = profile.tenant_owner_user_id?.trim();
+    if (!tenant) return null;
+    return {
+      sessionUserId: session.uid,
+      dataOwnerUserId: tenant,
+      collegeSubjectId: null,
+      collegeLabel: collegePortalDisplayLabel(profile),
+      basePath: "/department",
+      canManageBranches: false,
+    };
+  }
   return {
     sessionUserId: session.uid,
     dataOwnerUserId: session.uid,
@@ -112,7 +155,7 @@ export async function loadCollegeWorkspaceForPages(session: {
 export async function getCollegePortalDataOwnerUserId(session: SessionPayload): Promise<string | null> {
   if (session.role !== "COLLEGE") return null;
   if (session.college_account_kind === "FOLLOWUP") return null;
-  if (session.college_account_kind === "DEPARTMENT") {
+  if (session.college_account_kind === "DEPARTMENT" || session.college_account_kind === "CENTRAL") {
     const profile = await getCollegeProfileByUserId(session.uid);
     return profile?.tenant_owner_user_id?.trim() ?? null;
   }

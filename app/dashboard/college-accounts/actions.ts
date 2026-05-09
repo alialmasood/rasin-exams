@@ -51,9 +51,11 @@ export async function createCollegeAccountAction(
       ? "FOLLOWUP"
       : kindRaw === "FORMATION"
         ? "FORMATION"
-        : kindRaw === "DEPARTMENT"
-          ? "DEPARTMENT"
-          : null;
+        : kindRaw === "CENTRAL"
+          ? "CENTRAL"
+          : kindRaw === "DEPARTMENT"
+            ? "DEPARTMENT"
+            : null;
   if (!accountKind) {
     return { ok: false, message: "يرجى اختيار نوع الحساب." };
   }

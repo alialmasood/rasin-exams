@@ -522,6 +522,13 @@ async function migrateCollegeAccountFormationUniqueConstraint(pool: Pool) {
      ON public.college_account_profiles (college_subject_id)
      WHERE college_subject_id IS NOT NULL`
   );
+  await createIndexSafe(
+    pool,
+    "uq_college_profile_formation_name_central_only",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_college_profile_formation_name_central_only
+     ON public.college_account_profiles (formation_name)
+     WHERE account_kind = 'CENTRAL' AND formation_name IS NOT NULL`
+  );
 }
 
 async function ensureCollegeAccountProfileSubjectLink(pool: Pool) {

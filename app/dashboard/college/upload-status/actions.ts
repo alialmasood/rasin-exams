@@ -15,6 +15,7 @@ import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import {
   getCollegePortalDataOwnerUserId,
   departmentCanAccessCollegeSubjectRow,
+  isDepartmentPortalSession,
 } from "@/lib/college-portal-scope";
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
@@ -39,8 +40,8 @@ export async function patchRoomAttendanceForSituationAction(
 ): Promise<SituationActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  if (session.college_account_kind !== "DEPARTMENT") {
-    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من صفحة القسم/الفرع." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من بوابة القسم/الفرع أو الكلية المركزية." };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
@@ -100,8 +101,8 @@ export async function patchSituationExamBookletsAction(
 ): Promise<SituationActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  if (session.college_account_kind !== "DEPARTMENT") {
-    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من صفحة القسم/الفرع." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من بوابة القسم/الفرع أو الكلية المركزية." };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
@@ -140,8 +141,8 @@ export async function patchSituationStaffAbsencesAction(
 ): Promise<SituationActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  if (session.college_account_kind !== "DEPARTMENT") {
-    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من صفحة القسم/الفرع." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من بوابة القسم/الفرع أو الكلية المركزية." };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
@@ -197,8 +198,8 @@ export async function patchSituationCheatingCasesAction(
 ): Promise<SituationActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  if (session.college_account_kind !== "DEPARTMENT") {
-    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من صفحة القسم/الفرع." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "تعديل بيانات الموقف متاح فقط من بوابة القسم/الفرع أو الكلية المركزية." };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };
@@ -275,8 +276,8 @@ export async function approveDeanSituationAction(
 ): Promise<SituationActionState> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
-  if (session.college_account_kind !== "DEPARTMENT") {
-    return { ok: false, message: "اعتماد الموقف يتم من صفحة القسم/الفرع فقط." };
+  if (!isDepartmentPortalSession(session)) {
+    return { ok: false, message: "اعتماد الموقف يتم من بوابة القسم/الفرع أو الكلية المركزية فقط." };
   }
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح." };

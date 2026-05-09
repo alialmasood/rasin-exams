@@ -8,8 +8,8 @@ export type SessionPayload = {
   uid: string;
   username: string;
   role: string;
-  /** للدور COLLEGE — تشكيل / قسم / متابعة مركزية */
-  college_account_kind?: "FORMATION" | "FOLLOWUP" | "DEPARTMENT";
+  /** للدور COLLEGE — تشكيل / قسم / كلية مركزية مجمّعة / متابعة مركزية */
+  college_account_kind?: "FORMATION" | "FOLLOWUP" | "DEPARTMENT" | "CENTRAL";
   /** صف college_subjects عند حساب القسم */
   college_subject_id?: string;
 };
@@ -65,9 +65,11 @@ export async function getSession(): Promise<SessionPayload | null> {
         ? "FOLLOWUP"
         : ck === "DEPARTMENT"
           ? "DEPARTMENT"
-          : ck === "FORMATION"
-            ? "FORMATION"
-            : undefined;
+          : ck === "CENTRAL"
+            ? "CENTRAL"
+            : ck === "FORMATION"
+              ? "FORMATION"
+              : undefined;
     const csid = payload.college_subject_id;
     const college_subject_id = typeof csid === "string" && csid.trim() ? csid.trim() : undefined;
     return { uid, username, role, college_account_kind, college_subject_id };

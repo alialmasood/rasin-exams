@@ -33,7 +33,8 @@ export async function middleware(request: NextRequest) {
 
     /** بوابة القسم — خارج /dashboard */
     if (pathname.startsWith("/department")) {
-      if (role !== "COLLEGE" || collegeKind !== "DEPARTMENT") {
+      const deptPortal = collegeKind === "DEPARTMENT" || collegeKind === "CENTRAL";
+      if (role !== "COLLEGE" || !deptPortal) {
         if (role === "COLLEGE" && collegeKind === "FOLLOWUP") {
           return NextResponse.redirect(new URL("/tracking", request.url));
         }
@@ -54,7 +55,7 @@ export async function middleware(request: NextRequest) {
       if (pathname.startsWith("/dashboard")) {
         return NextResponse.redirect(new URL("/tracking", request.url));
       }
-    } else if (role === "COLLEGE" && collegeKind === "DEPARTMENT") {
+    } else if (role === "COLLEGE" && (collegeKind === "DEPARTMENT" || collegeKind === "CENTRAL")) {
       if (pathname.startsWith("/dashboard")) {
         return NextResponse.redirect(new URL("/department", request.url));
       }

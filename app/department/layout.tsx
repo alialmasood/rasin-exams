@@ -18,6 +18,8 @@ export default async function DepartmentLayout({ children }: { children: React.R
 
   const profile = await getCollegeProfileByUserId(session.uid);
   const sidebarTagline = profile ? collegePortalDisplayLabel(profile) : ws.collegeLabel;
+  const deptRoleLabel =
+    profile?.account_kind === "CENTRAL" ? "حساب كلية مركزي (جميع الفروع)" : "حساب قسم / فرع";
 
   return (
     <CollegePortalBasePathProvider value="/department">
@@ -27,11 +29,11 @@ export default async function DepartmentLayout({ children }: { children: React.R
           role={session.role}
           displayName={session.username}
           sidebarTagline={sidebarTagline}
-          roleDescription="حساب قسم / فرع"
+          roleDescription={deptRoleLabel}
           collegeNavSections={departmentDashboardNavSections}
           collegeNavRootPath="/department"
           presenceUserId={session.uid}
-          presenceDisplayLabel={`${sidebarTagline} — حساب قسم / فرع (${session.username})`}
+          presenceDisplayLabel={`${sidebarTagline} — ${deptRoleLabel} (${session.username})`}
         >
           {children}
         </AdminDashboardShell>

@@ -38,16 +38,29 @@ function statusLabelAr(status: string): string {
 }
 
 function accountKindLabelAr(row: CollegeAccountRow): string {
-  return row.account_kind === "FOLLOWUP" ? "حساب متابعة" : "حساب تشكيل";
+  if (row.account_kind === "FOLLOWUP") return "متابعة مركزية";
+  if (row.account_kind === "DEPARTMENT") return "قسم / فرع";
+  if (row.account_kind === "CENTRAL") return "كلية مركزية";
+  return "حساب تشكيل";
 }
 
 function formationDisplay(row: CollegeAccountRow): string {
   if (row.account_kind === "FOLLOWUP") return "—";
+  if (row.account_kind === "DEPARTMENT") {
+    const f = (row.formation_name ?? "").trim();
+    const b = (row.branch_name ?? "").trim();
+    return [f, b].filter(Boolean).join(" — ") || "—";
+  }
+  if (row.account_kind === "CENTRAL") {
+    const f = (row.formation_name ?? "").trim();
+    return f ? `${f} — جميع الفروع` : "—";
+  }
   return (row.formation_name ?? "—").trim() || "—";
 }
 
 function deanOrHolder(row: CollegeAccountRow): string {
-  return row.account_kind === "FOLLOWUP" ? (row.holder_name ?? "—") : (row.dean_name ?? "—");
+  if (row.account_kind === "FOLLOWUP") return row.holder_name ?? "—";
+  return (row.dean_name ?? "—").trim() || "—";
 }
 
 export type CollegeAccountsReportInput = {
@@ -63,6 +76,8 @@ export function buildCollegeAccountsReportHtml(input: CollegeAccountsReportInput
   const logoSrc = base ? `${base}/uob-logo.png` : "/uob-logo.png";
 
   let formation = 0;
+  let central = 0;
+  let department = 0;
   let followup = 0;
   let active = 0;
   let disabled = 0;
@@ -70,6 +85,8 @@ export function buildCollegeAccountsReportHtml(input: CollegeAccountsReportInput
   let pending = 0;
   for (const r of rows) {
     if (r.account_kind === "FOLLOWUP") followup += 1;
+    else if (r.account_kind === "DEPARTMENT") department += 1;
+    else if (r.account_kind === "CENTRAL") central += 1;
     else formation += 1;
     switch (r.status) {
       case "ACTIVE":
@@ -143,7 +160,7 @@ export function buildCollegeAccountsReportHtml(input: CollegeAccountsReportInput
     th { background: #f1f5f9; font-weight: 700; color: #334155; }
     .summary { display: table; width: 100%; border-collapse: collapse; margin-bottom: 5mm; font-size: 10pt; }
     .summary-row { display: table-row; }
-    .summary-cell { display: table-cell; border: 1px solid #e2e8f0; padding: 8px 10px; width: 16.66%; text-align: center; background: #f8fafc; }
+    .summary-cell { display: table-cell; border: 1px solid #e2e8f0; padding: 8px 6px; width: 12.5%; text-align: center; background: #f8fafc; font-size: 9.5pt; }
     .summary-val { font-size: 13pt; font-weight: 800; color: #1e3a8a; }
     .muted { color: #64748b; font-size: 9pt; }
     .footer { margin-top: 8mm; padding-top: 4mm; border-top: 1px solid #e2e8f0; font-size: 9pt; color: #64748b; text-align: center; }
@@ -167,8 +184,10 @@ export function buildCollegeAccountsReportHtml(input: CollegeAccountsReportInput
   <div class="summary">
     <div class="summary-row">
       <div class="summary-cell"><span class="muted">إجمالي الحسابات</span><div class="summary-val">${total}</div></div>
-      <div class="summary-cell"><span class="muted">حسابات تشكيل</span><div class="summary-val">${formation}</div></div>
-      <div class="summary-cell"><span class="muted">حسابات متابعة</span><div class="summary-val">${followup}</div></div>
+      <div class="summary-cell"><span class="muted">تشكيل</span><div class="summary-val">${formation}</div></div>
+      <div class="summary-cell"><span class="muted">كلية مركزية</span><div class="summary-val">${central}</div></div>
+      <div class="summary-cell"><span class="muted">أقسام/فروع</span><div class="summary-val">${department}</div></div>
+      <div class="summary-cell"><span class="muted">متابعة</span><div class="summary-val">${followup}</div></div>
       <div class="summary-cell"><span class="muted">نشط / معطل</span><div class="summary-val" style="font-size:11pt">${active} / ${disabled}</div></div>
       <div class="summary-cell"><span class="muted">مقفل / قيد المراجعة</span><div class="summary-val" style="font-size:11pt">${locked} / ${pending}</div></div>
       <div class="summary-cell"><span class="muted">نسبة النشط</span><div class="summary-val">${activeRate}%</div></div>

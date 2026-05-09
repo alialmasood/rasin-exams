@@ -58,12 +58,13 @@ function parseDepartmentSubjectPick(input: {
   return { ok: false, message: "اختر القسم أو الفرع من القائمة، أو أدخل اسمه." };
 }
 
-export type CollegeAccountKind = "FORMATION" | "FOLLOWUP" | "DEPARTMENT";
+export type CollegeAccountKind = "FORMATION" | "FOLLOWUP" | "DEPARTMENT" | "CENTRAL";
 
 function normalizeAccountKindDb(raw: string): CollegeAccountKind {
   const u = raw.trim().toUpperCase();
   if (u === "FOLLOWUP") return "FOLLOWUP";
   if (u === "DEPARTMENT") return "DEPARTMENT";
+  if (u === "CENTRAL") return "CENTRAL";
   return "FORMATION";
 }
 
@@ -105,8 +106,15 @@ export async function listCollegeAccounts(): Promise<CollegeAccountRow[]> {
      FROM college_account_profiles p
      INNER JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
      LEFT JOIN college_subjects sub ON sub.id = p.college_subject_id
-     ORDER BY COALESCE(p.account_kind, 'FORMATION') ASC,
+     ORDER BY CASE COALESCE(p.account_kind, 'FORMATION')
+                WHEN 'FORMATION' THEN 1
+                WHEN 'CENTRAL' THEN 2
+                WHEN 'DEPARTMENT' THEN 3
+                WHEN 'FOLLOWUP' THEN 4
+                ELSE 5
+              END,
               p.formation_name ASC NULLS LAST,
+              sub.branch_name ASC NULLS LAST,
               p.holder_name ASC NULLS LAST`
   );
   return r.rows.map((row) => ({
@@ -175,9 +183,12 @@ export async function getCollegeProfileByUserId(userId: string): Promise<College
             p.college_subject_id::text AS college_subject_id,
             s.branch_name AS scoped_branch_name,
             COALESCE(s.branch_type, 'DEPARTMENT') AS scoped_branch_type,
-            s.owner_user_id::text AS tenant_owner_user_id
+            COALESCE(s.owner_user_id::text, fo.user_id::text) AS tenant_owner_user_id
      FROM college_account_profiles p
      LEFT JOIN college_subjects s ON s.id = p.college_subject_id
+     LEFT JOIN college_account_profiles fo
+       ON fo.account_kind = 'FORMATION'
+      AND TRIM(COALESCE(fo.formation_name::text, '')) = TRIM(COALESCE(p.formation_name::text, ''))
      WHERE p.user_id = $1
      LIMIT 1`,
     [userId]
@@ -566,6 +577,21 @@ export async function createCollegeAccount(input: {
     formationName = fn;
     deanName = dn;
     fullNameForUser = dn;
+  } else if (input.accountKind === "CENTRAL") {
+    const fn = input.formationName.trim();
+    const head = input.deanName.trim();
+    if (!isValidFormationName(fn)) {
+      return { ok: false, message: "اختر تشكيلًا صالحًا من القائمة." };
+    }
+    if (head.length < 2) {
+      return {
+        ok: false,
+        message: "يرجى إدخال اسم مسؤول الحساب المركزي (حرفان على الأقل).",
+      };
+    }
+    formationName = fn;
+    deanName = head;
+    fullNameForUser = head;
   } else if (input.accountKind === "DEPARTMENT") {
     const fn = input.formationName.trim();
     const head = input.deanName.trim();
@@ -625,6 +651,30 @@ export async function createCollegeAccount(input: {
       if ((dupFormation.rowCount ?? 0) > 0) {
         await client.query("ROLLBACK");
         return { ok: false, message: "يوجد بالفعل حساب تشكيل لهذا الاسم." };
+      }
+    }
+
+    if (input.accountKind === "CENTRAL" && formationName) {
+      const hasFormation = await client.query(
+        `SELECT 1 FROM college_account_profiles
+         WHERE account_kind = 'FORMATION' AND formation_name = $1 LIMIT 1`,
+        [formationName]
+      );
+      if ((hasFormation.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          message: "لا يوجد حساب تشكيل لهذا الاسم. أنشئ حساب التشكيل (عميد الكلية) أولًا من هذه الصفحة.",
+        };
+      }
+      const dupCentral = await client.query(
+        `SELECT 1 FROM college_account_profiles
+         WHERE account_kind = 'CENTRAL' AND formation_name = $1 LIMIT 1`,
+        [formationName]
+      );
+      if ((dupCentral.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, message: "يوجد بالفعل حساب كلية مركزي يجمع فروع هذا التشكيل." };
       }
     }
 

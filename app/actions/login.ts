@@ -22,7 +22,7 @@ export async function loginAction(formData: FormData) {
   const uid = String(user.id);
 
   /** يُحدَّد لـ COLLEGE فقط — لاستخدامه بعد إنشاء الجلسة (خارج try حتى لا يلتقط redirect خطأ NEXT_REDIRECT). */
-  let college_account_kind: "FORMATION" | "FOLLOWUP" | "DEPARTMENT" | undefined;
+  let college_account_kind: "FORMATION" | "FOLLOWUP" | "DEPARTMENT" | "CENTRAL" | undefined;
   let college_subject_id: string | undefined;
 
   try {
@@ -33,7 +33,9 @@ export async function loginAction(formData: FormData) {
           ? "FOLLOWUP"
           : profile?.account_kind === "DEPARTMENT"
             ? "DEPARTMENT"
-            : "FORMATION";
+            : profile?.account_kind === "CENTRAL"
+              ? "CENTRAL"
+              : "FORMATION";
       college_subject_id =
         profile?.account_kind === "DEPARTMENT" && profile.college_subject_id
           ? profile.college_subject_id
@@ -60,7 +62,7 @@ export async function loginAction(formData: FormData) {
     if (college_account_kind === "FOLLOWUP") {
       redirect("/tracking");
     }
-    if (college_account_kind === "DEPARTMENT") {
+    if (college_account_kind === "DEPARTMENT" || college_account_kind === "CENTRAL") {
       redirect("/department");
     }
     redirect("/dashboard/college");
