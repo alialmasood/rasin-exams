@@ -66,6 +66,7 @@ export function StaffRegistryPanel({
   );
   const importFileRef = useRef<HTMLInputElement>(null);
   const formPending = addPending || updatePending;
+  const [templatePending, setTemplatePending] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -111,6 +112,33 @@ export function StaffRegistryPanel({
   }, [toast]);
 
   const totalCount = rows.length;
+
+  async function onExportExcelTemplate() {
+    if (templatePending) return;
+    setTemplatePending(true);
+    try {
+      const xlsx = await import("xlsx");
+      const branchRows =
+        branches.length > 0
+          ? branches.map((b) => ({
+              "القسم / الفرع": b.branch_name,
+              "الاسم الكامل": "",
+            }))
+          : [
+              {
+                "القسم / الفرع": "",
+                "الاسم الكامل": "",
+              },
+            ];
+      const ws = xlsx.utils.json_to_sheet(branchRows);
+      ws["!cols"] = [{ wch: 34 }, { wch: 34 }];
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "StaffRegistryTemplate");
+      xlsx.writeFile(wb, "staff-registry-template.xlsx");
+    } finally {
+      setTemplatePending(false);
+    }
+  }
 
   const subjectSelectDefault = editingRow
     ? (editingRow.college_subject_id ?? STAFF_REGISTRY_ALL_BRANCHES_VALUE)
@@ -268,6 +296,14 @@ export function StaffRegistryPanel({
                   {importPending ? "جاري الاستيراد…" : "استيراد أسماء من Excel"}
                 </button>
               </form>
+              <button
+                type="button"
+                disabled={templatePending || importPending || formPending || delPending}
+                onClick={() => void onExportExcelTemplate()}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border-2 border-emerald-600 bg-white px-5 text-sm font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
+              >
+                {templatePending ? "جاري تجهيز القالب…" : "تصدير قالب Excel"}
+              </button>
             </div>
             <p className="max-w-md text-xs font-medium leading-relaxed text-[#64748B]">
               الملف (.xlsx / .xls): الورقة الأولى فقط — عمود{" "}

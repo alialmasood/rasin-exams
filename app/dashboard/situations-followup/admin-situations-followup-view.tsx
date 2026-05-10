@@ -1,3 +1,6 @@
+ "use client";
+
+import { useMemo, useState } from "react";
 import type { AdminOfficialSituationFollowupRow } from "@/lib/college-exam-situations";
 import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
 
@@ -106,29 +109,42 @@ type NavigatorBranchNode = {
 };
 
 type NavigatorFormationNode = {
+  ownerUserId: string;
   formationLabel: string;
   totalRows: number;
+  examDates: string[];
   branches: NavigatorBranchNode[];
 };
 
 function buildNavigator(rows: AdminOfficialSituationFollowupRow[]): NavigatorFormationNode[] {
-  const byFormation = new Map<string, { totalRows: number; byBranch: Map<string, Set<string>> }>();
+  const byFormation = new Map<
+    string,
+    { ownerUserId: string; totalRows: number; examDates: Set<string>; byBranch: Map<string, Set<string>> }
+  >();
   for (const r of rows) {
     const formation = r.formation_label.trim() || "—";
     const branch = r.branch_name.trim() || "—";
     const day = r.exam_date.trim() || "—";
     if (!byFormation.has(formation)) {
-      byFormation.set(formation, { totalRows: 0, byBranch: new Map() });
+      byFormation.set(formation, {
+        ownerUserId: r.owner_user_id,
+        totalRows: 0,
+        examDates: new Set<string>(),
+        byBranch: new Map(),
+      });
     }
     const f = byFormation.get(formation)!;
     f.totalRows += 1;
+    f.examDates.add(day);
     if (!f.byBranch.has(branch)) f.byBranch.set(branch, new Set());
     f.byBranch.get(branch)!.add(day);
   }
   return [...byFormation.entries()]
     .map(([formationLabel, info]) => ({
+      ownerUserId: info.ownerUserId,
       formationLabel,
       totalRows: info.totalRows,
+      examDates: [...info.examDates].filter((d) => d !== "—").sort((a, b) => b.localeCompare(a)),
       branches: [...info.byBranch.entries()]
         .map(([branchName, days]) => ({
           branchName,
@@ -140,14 +156,29 @@ function buildNavigator(rows: AdminOfficialSituationFollowupRow[]): NavigatorFor
 }
 
 export function AdminSituationsFollowupView({
-  rows,
+  rows: allRows,
   availableExamDates,
   defaultExamDate,
+  queryText = "",
 }: {
   rows: AdminOfficialSituationFollowupRow[];
   availableExamDates: string[];
   defaultExamDate: string;
+  queryText?: string;
 }) {
+  const [deanAuthFilter, setDeanAuthFilter] = useState<"ALL" | "AUTHED" | "NOT_AUTHED">("ALL");
+  const [deptApprovalFilter, setDeptApprovalFilter] = useState<"ALL" | "APPROVED" | "NOT_APPROVED">("ALL");
+  const rows = useMemo(
+    () =>
+      allRows.filter((r) => {
+        if (deanAuthFilter === "AUTHED" && !r.is_uploaded) return false;
+        if (deanAuthFilter === "NOT_AUTHED" && r.is_uploaded) return false;
+        if (deptApprovalFilter === "APPROVED" && r.dean_status !== "APPROVED") return false;
+        if (deptApprovalFilter === "NOT_APPROVED" && r.dean_status === "APPROVED") return false;
+        return true;
+      }),
+    [allRows, deanAuthFilter, deptApprovalFilter]
+  );
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
   const navigator = buildNavigator(rows);
@@ -165,6 +196,31 @@ export function AdminSituationsFollowupView({
           <strong className="font-semibold text-[#475569]">يوم الامتحان</strong> ثم{" "}
           <strong className="font-semibold text-[#475569]">التشكيل</strong>.
         </p>
+        <form method="get" className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex min-w-[260px] flex-col gap-1 text-xs font-bold text-[#334155]">
+            شريط البحث
+            <input
+              name="q"
+              defaultValue={queryText}
+              placeholder="ابحث بالتشكيل أو القسم/الفرع أو المادة أو اليوم..."
+              className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+            />
+          </label>
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center rounded-lg border border-[#1E3A8A] bg-[#1E3A8A] px-3 text-sm font-bold text-white transition hover:bg-[#163170]"
+          >
+            بحث
+          </button>
+          {queryText.trim().length > 0 ? (
+            <a
+              href="/dashboard/situations-followup"
+              className="inline-flex h-10 items-center rounded-lg border border-[#CBD5E1] bg-white px-3 text-sm font-bold text-[#475569] transition hover:bg-[#F8FAFC]"
+            >
+              مسح البحث
+            </a>
+          ) : null}
+        </form>
       </header>
 
       <section aria-label="إحصائيات موجزة" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -187,10 +243,43 @@ export function AdminSituationsFollowupView({
             {navigator.map((formation) => (
               <details key={formation.formationLabel} className="rounded-xl border border-[#E2E8F0] bg-[#FAFBFC]">
                 <summary className="cursor-pointer list-none px-3 py-2 text-sm font-bold text-[#1E3A8A]">
-                  {formation.formationLabel}
-                  <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
-                    ({formatNum(formation.totalRows)} موقفاً · {formatNum(formation.branches.length)} قسم/فرع)
-                  </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      {formation.formationLabel}
+                      <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
+                        ({formatNum(formation.totalRows)} موقفاً · {formatNum(formation.branches.length)} قسم/فرع)
+                      </span>
+                    </div>
+                    <form
+                      method="get"
+                      action="/dashboard/situations-followup/custom-report"
+                      target="_blank"
+                      className="flex items-center gap-1"
+                    >
+                      <input type="hidden" name="ownerUserId" value={formation.ownerUserId} />
+                      <select
+                        name="examDate"
+                        defaultValue={formation.examDates[0] ?? defaultExamDate}
+                        className="h-7 rounded-md border border-[#CBD5E1] bg-white px-2 text-[11px] font-semibold text-[#334155]"
+                      >
+                        {formation.examDates.length > 0
+                          ? formation.examDates.map((d) => (
+                              <option key={`${formation.formationLabel}-${d}`} value={d}>
+                                {d}
+                              </option>
+                            ))
+                          : (
+                              <option value={defaultExamDate}>{defaultExamDate}</option>
+                            )}
+                      </select>
+                      <button
+                        type="submit"
+                        className="inline-flex h-7 items-center rounded-md border border-[#1E3A8A] bg-[#1E3A8A] px-2 text-[11px] font-extrabold text-white transition hover:bg-[#163170]"
+                      >
+                        تقرير مخصص
+                      </button>
+                    </form>
+                  </div>
                 </summary>
                 <div className="space-y-2 border-t border-[#E2E8F0] px-3 py-2">
                   {formation.branches.map((branch) => (
@@ -252,6 +341,68 @@ export function AdminSituationsFollowupView({
             طباعة التقرير اليومي / حفظ PDF
           </button>
         </form>
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+          <p className="text-xs font-bold text-emerald-800">تصفية التقرير</p>
+          <p className="mt-1 text-[11px] text-emerald-700">
+            استخدم هذا الخيار لطباعة تقرير PDF مفلتر حسب مصادقة العميد واعتماد رئيس القسم/الفرع، دون التأثير على الزر
+            اليومي الأصلي أعلاه.
+          </p>
+          <form
+            className="mt-3 flex flex-wrap items-end gap-2"
+            method="get"
+            action="/dashboard/situations-followup/daily-report-filtered"
+            target="_blank"
+          >
+            <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+              اليوم الامتحاني
+              <select
+                name="examDate"
+                defaultValue={defaultExamDate}
+                className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+              >
+                {availableExamDates.map((d) => (
+                  <option key={`f-${d}`} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+              مصادقة حساب العميد
+              <select
+                name="deanAuthFilter"
+                value={deanAuthFilter}
+                onChange={(e) => setDeanAuthFilter(e.target.value as "ALL" | "AUTHED" | "NOT_AUTHED")}
+                className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+              >
+                <option value="ALL">الكل</option>
+                <option value="AUTHED">مصادق فقط</option>
+                <option value="NOT_AUTHED">غير مصادق فقط</option>
+              </select>
+            </label>
+            <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+              اعتماد رئيس القسم/الفرع
+              <select
+                name="deptApprovalFilter"
+                value={deptApprovalFilter}
+                onChange={(e) =>
+                  setDeptApprovalFilter(e.target.value as "ALL" | "APPROVED" | "NOT_APPROVED")
+                }
+                className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+              >
+                <option value="ALL">الكل</option>
+                <option value="APPROVED">معتمد فقط</option>
+                <option value="NOT_APPROVED">غير معتمد فقط</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center rounded-lg border border-emerald-700 bg-emerald-700 px-3 text-sm font-bold text-white transition hover:bg-emerald-800"
+            >
+              طباعة التقرير بالتصفية / حفظ PDF
+            </button>
+          </form>
+        </div>
       </section>
 
       {rows.length === 0 ? (

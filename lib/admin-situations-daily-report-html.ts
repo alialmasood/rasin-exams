@@ -51,8 +51,27 @@ export function buildAdminDailySituationsReportHtml(input: {
   examDate: string;
   rows: AdminOfficialSituationFollowupRow[];
   generatedAt: Date;
+  filters?: {
+    deanAuthFilter?: "ALL" | "AUTHED" | "NOT_AUTHED";
+    deptApprovalFilter?: "ALL" | "APPROVED" | "NOT_APPROVED";
+  };
 }): string {
   const z = esc;
+  const deanAuthFilterLabel =
+    input.filters?.deanAuthFilter === "AUTHED"
+      ? "مصادق فقط"
+      : input.filters?.deanAuthFilter === "NOT_AUTHED"
+        ? "غير مصادق فقط"
+        : "الكل";
+  const deptApprovalFilterLabel =
+    input.filters?.deptApprovalFilter === "APPROVED"
+      ? "معتمد فقط"
+      : input.filters?.deptApprovalFilter === "NOT_APPROVED"
+        ? "غير معتمد فقط"
+        : "الكل";
+  const hasFilters =
+    (input.filters?.deanAuthFilter && input.filters.deanAuthFilter !== "ALL") ||
+    (input.filters?.deptApprovalFilter && input.filters.deptApprovalFilter !== "ALL");
   const rowsHtml = input.rows
     .map(
       (r, i) => `<tr>
@@ -96,6 +115,11 @@ export function buildAdminDailySituationsReportHtml(input: {
     <h1>التقرير اليومي الرسمي للمواقف الامتحانية</h1>
     <div class="meta"><strong>جامعة البصرة</strong> — لوحة متابعة المواقف (الإدارة)</div>
     <div class="meta"><strong>اليوم الامتحاني:</strong> ${z(formatExamDateAr(input.examDate))}</div>
+    ${
+      hasFilters
+        ? `<div class="meta"><strong>فلتر مصادقة العميد:</strong> ${z(deanAuthFilterLabel)} — <strong>فلتر اعتماد رئيس القسم/الفرع:</strong> ${z(deptApprovalFilterLabel)}</div>`
+        : ""
+    }
     <div class="meta"><strong>عدد السجلات:</strong> ${input.rows.length} — <strong>وقت إصدار التقرير:</strong> ${z(formatGeneratedAt(input.generatedAt))}</div>
   </header>
 

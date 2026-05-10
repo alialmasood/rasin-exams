@@ -759,13 +759,14 @@ export function StatusFollowupPanel({
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">المادة الامتحانية</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">المستوى الدراسي</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">التاريخ</th>
+                <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">مصادقة العميد</th>
                 <th className="px-3 py-3 text-xs font-bold text-[#334155] sm:px-4">إجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0]">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-14 text-center text-sm text-[#64748B]">
+                  <td colSpan={7} className="px-4 py-14 text-center text-sm text-[#64748B]">
                     لا توجد مواقف مرفوعة بعد. تظهر هنا بعد إرسال نموذج «رفع الموقف الامتحاني» أو بعد تأكيد رفع موقف جلسة
                     مجدولة من صفحة الجلسة.
                   </td>
@@ -797,6 +798,17 @@ export function StatusFollowupPanel({
                         )}
                       </td>
                       <td className="px-3 py-3 text-sm text-[#334155] sm:px-4">{formatExamDateAr(r.exam_date)}</td>
+                      <td className="px-3 py-3 sm:px-4">
+                        {r.kind === "schedule" ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-800">
+                            تمت المصادقة من حساب العميد
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
+                            غير مرتبط بمصادقة العميد
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-3 sm:px-4">
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <button

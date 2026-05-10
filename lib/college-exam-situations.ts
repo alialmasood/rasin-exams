@@ -1621,6 +1621,7 @@ export type AdminOfficialSituationFollowupRow = {
   meal_slot: 1 | 2;
   schedule_type: "FINAL" | "SEMESTER";
   workflow_status: CollegeExamScheduleRow["workflow_status"];
+  attendance_count: number;
   dean_status: DeanSituationStatus;
   dean_reviewed_at_iso: string | null;
   is_uploaded: boolean;
@@ -1822,6 +1823,7 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
       meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
       schedule_type: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
       workflow_status: normalizeWorkflowStatusDb(row.workflow_status),
+      attendance_count: att,
       dean_status: dean,
       dean_reviewed_at_iso: row.dean_reviewed_at?.toISOString() ?? null,
       is_uploaded: Boolean(headSubmitted),

@@ -23,7 +23,11 @@ function baghdadIsoDateNow(): string {
   }
 }
 
-export default async function SituationsFollowupHubPage() {
+export default async function SituationsFollowupHubPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ q?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/");
   if (session.role === "COLLEGE") {
@@ -31,7 +35,25 @@ export default async function SituationsFollowupHubPage() {
   }
 
   const rows = await listAllOfficialExamSituationsForAdmin();
-  const availableExamDates = [...new Set(rows.map((r) => r.exam_date).filter(Boolean))].sort((a, b) =>
+  const sp = searchParams ? await searchParams : undefined;
+  const qRaw = String(sp?.q ?? "").trim();
+  const q = qRaw.toLowerCase();
+  const filteredRows =
+    q.length === 0
+      ? rows
+      : rows.filter((r) => {
+          const hay = [
+            r.formation_label,
+            r.branch_name,
+            r.subject_name,
+            r.owner_username,
+            r.exam_date,
+          ]
+            .join(" ")
+            .toLowerCase();
+          return hay.includes(q);
+        });
+  const availableExamDates = [...new Set(filteredRows.map((r) => r.exam_date).filter(Boolean))].sort((a, b) =>
     b.localeCompare(a)
   );
   const today = baghdadIsoDateNow();
@@ -39,9 +61,10 @@ export default async function SituationsFollowupHubPage() {
 
   return (
     <AdminSituationsFollowupView
-      rows={rows}
+      rows={filteredRows}
       availableExamDates={availableExamDates}
       defaultExamDate={defaultExamDate}
+      queryText={qRaw}
     />
   );
 }
