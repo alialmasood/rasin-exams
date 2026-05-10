@@ -59,6 +59,7 @@ function mergeScheduleRowsForOfficialTable(sortedRows: CollegeExamScheduleRow[])
     const base = members[0]!;
     return {
       ...base,
+      student_count: members.reduce((sum, m) => sum + Number(m.student_count ?? 0), 0),
       room_name: members.map((m) => m.room_name.trim() || "—").join(" · "),
     };
   });
@@ -114,6 +115,7 @@ function buildScheduleGroupDocumentHtml(args: {
         <td style="padding:7px 7px;border:1px solid #94a3b8;text-align:right;vertical-align:middle">${escHtml(weekdayAr(r.exam_date))}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;white-space:nowrap;direction:ltr;font-variant-numeric:tabular-nums">${escHtml(timeRangeLabel(r.start_time, r.end_time))}</td>
         <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle">${escHtml(formatDuration(r.duration_minutes))}</td>
+        <td style="padding:7px 5px;border:1px solid #94a3b8;text-align:center;vertical-align:middle;font-variant-numeric:tabular-nums">${Number(r.student_count ?? 0)}</td>
         <td style="padding:7px 8px;border:1px solid #94a3b8;text-align:right;vertical-align:middle">${escHtml(r.room_name)}</td>
       </tr>`;
     })
@@ -148,6 +150,7 @@ function buildScheduleGroupDocumentHtml(args: {
             <col style="width:11%">
             <col style="width:13%">
             <col style="width:9%">
+            <col style="width:8%">
             <col style="width:17%">
           </colgroup>
           <thead>
@@ -161,6 +164,7 @@ function buildScheduleGroupDocumentHtml(args: {
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">اليوم</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">وقت الامتحان</th>
               <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">المدة</th>
+              <th style="padding:9px 5px;border:1px solid #64748b;font-weight:800">عدد الطلبة</th>
               <th style="padding:9px 6px;border:1px solid #64748b;font-weight:800;text-align:right">القاعة</th>
             </tr>
           </thead>

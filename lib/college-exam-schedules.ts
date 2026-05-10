@@ -35,6 +35,8 @@ export type CollegeExamScheduleRow = {
   start_time: string;
   end_time: string;
   duration_minutes: number;
+  /** عدد الطلبة (السعة الإجمالية للمادة في هذه القاعة) */
+  student_count: number;
   notes: string | null;
   created_at: Date;
 };
@@ -327,6 +329,7 @@ export async function listCollegeExamSchedulesByOwner(
     start_time: string;
     end_time: string;
     duration_minutes: number;
+    student_count: number;
     notes: string | null;
     created_at: Date;
     meal_slot: number | string | null;
@@ -338,7 +341,13 @@ export async function listCollegeExamSchedulesByOwner(
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
             e.start_time::text, e.end_time::text,
-            e.duration_minutes, e.notes, e.created_at
+            e.duration_minutes,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN COALESCE(r.capacity_total, 0)
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2 THEN COALESCE(r.capacity_total_2, 0)
+              ELSE 0
+            END::int AS student_count,
+            e.notes, e.created_at
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
@@ -369,6 +378,7 @@ function mapScheduleQueryRow(x: {
   start_time: string;
   end_time: string;
   duration_minutes: number;
+  student_count: number;
   notes: string | null;
   created_at: Date;
   meal_slot: number | string | null;
@@ -400,6 +410,7 @@ function mapScheduleQueryRow(x: {
     start_time: x.start_time.slice(0, 5),
     end_time: x.end_time.slice(0, 5),
     duration_minutes: x.duration_minutes,
+    student_count: Number(x.student_count ?? 0),
     notes: x.notes,
     created_at: x.created_at,
   };
@@ -436,6 +447,7 @@ export async function listCollegeExamSchedulesByOwnerForExamDate(
     start_time: string;
     end_time: string;
     duration_minutes: number;
+    student_count: number;
     notes: string | null;
     created_at: Date;
     meal_slot: number | string | null;
@@ -447,7 +459,13 @@ export async function listCollegeExamSchedulesByOwnerForExamDate(
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
             e.start_time::text, e.end_time::text,
-            e.duration_minutes, e.notes, e.created_at
+            e.duration_minutes,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN COALESCE(r.capacity_total, 0)
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2 THEN COALESCE(r.capacity_total_2, 0)
+              ELSE 0
+            END::int AS student_count,
+            e.notes, e.created_at
      FROM college_exam_schedules e
      INNER JOIN college_subjects c ON c.id = e.college_subject_id
      INNER JOIN college_study_subjects s ON s.id = e.study_subject_id
@@ -491,6 +509,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     start_time: string;
     end_time: string;
     duration_minutes: number;
+    student_count: number;
     notes: string | null;
     created_at: Date;
     meal_slot: number | string | null;
@@ -504,7 +523,13 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
             e.schedule_type, COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
             e.term_label, e.academic_year, e.exam_date::text, COALESCE(e.meal_slot, 1) AS meal_slot,
             e.start_time::text, e.end_time::text,
-            e.duration_minutes, e.notes, e.created_at,
+            e.duration_minutes,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN COALESCE(r.capacity_total, 0)
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2 THEN COALESCE(r.capacity_total_2, 0)
+              ELSE 0
+            END::int AS student_count,
+            e.notes, e.created_at,
             COALESCE(
               NULLIF(TRIM(
                 CASE
@@ -555,6 +580,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     start_time: x.start_time.slice(0, 5),
     end_time: x.end_time.slice(0, 5),
     duration_minutes: x.duration_minutes,
+    student_count: Number(x.student_count ?? 0),
     notes: x.notes,
     created_at: x.created_at,
     formation_label: x.formation_label?.trim() || x.owner_username || "—",

@@ -164,6 +164,7 @@ function buildExamScheduleExcelRows(rows: CollegeExamScheduleRow[], collegeLabel
       "رقم الوجبة": formatExamMealSlotLabel(r.meal_slot),
       "وقت الامتحان": timeRangeLabel(r.start_time, r.end_time),
       "مدة الامتحان": formatDuration(r.duration_minutes),
+      "عدد الطلبة": members.reduce((sum, m) => sum + Number(m.student_count ?? 0), 0),
       "القاعة": roomCell,
       "عدد القاعات (توزيع)": members.length,
       "الملاحظات": r.notes || "",
@@ -761,17 +762,18 @@ export function ExamSchedulesPanel({
         const r = sess[0]!;
         const rooms =
           sess.length === 1 ? r.room_name : sess.map((x) => x.room_name).join("، ");
+        const studentCount = sess.reduce((sum, x) => sum + Number(x.student_count ?? 0), 0);
         return `<tr>
       <td>${i + 1}</td><td>${collegeLabel}</td><td>${r.college_subject_name}</td><td>${SCHEDULE_TYPE_LABEL[r.schedule_type]}</td>
       <td>${r.study_subject_name}${sess.length > 1 ? ` <span style="font-size:10px;color:#4338ca">(جلسة واحدة — ${sess.length} قاعات)</span>` : ""}</td><td>${formatCollegeStudyStageLabel(Number(r.stage_level))}</td><td>${weekdayAr(r.exam_date)}</td><td>${r.exam_date}</td><td>${formatExamMealSlotLabel(r.meal_slot)}</td>
-      <td>${timeRangeLabel(r.start_time, r.end_time)}</td><td>${formatDuration(r.duration_minutes)}</td><td>${rooms}</td></tr>`;
+      <td>${timeRangeLabel(r.start_time, r.end_time)}</td><td>${formatDuration(r.duration_minutes)}</td><td>${studentCount}</td><td>${rooms}</td></tr>`;
       })
       .join("");
     popup.document.write(`<html dir="rtl"><head><title>طباعة الجدول</title><style>
       body{font-family:Tahoma,Arial;padding:24px} table{width:100%;border-collapse:collapse}
       th,td{border:1px solid #cbd5e1;padding:8px;font-size:12px;text-align:right} th{background:#f1f5f9}
       </style></head><body><h1>الجدول الامتحاني - ${collegeLabel}</h1>
-      <table><thead><tr><th>#</th><th>الكلية</th><th>القسم</th><th>نوع الجدول</th><th>المادة</th><th>المرحلة</th><th>اليوم</th><th>التاريخ</th><th>الوجبة</th><th>الوقت</th><th>المدة</th><th>القاعة</th></tr></thead>
+      <table><thead><tr><th>#</th><th>الكلية</th><th>القسم</th><th>نوع الجدول</th><th>المادة</th><th>المرحلة</th><th>اليوم</th><th>التاريخ</th><th>الوجبة</th><th>الوقت</th><th>المدة</th><th>عدد الطلبة</th><th>القاعة</th></tr></thead>
       <tbody>${rowsHtml}</tbody></table></body></html>`);
     popup.document.close();
     popup.focus();
@@ -833,6 +835,14 @@ export function ExamSchedulesPanel({
     }
     return groups;
   }, [pagedSessionItems]);
+
+  function openDatePickerOnPress(input: HTMLInputElement) {
+    try {
+      input.showPicker?.();
+    } catch {
+      // بعض المتصفحات قد تمنع showPicker في سياقات معينة؛ نكتفي بالسلوك الافتراضي.
+    }
+  }
 
   return (
     <section className="space-y-6" dir="rtl">
@@ -1127,6 +1137,17 @@ export function ExamSchedulesPanel({
                   min={todayCalendarDateLocal()}
                   value={form.examDate}
                   onChange={(e) => setForm((f) => ({ ...f, examDate: e.target.value }))}
+                  inputMode="none"
+                  onPointerDown={(e) => openDatePickerOnPress(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    e.preventDefault();
+                  }}
+                  onBeforeInput={(e) => {
+                    e.preventDefault();
+                  }}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                  }}
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500"
                 />
                 {form.examDate ? (
@@ -1521,6 +1542,7 @@ export function ExamSchedulesPanel({
                 type="date"
                 value={holidayDate}
                 onChange={(e) => setHolidayDate(e.target.value)}
+                onPointerDown={(e) => openDatePickerOnPress(e.currentTarget)}
                 className="h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm"
               />
             </div>
@@ -1615,6 +1637,7 @@ export function ExamSchedulesPanel({
               type="date"
               value={filterDate}
               onChange={(e) => setFilterDate(e.target.value)}
+              onPointerDown={(e) => openDatePickerOnPress(e.currentTarget)}
               className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
             />
           </div>
@@ -1623,18 +1646,19 @@ export function ExamSchedulesPanel({
           <table className="w-full table-fixed border-collapse text-right">
             <colgroup>
               <col style={{ width: "4%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "9%" }} />
               <col style={{ width: "6%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "15%" }} />
+              <col style={{ width: "14%" }} />
               <col style={{ width: "5%" }} />
               <col style={{ width: "7%" }} />
               <col style={{ width: "6%" }} />
               <col style={{ width: "6%" }} />
               <col style={{ width: "8%" }} />
               <col style={{ width: "5%" }} />
-              <col style={{ width: "13%" }} />
-              <col style={{ width: "5%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "7%" }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-[#F1F5F9]">
               <tr className="border-b border-[#E2E8F0]">
@@ -1649,6 +1673,7 @@ export function ExamSchedulesPanel({
                 <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">اليوم</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">الوقت</th>
                 <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">المدة</th>
+                <th className="max-w-0 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-[#334155]">عدد الطلبة</th>
                 <th className="max-w-0 px-2 py-2.5 text-right text-sm font-bold break-words text-[#334155]">
                   القاعة / التوزيع
                 </th>
@@ -1663,7 +1688,7 @@ export function ExamSchedulesPanel({
             <tbody className="divide-y divide-[#E2E8F0] bg-white">
               {pagedSessionItems.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-sm text-[#64748B]">
+                  <td colSpan={14} className="px-4 py-12 text-center text-sm text-[#64748B]">
                     لا توجد بيانات مطابقة.
                   </td>
                 </tr>
@@ -1671,7 +1696,7 @@ export function ExamSchedulesPanel({
                 groupedPagedSessionItems.map((g) => (
                   <Fragment key={`wrap-${g.subjectId}`}>
                     <tr key={`g-${g.subjectId}`} className="bg-[#EEF2FF]">
-                      <td colSpan={13} className="px-3 py-2">
+                      <td colSpan={14} className="px-3 py-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-sm font-bold text-[#1E3A8A]">جدول: {g.subjectName}</span>
                           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1811,6 +1836,9 @@ export function ExamSchedulesPanel({
                           </td>
                           <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums text-[#334155]">
                             {formatDuration(r.duration_minutes)}
+                          </td>
+                          <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle text-center text-sm tabular-nums font-semibold text-[#0F172A]">
+                            {sess.reduce((sum, m) => sum + Number(m.student_count ?? 0), 0)}
                           </td>
                           <td className="max-w-0 border-b border-[#E2E8F0] px-2 py-2 align-middle break-words text-right text-sm text-[#334155]">
                             {multi ? (
