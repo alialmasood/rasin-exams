@@ -168,16 +168,19 @@ export function AdminSituationsFollowupView({
 }) {
   const [deanAuthFilter, setDeanAuthFilter] = useState<"ALL" | "AUTHED" | "NOT_AUTHED">("ALL");
   const [deptApprovalFilter, setDeptApprovalFilter] = useState<"ALL" | "APPROVED" | "NOT_APPROVED">("ALL");
+  const [mealSlotFilter, setMealSlotFilter] = useState<"ALL" | "FIRST" | "SECOND">("ALL");
   const rows = useMemo(
     () =>
       allRows.filter((r) => {
+        if (mealSlotFilter === "FIRST" && r.meal_slot !== 1) return false;
+        if (mealSlotFilter === "SECOND" && r.meal_slot !== 2) return false;
         if (deanAuthFilter === "AUTHED" && !r.is_uploaded) return false;
         if (deanAuthFilter === "NOT_AUTHED" && r.is_uploaded) return false;
         if (deptApprovalFilter === "APPROVED" && r.dean_status !== "APPROVED") return false;
         if (deptApprovalFilter === "NOT_APPROVED" && r.dean_status === "APPROVED") return false;
         return true;
       }),
-    [allRows, deanAuthFilter, deptApprovalFilter]
+    [allRows, deanAuthFilter, deptApprovalFilter, mealSlotFilter]
   );
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
@@ -344,8 +347,8 @@ export function AdminSituationsFollowupView({
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
           <p className="text-xs font-bold text-emerald-800">تصفية التقرير</p>
           <p className="mt-1 text-[11px] text-emerald-700">
-            استخدم هذا الخيار لطباعة تقرير PDF مفلتر حسب مصادقة العميد واعتماد رئيس القسم/الفرع، دون التأثير على الزر
-            اليومي الأصلي أعلاه.
+            استخدم هذا الخيار لطباعة تقرير PDF مفلتر حسب الوجبة ومصادقة العميد واعتماد رئيس القسم/الفرع، دون التأثير على
+            الزر اليومي الأصلي أعلاه.
           </p>
           <form
             className="mt-3 flex flex-wrap items-end gap-2"
@@ -393,6 +396,19 @@ export function AdminSituationsFollowupView({
                 <option value="ALL">الكل</option>
                 <option value="APPROVED">معتمد فقط</option>
                 <option value="NOT_APPROVED">غير معتمد فقط</option>
+              </select>
+            </label>
+            <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+              الوجبة
+              <select
+                name="mealSlotFilter"
+                value={mealSlotFilter}
+                onChange={(e) => setMealSlotFilter(e.target.value as "ALL" | "FIRST" | "SECOND")}
+                className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+              >
+                <option value="ALL">الكل</option>
+                <option value="FIRST">الأولى</option>
+                <option value="SECOND">الثانية</option>
               </select>
             </label>
             <button

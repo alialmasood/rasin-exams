@@ -54,6 +54,7 @@ export function buildAdminDailySituationsReportHtml(input: {
   filters?: {
     deanAuthFilter?: "ALL" | "AUTHED" | "NOT_AUTHED";
     deptApprovalFilter?: "ALL" | "APPROVED" | "NOT_APPROVED";
+    mealSlotFilter?: "ALL" | "FIRST" | "SECOND";
   };
 }): string {
   const z = esc;
@@ -69,9 +70,16 @@ export function buildAdminDailySituationsReportHtml(input: {
       : input.filters?.deptApprovalFilter === "NOT_APPROVED"
         ? "غير معتمد فقط"
         : "الكل";
+  const mealSlotFilterLabel =
+    input.filters?.mealSlotFilter === "FIRST"
+      ? "الأولى فقط"
+      : input.filters?.mealSlotFilter === "SECOND"
+        ? "الثانية فقط"
+        : "الكل";
   const hasFilters =
     (input.filters?.deanAuthFilter && input.filters.deanAuthFilter !== "ALL") ||
-    (input.filters?.deptApprovalFilter && input.filters.deptApprovalFilter !== "ALL");
+    (input.filters?.deptApprovalFilter && input.filters.deptApprovalFilter !== "ALL") ||
+    (input.filters?.mealSlotFilter && input.filters.mealSlotFilter !== "ALL");
   const rowsHtml = input.rows
     .map(
       (r, i) => `<tr>
@@ -117,7 +125,7 @@ export function buildAdminDailySituationsReportHtml(input: {
     <div class="meta"><strong>اليوم الامتحاني:</strong> ${z(formatExamDateAr(input.examDate))}</div>
     ${
       hasFilters
-        ? `<div class="meta"><strong>فلتر مصادقة العميد:</strong> ${z(deanAuthFilterLabel)} — <strong>فلتر اعتماد رئيس القسم/الفرع:</strong> ${z(deptApprovalFilterLabel)}</div>`
+        ? `<div class="meta"><strong>فلتر مصادقة العميد:</strong> ${z(deanAuthFilterLabel)} — <strong>فلتر اعتماد رئيس القسم/الفرع:</strong> ${z(deptApprovalFilterLabel)} — <strong>فلتر الوجبة:</strong> ${z(mealSlotFilterLabel)}</div>`
         : ""
     }
     <div class="meta"><strong>عدد السجلات:</strong> ${input.rows.length} — <strong>وقت إصدار التقرير:</strong> ${z(formatGeneratedAt(input.generatedAt))}</div>

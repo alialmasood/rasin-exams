@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 
 type DeanAuthFilter = "ALL" | "AUTHED" | "NOT_AUTHED";
 type DeptApprovalFilter = "ALL" | "APPROVED" | "NOT_APPROVED";
+type MealSlotFilter = "ALL" | "FIRST" | "SECOND";
 
 function parseDeanAuthFilter(raw: string | null): DeanAuthFilter {
   const v = String(raw ?? "").trim().toUpperCase();
@@ -16,6 +17,13 @@ function parseDeptApprovalFilter(raw: string | null): DeptApprovalFilter {
   const v = String(raw ?? "").trim().toUpperCase();
   if (v === "APPROVED") return "APPROVED";
   if (v === "NOT_APPROVED") return "NOT_APPROVED";
+  return "ALL";
+}
+
+function parseMealSlotFilter(raw: string | null): MealSlotFilter {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "FIRST" || v === "1") return "FIRST";
+  if (v === "SECOND" || v === "2") return "SECOND";
   return "ALL";
 }
 
@@ -61,10 +69,13 @@ export async function GET(req: Request): Promise<Response> {
   const examDate = /^\d{4}-\d{2}-\d{2}$/.test(examDateRaw) ? examDateRaw : baghdadIsoDateNow();
   const deanAuthFilter = parseDeanAuthFilter(url.searchParams.get("deanAuthFilter"));
   const deptApprovalFilter = parseDeptApprovalFilter(url.searchParams.get("deptApprovalFilter"));
+  const mealSlotFilter = parseMealSlotFilter(url.searchParams.get("mealSlotFilter"));
 
   const all = await listAllOfficialExamSituationsForAdmin();
   const rows = all.filter((r) => {
     if (r.exam_date !== examDate) return false;
+    if (mealSlotFilter === "FIRST" && r.meal_slot !== 1) return false;
+    if (mealSlotFilter === "SECOND" && r.meal_slot !== 2) return false;
     if (deanAuthFilter === "AUTHED" && !r.is_uploaded) return false;
     if (deanAuthFilter === "NOT_AUTHED" && r.is_uploaded) return false;
     if (deptApprovalFilter === "APPROVED" && r.dean_status !== "APPROVED") return false;
@@ -75,7 +86,7 @@ export async function GET(req: Request): Promise<Response> {
     examDate,
     rows,
     generatedAt: new Date(),
-    filters: { deanAuthFilter, deptApprovalFilter },
+    filters: { deanAuthFilter, deptApprovalFilter, mealSlotFilter },
   });
   return new Response(withAutoPrint(html), {
     status: 200,
