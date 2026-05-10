@@ -286,9 +286,13 @@ export function SituationDetailClient({
   const multiRoom = bundle.sessions.length > 1;
   const aggregates = bundle.aggregates;
 
+  /* إبقاء القاعة المختارة بعد التحديث/الحفظ؛ يُعاد ضبط التحديد فقط إن لم يعد معرّف الجدول ضمن القائمة */
   useEffect(() => {
-    setActiveScheduleId(bundle.active_schedule_id);
-  }, [bundle.active_schedule_id]);
+    if (bundle.sessions.length === 0) return;
+    if (!bundle.sessions.some((s) => s.schedule_id === activeScheduleId)) {
+      setActiveScheduleId(bundle.sessions[0]!.schedule_id);
+    }
+  }, [bundle.sessions, activeScheduleId]);
 
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
   const [attendanceM, setAttendanceM] = useState(String(detail.attendance_morning));

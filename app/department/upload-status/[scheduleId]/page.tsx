@@ -35,12 +35,8 @@ export default async function DepartmentUploadStatusDetailPage({
 
   return (
     <SituationDetailClient
-      key={bundle.sessions
-        .map(
-          (s) =>
-            `${s.schedule_id}-${s.attendance_count}-${s.absence_count}-${s.exam_booklets_received}-${s.exam_booklets_used}-${s.exam_booklets_damaged}-${s.head_submitted_at ?? "0"}-${s.dean_status}`
-        )
-        .join("|")}
+      /* لا تربط key ببيانات الجلسة المتغيرة بعد الحفظ — وإلا يُعاد تركيب الواجهة ويعود التحديد لمعرّف الرابط بدل القاعة التي اختارها المستخدم */
+      key={scheduleId}
       bundle={bundle}
       collegeLabel={collegeLabel}
       deanName={deanName}
