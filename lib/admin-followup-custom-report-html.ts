@@ -20,12 +20,29 @@ function fmtDate(iso: string): string {
   }
 }
 
+function fmtWeekday(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      weekday: "long",
+      timeZone: "Asia/Baghdad",
+    }).format(new Date(`${iso}T12:00:00`));
+  } catch {
+    return "";
+  }
+}
+
 function fmtNum(n: number): string {
   try {
     return new Intl.NumberFormat("en-US").format(n);
   } catch {
     return String(n);
   }
+}
+
+function reportSaveTitle(formationLabel: string, examDate: string): string {
+  const cleanFormation = formationLabel.replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim() || "تقرير";
+  const weekday = fmtWeekday(examDate).trim();
+  return [cleanFormation, weekday || null, examDate].filter(Boolean).join(" - ");
 }
 
 function mealSlotLabel(slot: 1 | 2): string {
@@ -38,6 +55,65 @@ function scheduleTypeLabel(kind: AdminOfficialSituationFollowupRow["schedule_typ
 
 function completionLabel(done: number, total: number): string {
   return total > 0 && done === total ? "مكتمل" : "قيد المتابعة";
+}
+
+function studyTypeLabelAr(studyType: AdminOfficialSituationFollowupRow["study_type"]): string {
+  switch (studyType) {
+    case "SEMESTER":
+      return "فصلي";
+    case "COURSES":
+      return "مقررات";
+    case "BOLOGNA":
+      return "بولونيا";
+    case "INTEGRATIVE":
+      return "تكاملي";
+    default:
+      return "سنوي";
+  }
+}
+
+function formatTermLabelForReport(raw: string | null | undefined): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  if (value === "الأول") return "الفصل الدراسي الأول";
+  if (value === "الثاني") return "الفصل الدراسي الثاني";
+  return value;
+}
+
+function normalizePersonKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ar");
+}
+
+function splitNames(raw: string): string[] {
+  return raw
+    .split(/[,،;|\n\r]+/u)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function buildShiftAbsenceLocations(
+  rows: AdminOfficialSituationFollowupRow[],
+  formationLabel: string,
+  shift: "morning" | "evening"
+): string[] {
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const row of rows) {
+    const absenceCount =
+      shift === "morning" ? Math.max(0, Number(row.absence_morning ?? 0)) : Math.max(0, Number(row.absence_evening ?? 0));
+    if (absenceCount <= 0) continue;
+    const text = [
+      formationLabel.trim() || "—",
+      row.branch_name.trim() || "—",
+      row.subject_name.trim() || "—",
+      `${fmtNum(absenceCount)} غياب`,
+    ].join(" / ");
+    const key = normalizePersonKey(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(text);
+  }
+  return items;
 }
 
 type AggregatedExamSubject = {
@@ -214,24 +290,48 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
 }): string {
   const { examDate, formationLabel, rows, generatedAt } = args;
   const branches = [...new Set(rows.map((r) => r.branch_name.trim() || "—"))].sort((a, b) => a.localeCompare(b, "ar"));
+  const termLabels = [...new Set(rows.map((r) => formatTermLabelForReport(r.term_label)).filter((value) => value.length > 0))].sort(
+    (a, b) => a.localeCompare(b, "ar")
+  );
+  const studyTypeLabels = [...new Set(rows.map((r) => studyTypeLabelAr(r.study_type)).filter((value) => value.length > 0))].sort(
+    (a, b) => a.localeCompare(b, "ar")
+  );
   const subjects = aggregateExamSubjects(rows);
   const approvedByDept = subjects.filter((subject) => subject.isFullyApproved);
   const notApprovedByDept = subjects.filter((subject) => !subject.isFullyApproved);
   const authenticated = subjects.filter((subject) => subject.isFullyAuthenticated);
   const notAuthenticated = subjects.filter((subject) => !subject.isFullyAuthenticated);
   const totalStudentsExamined = rows.reduce((sum, r) => sum + Math.max(0, Number(r.capacity_total ?? 0)), 0);
+  const totalStudentsMorning = rows.reduce((sum, r) => sum + Math.max(0, Number(r.capacity_morning ?? 0)), 0);
+  const totalStudentsEvening = rows.reduce((sum, r) => sum + Math.max(0, Number(r.capacity_evening ?? 0)), 0);
   const attendanceTotal = rows.reduce((sum, r) => sum + Math.max(0, Number(r.attendance_count ?? 0)), 0);
   const absenceTotal = rows.reduce((sum, r) => sum + Math.max(0, Number(r.absence_count ?? 0)), 0);
+  const attendanceMorning = rows.reduce((sum, r) => sum + Math.max(0, Number(r.attendance_morning ?? 0)), 0);
+  const absenceMorning = rows.reduce((sum, r) => sum + Math.max(0, Number(r.absence_morning ?? 0)), 0);
+  const attendanceEvening = rows.reduce((sum, r) => sum + Math.max(0, Number(r.attendance_evening ?? 0)), 0);
+  const absenceEvening = rows.reduce((sum, r) => sum + Math.max(0, Number(r.absence_evening ?? 0)), 0);
   const usedRooms = new Set(rows.map((r) => r.room_id)).size;
   const examinedSubjects = subjects.length;
   const stageSet = new Set(subjects.map((subject) => Number(subject.stageLevel)).filter((n) => Number.isFinite(n)));
   const stages = [...stageSet].sort((a, b) => a - b).map((n) => formatCollegeStudyStageLabel(n));
+  const morningAbsenceLocations = buildShiftAbsenceLocations(rows, formationLabel, "morning");
+  const eveningAbsenceLocations = buildShiftAbsenceLocations(rows, formationLabel, "evening");
+  const supervisorKeys = new Set<string>();
+  const invigilatorKeys = new Set<string>();
+  for (const row of rows) {
+    const supervisorName = String(row.supervisor_name ?? "").trim();
+    if (supervisorName) supervisorKeys.add(normalizePersonKey(supervisorName));
+    for (const invigilator of splitNames(String(row.invigilators ?? ""))) {
+      invigilatorKeys.add(normalizePersonKey(invigilator));
+    }
+  }
   const generatedAtText = new Intl.DateTimeFormat("ar-IQ-u-ca-gregory-nu-latn", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Baghdad",
   }).format(generatedAt);
   const logoSrc = "/logo2.png";
+  const documentTitle = reportSaveTitle(formationLabel, examDate);
 
   const summaryStats: Array<[string, number]> = [
     ["عدد المواد المعتمدة", approvedByDept.length],
@@ -262,7 +362,46 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
         <tbody>${summaryRows}</tbody>
       </table>
     </section>`;
-  const cards = summaryTable;
+  const shiftAndStaffRows = [
+    ["عدد الطلبة الصباحي", totalStudentsMorning, "عدد الطلبة المسائي", totalStudentsEvening],
+    ["حضور الصباحي", attendanceMorning, "غياب الصباحي", absenceMorning],
+    ["حضور المسائي", attendanceEvening, "غياب المسائي", absenceEvening],
+    ["عدد المشرفين الكلي", supervisorKeys.size, "عدد المراقبين الكلي", invigilatorKeys.size],
+  ]
+    .map(
+      ([rightLabel, rightValue, leftLabel, leftValue]) => `
+      <tr>
+        <th>${esc(String(rightLabel))}</th>
+        <td>${fmtNum(Number(rightValue))}</td>
+        <th>${esc(String(leftLabel))}</th>
+        <td>${fmtNum(Number(leftValue))}</td>
+      </tr>`
+    )
+    .join("");
+  const shiftAbsenceDetailRows = [
+    ["مواضع غياب الصباحي", morningAbsenceLocations],
+    ["مواضع غياب المسائي", eveningAbsenceLocations],
+  ]
+    .map(
+      ([label, items]) => `
+      <tr>
+        <th>${esc(String(label))}</th>
+        <td colspan="3" class="detail-cell">${
+          (items as string[]).length > 0 ? (items as string[]).map((item) => esc(item)).join("، ") : "لا يوجد غياب مسجل."
+        }</td>
+      </tr>`
+    )
+    .join("");
+  const shiftAndStaffTable = `
+    <section class="summary-wrap">
+      <div class="section-head summary-head">
+        <h2>ملخص الدوام والكوادر</h2>
+      </div>
+      <table class="summary-table" aria-label="ملخص الدوام والكوادر">
+        <tbody>${shiftAndStaffRows}${shiftAbsenceDetailRows}</tbody>
+      </table>
+    </section>`;
+  const cards = `${summaryTable}${shiftAndStaffTable}`;
 
   const examinedSubjectsSection = renderSubjectList(
     "المواد الدراسية / الامتحانية الممتحنة",
@@ -295,7 +434,7 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>تقرير مخصص - ${esc(formationLabel)} - ${esc(examDate)}</title>
+  <title>${esc(documentTitle)}</title>
   <style>
     @page { size: A4 portrait; margin: 10mm 9mm 12mm; }
     * { box-sizing: border-box; }
@@ -394,6 +533,14 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
       font-variant-numeric: tabular-nums;
       color: #111827;
     }
+    .summary-table td.detail-cell {
+      width: auto;
+      text-align: right;
+      font-size: 9pt;
+      font-weight: 400;
+      line-height: 1.7;
+      white-space: normal;
+    }
     .stages-box {
       border: 1px solid #9ca3af;
       padding: 6px 8px;
@@ -430,6 +577,10 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
       margin-bottom: 2mm;
       padding-bottom: 1.5mm;
       border-bottom: 1px solid #9ca3af;
+    }
+    .summary-head {
+      margin-bottom: 1.5mm;
+      margin-top: 0;
     }
     .section-head h2 {
       margin: 0;
@@ -474,6 +625,38 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
       padding: 8px;
       font-size: 9pt;
     }
+    .signature-section {
+      margin-top: 8mm;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+    .signature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14mm;
+      margin-top: 5mm;
+    }
+    .signature-box {
+      min-height: 36mm;
+      border: 1px solid #9ca3af;
+      padding: 6mm 5mm 4mm;
+      text-align: center;
+    }
+    .signature-title {
+      font-family: "Alhurra", "Times New Roman", serif;
+      font-size: 12pt;
+      font-weight: 400;
+      color: #111827;
+      margin-bottom: 12mm;
+    }
+    .signature-line {
+      border-top: 1px solid #6b7280;
+      width: 78%;
+      margin: 0 auto;
+      padding-top: 2mm;
+      font-size: 9pt;
+      color: #4b5563;
+    }
     .foot {
       margin-top: 6mm;
       padding-top: 3mm;
@@ -511,6 +694,14 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
           <th>اليوم الامتحاني</th>
           <td>${esc(fmtDate(examDate))}</td>
         </tr>
+        <tr>
+          <th>الفصل الدراسي / الدور</th>
+          <td>${esc(termLabels.length > 0 ? termLabels.join("، ") : "—")}</td>
+        </tr>
+        <tr>
+          <th>نظام الدراسة</th>
+          <td>${esc(studyTypeLabels.length > 0 ? studyTypeLabels.join("، ") : "—")}</td>
+        </tr>
       </tbody>
     </table>
     ${cards}
@@ -524,6 +715,21 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
       ${notApprovedSection}
       ${authenticatedSection}
       ${notAuthenticatedSection}
+    </section>
+    <section class="signature-section">
+      <div class="section-head">
+        <h2>الختم والتوقيع</h2>
+      </div>
+      <div class="signature-grid">
+        <div class="signature-box">
+          <div class="signature-title">ختم وتوقيع العميد</div>
+          <div class="signature-line">الاسم والتوقيع</div>
+        </div>
+        <div class="signature-box">
+          <div class="signature-title">ختم وتوقيع المساعد العلمي</div>
+          <div class="signature-line">الاسم والتوقيع</div>
+        </div>
+      </div>
     </section>
     <section class="foot">
       تاريخ إنشاء التقرير: ${esc(generatedAtText)}

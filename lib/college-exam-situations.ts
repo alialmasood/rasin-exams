@@ -1622,11 +1622,21 @@ export type AdminOfficialSituationFollowupRow = {
   stage_level: number;
   exam_date: string;
   meal_slot: 1 | 2;
+  study_type: StudyType;
+  term_label: string | null;
   schedule_type: "FINAL" | "SEMESTER";
   workflow_status: CollegeExamScheduleRow["workflow_status"];
   capacity_total: number;
+  capacity_morning: number;
+  capacity_evening: number;
   attendance_count: number;
   absence_count: number;
+  attendance_morning: number;
+  absence_morning: number;
+  attendance_evening: number;
+  absence_evening: number;
+  supervisor_name: string;
+  invigilators: string;
   dean_status: DeanSituationStatus;
   dean_reviewed_at_iso: string | null;
   is_uploaded: boolean;
@@ -1656,6 +1666,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     stage_level: number;
     exam_date: string;
     meal_slot: number | string | null;
+    study_type: string;
+    term_label: string | null;
     schedule_type: string;
     workflow_status: string;
     head_submitted_at: Date | null;
@@ -1670,6 +1682,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     absence_morning: number;
     attendance_evening: number;
     absence_evening: number;
+    room_supervisor_name: string | null;
+    room_invigilators: string | null;
     absence_names: string | null;
     absence_names_morning: string | null;
     absence_names_evening: string | null;
@@ -1699,6 +1713,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
         e.stage_level,
         e.exam_date::text,
         COALESCE(e.meal_slot, 1) AS meal_slot,
+        COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
+        e.term_label,
         e.schedule_type,
         COALESCE(e.workflow_status, 'DRAFT') AS workflow_status,
         rep.head_submitted_at,
@@ -1759,6 +1775,18 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
           ELSE r2.absence_evening
         END AS absence_evening,
         CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.supervisor_name
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(NULLIF(TRIM(r2.supervisor_name_2), ''), r2.supervisor_name)
+          ELSE r2.supervisor_name
+        END AS room_supervisor_name,
+        CASE
+          WHEN e.study_subject_id = r2.study_subject_id THEN r2.invigilators
+          WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
+            THEN COALESCE(NULLIF(TRIM(r2.invigilators_2), ''), r2.invigilators)
+          ELSE r2.invigilators
+        END AS room_invigilators,
+        CASE
           WHEN e.study_subject_id = r2.study_subject_id THEN r2.absence_names
           WHEN r2.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r2.study_subject_id_2
             THEN r2.absence_names_2
@@ -1803,6 +1831,9 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     const absM = Number(row.absence_morning ?? 0);
     const attE = Number(row.attendance_evening ?? 0);
     const absE = Number(row.absence_evening ?? 0);
+    const studyType = normalizeStudyTypeDb(row.study_type);
+    const supervisorName = String(row.room_supervisor_name ?? "").trim();
+    const invigilators = String(row.room_invigilators ?? "").trim();
     const useShift = capM > 0 || capE > 0;
     const bRec = Number(row.exam_booklets_received ?? 0);
     const bUsed = Number(row.exam_booklets_used ?? 0);
@@ -1835,11 +1866,21 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
       stage_level: Number(row.stage_level ?? 1),
       exam_date: row.exam_date,
       meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
+      study_type: studyType,
+      term_label: row.term_label?.trim() ? row.term_label.trim() : null,
       schedule_type: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
       workflow_status: normalizeWorkflowStatusDb(row.workflow_status),
       capacity_total: cap,
+      capacity_morning: capM,
+      capacity_evening: capE,
       attendance_count: att,
       absence_count: abs,
+      attendance_morning: attM,
+      absence_morning: absM,
+      attendance_evening: attE,
+      absence_evening: absE,
+      supervisor_name: supervisorName,
+      invigilators,
       dean_status: dean,
       dean_reviewed_at_iso: row.dean_reviewed_at?.toISOString() ?? null,
       is_uploaded: Boolean(headSubmitted),
