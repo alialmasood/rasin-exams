@@ -36,6 +36,10 @@ function scheduleTypeLabel(kind: AdminOfficialSituationFollowupRow["schedule_typ
   return kind === "SEMESTER" ? "نصفي" : "نهائي";
 }
 
+function completionLabel(done: number, total: number): string {
+  return total > 0 && done === total ? "مكتمل" : "قيد المتابعة";
+}
+
 type AggregatedExamSubject = {
   key: string;
   subjectName: string;
@@ -138,43 +142,67 @@ function aggregateExamSubjects(rows: AdminOfficialSituationFollowupRow[]): Aggre
     });
 }
 
-function renderSubjectList(title: string, subjects: AggregatedExamSubject[], emptyText: string, tone: "blue" | "green" | "amber"): string {
-  const toneClass =
-    tone === "green" ? "section-green" : tone === "amber" ? "section-amber" : "section-blue";
-  const items = subjects
-    .map((subject) => {
-      const roomsText = `${fmtNum(subject.roomCount)} ${subject.roomCount === 1 ? "قاعة" : "قاعات"}`;
-      const roomNamesText = subject.roomNames.length > 0 ? subject.roomNames.join("، ") : "—";
+function renderSubjectList(title: string, subjects: AggregatedExamSubject[], emptyText: string): string {
+  const rows = subjects
+    .map((subject, index) => {
+      const roomNamesText = subject.roomNames.length > 0 ? subject.roomNames.join("، ") : "لا توجد أسماء قاعات مسجلة";
       return `
-      <div class="subject-item">
-        <div class="subject-head">
-          <div class="subject-title">${esc(subject.subjectName)}</div>
-          <div class="subject-subtitle">
-            ${esc(subject.branchName)} · ${esc(formatCollegeStudyStageLabel(subject.stageLevel))} · ${esc(mealSlotLabel(subject.mealSlot))} · ${esc(scheduleTypeLabel(subject.scheduleType))}
-          </div>
-        </div>
-        <div class="chips">
-          <span class="chip chip-blue">القاعات: ${fmtNum(subject.roomCount)}</span>
-          <span class="chip chip-slate">إجمالي الطلبة: ${fmtNum(subject.totalStudents)}</span>
-          <span class="chip chip-green">الحضور: ${fmtNum(subject.attendance)}</span>
-          <span class="chip chip-rose">الغياب: ${fmtNum(subject.absence)}</span>
-        </div>
-        <div class="subject-note">
-          توزيع القاعات: ${esc(roomsText)}${subject.roomNames.length > 0 ? ` (${esc(roomNamesText)})` : ""}<br />
-          اعتماد رئيس القسم/الفرع: ${fmtNum(subject.approvedRooms)} / ${fmtNum(subject.roomCount)} قاعات<br />
-          مصادقة حساب العميد: ${fmtNum(subject.authenticatedRooms)} / ${fmtNum(subject.roomCount)} قاعات
-        </div>
-      </div>`;
+      <tr>
+        <td class="num">${fmtNum(index + 1)}</td>
+        <td>
+          <span class="subject-main">${esc(subject.subjectName)}</span>
+          <span class="cell-note">${esc(subject.branchName)} · ${esc(formatCollegeStudyStageLabel(subject.stageLevel))}</span>
+        </td>
+        <td class="num">${esc(scheduleTypeLabel(subject.scheduleType))}</td>
+        <td class="num">${esc(mealSlotLabel(subject.mealSlot))}</td>
+        <td>
+          <span class="subject-main">${fmtNum(subject.roomCount)}</span>
+          <span class="cell-note">${esc(roomNamesText)}</span>
+        </td>
+        <td class="num">${fmtNum(subject.totalStudents)}</td>
+        <td class="num">${fmtNum(subject.attendance)}</td>
+        <td class="num">${fmtNum(subject.absence)}</td>
+        <td class="num">
+          <span class="ratio-main">${fmtNum(subject.approvedRooms)} / ${fmtNum(subject.roomCount)}</span>
+          <span class="cell-note">${esc(completionLabel(subject.approvedRooms, subject.roomCount))}</span>
+        </td>
+        <td class="num">
+          <span class="ratio-main">${fmtNum(subject.authenticatedRooms)} / ${fmtNum(subject.roomCount)}</span>
+          <span class="cell-note">${esc(completionLabel(subject.authenticatedRooms, subject.roomCount))}</span>
+        </td>
+      </tr>`;
     })
     .join("");
 
   return `
-    <section class="subject-section ${toneClass}">
+    <section class="report-section">
       <div class="section-head">
         <h2>${esc(title)}</h2>
-        <span class="section-count">${fmtNum(subjects.length)}</span>
+        <span class="section-count">عدد المواد: ${fmtNum(subjects.length)}</span>
       </div>
-      ${subjects.length > 0 ? `<div class="subject-list">${items}</div>` : `<div class="empty">${esc(emptyText)}</div>`}
+      <table class="subject-table" aria-label="${esc(title)}">
+        <thead>
+          <tr>
+            <th style="width: 5%">ت</th>
+            <th style="width: 22%">المادة والقسم / الفرع</th>
+            <th style="width: 8%">نوع الامتحان</th>
+            <th style="width: 7%">الوجبة</th>
+            <th style="width: 17%">القاعات</th>
+            <th style="width: 9%">الطلبة</th>
+            <th style="width: 8%">الحضور</th>
+            <th style="width: 8%">الغياب</th>
+            <th style="width: 8%">اعتماد القسم</th>
+            <th style="width: 8%">مصادقة العميد</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            subjects.length > 0
+              ? rows
+              : `<tr><td colspan="10" class="empty-row">${esc(emptyText)}</td></tr>`
+          }
+        </tbody>
+      </table>
     </section>`;
 }
 
@@ -203,6 +231,7 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
     timeStyle: "short",
     timeZone: "Asia/Baghdad",
   }).format(generatedAt);
+  const logoSrc = "/logo2.png";
 
   const summaryStats: Array<[string, number]> = [
     ["عدد المواد المعتمدة", approvedByDept.length],
@@ -238,32 +267,27 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
   const examinedSubjectsSection = renderSubjectList(
     "المواد الدراسية / الامتحانية الممتحنة",
     subjects,
-    "لا توجد مواد ممتحنة ضمن هذا التقرير.",
-    "blue"
+    "لا توجد مواد ممتحنة ضمن هذا التقرير."
   );
   const approvedSection = renderSubjectList(
     "المواد المعتمدة من رئيس القسم / الفرع",
     approvedByDept,
-    "لا توجد مواد مكتملة الاعتماد من رئيس القسم / الفرع.",
-    "green"
+    "لا توجد مواد مكتملة الاعتماد من رئيس القسم / الفرع."
   );
   const notApprovedSection = renderSubjectList(
     "المواد غير المعتمدة من رئيس القسم / الفرع",
     notApprovedByDept,
-    "لا توجد مواد غير معتمدة من رئيس القسم / الفرع.",
-    "amber"
+    "لا توجد مواد غير معتمدة من رئيس القسم / الفرع."
   );
   const authenticatedSection = renderSubjectList(
     "المواد التي تم المصادقة عليها من حساب العميد",
     authenticated,
-    "لا توجد مواد مصادق عليها من حساب العميد.",
-    "green"
+    "لا توجد مواد مصادق عليها من حساب العميد."
   );
   const notAuthenticatedSection = renderSubjectList(
     "المواد التي لم يتم المصادقة عليها من حساب العميد",
     notAuthenticated,
-    "لا توجد مواد بانتظار مصادقة حساب العميد.",
-    "amber"
+    "لا توجد مواد بانتظار مصادقة حساب العميد."
   );
 
   return `<!doctype html>
@@ -273,60 +297,225 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>تقرير مخصص - ${esc(formationLabel)} - ${esc(examDate)}</title>
   <style>
-    @page { size: A4 portrait; margin: 10mm; }
+    @page { size: A4 portrait; margin: 10mm 9mm 12mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #0f172a; font-family: Tahoma, Arial, sans-serif; background: #fff; }
-    .sheet { border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; }
-    .head { background: #1e3a8a; color: #fff; padding: 12px 14px; border-bottom: 2px solid #0f172a; }
-    .head h1 { margin: 0; font-size: 18px; }
-    .head p { margin: 3px 0 0; font-size: 11px; opacity: .92; }
-    .meta { padding: 8px 14px; border-bottom: 1px solid #dbe4f0; background: #f8fafc; font-size: 12px; line-height: 1.7; }
-    .meta strong { color: #334155; }
-    .summary-wrap { padding: 8px 14px 6px; }
-    .summary-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
-    .summary-table th, .summary-table td { border: 1px solid #cbd5e1; padding: 6px 7px; }
-    .summary-table th { width: 30%; background: #f8fafc; color: #334155; font-weight: 700; text-align: right; }
-    .summary-table td { width: 20%; text-align: center; font-size: 17px; font-weight: 800; color: #0f172a; }
-    .stages { padding: 0 14px 8px; font-size: 12px; color: #334155; }
-    .stages .pill { display: inline-block; margin: 4px 0 0 5px; border: 1px solid #cbd5e1; background: #fff; color: #1e3a8a; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
-    .sections { padding: 0 14px 12px; }
-    .subject-section { border: 1px solid #dbe4f0; border-radius: 6px; background: #fff; margin-top: 8px; overflow: hidden; break-inside: avoid-page; page-break-inside: avoid; }
-    .section-blue { border-color: #bfdbfe; }
-    .section-green { border-color: #bbf7d0; }
-    .section-amber { border-color: #fde68a; }
-    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-    .section-head h2 { margin: 0; font-size: 13px; }
-    .section-count { min-width: 30px; text-align: center; border-radius: 999px; background: #e2e8f0; padding: 1px 7px; font-size: 10px; font-weight: 800; color: #334155; }
-    .subject-list { padding: 8px 10px; }
-    .subject-item { border: 1px solid #e2e8f0; border-radius: 6px; padding: 7px 8px; background: #fcfdff; break-inside: avoid-page; page-break-inside: avoid; }
-    .subject-item + .subject-item { margin-top: 6px; }
-    .subject-title { font-size: 13px; font-weight: 800; color: #0f172a; }
-    .subject-subtitle { margin-top: 2px; font-size: 10px; color: #64748b; }
-    .chips { margin-top: 5px; }
-    .chip { display: inline-block; margin: 0 0 4px 4px; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
-    .chip-blue { background: #dbeafe; color: #1d4ed8; }
-    .chip-slate { background: #e2e8f0; color: #334155; }
-    .chip-green { background: #dcfce7; color: #166534; }
-    .chip-rose { background: #ffe4e6; color: #be123c; }
-    .subject-note { margin-top: 3px; font-size: 10px; line-height: 1.6; color: #475569; }
-    .empty { padding: 10px; font-size: 11px; color: #64748b; }
-    .foot { border-top: 1px solid #e2e8f0; padding: 7px 14px; color: #64748b; font-size: 10px; text-align: center; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @font-face {
+      font-family: "Alhurra";
+      src: url("/fonts/Alhurra-Regular.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    body {
+      margin: 0;
+      color: #111827;
+      font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif;
+      background: #fff;
+      font-size: 10pt;
+      line-height: 1.5;
+    }
+    .sheet {
+      border: 1px solid #9ca3af;
+      padding: 8mm 8mm 6mm;
+      background: #fff;
+    }
+    .report-brand {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 4mm;
+      padding-bottom: 3mm;
+      border-bottom: 1px solid #9ca3af;
+    }
+    .report-brand-side {
+      font-family: "Alhurra", "Times New Roman", serif;
+      font-size: 11pt;
+      font-weight: 400;
+      color: #1f2937;
+    }
+    .report-brand-college-side { text-align: left; }
+    .report-brand-uni-side { text-align: right; }
+    .report-brand-logo { height: 48px; width: auto; max-width: 88px; object-fit: contain; }
+    .title-block { text-align: center; margin-bottom: 4mm; }
+    .title-kicker {
+      margin: 0 0 1mm;
+      font-size: 9pt;
+      color: #6b7280;
+      letter-spacing: 0.02em;
+    }
+    .title-block h1 {
+      margin: 0;
+      font-family: "Alhurra", "Times New Roman", serif;
+      font-size: 18pt;
+      font-weight: 400;
+      color: #111827;
+    }
+    .meta-table,
+    .summary-table,
+    .subject-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .meta-table { margin-bottom: 4mm; font-size: 9.4pt; }
+    .meta-table th,
+    .meta-table td,
+    .summary-table th,
+    .summary-table td,
+    .subject-table th,
+    .subject-table td {
+      border: 1px solid #9ca3af;
+      padding: 5px 7px;
+      text-align: right;
+      vertical-align: top;
+    }
+    .meta-table th,
+    .summary-table th,
+    .subject-table th {
+      background: #e7eef6;
+      color: #1f2937;
+      font-weight: 600;
+    }
+    .summary-table tbody tr:nth-child(even),
+    .subject-table tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    .meta-table th { width: 22%; }
+    .summary-wrap { margin-bottom: 4mm; }
+    .summary-table { font-size: 9.3pt; }
+    .summary-table th { width: 30%; }
+    .summary-table td {
+      width: 20%;
+      text-align: center;
+      font-size: 14pt;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: #111827;
+    }
+    .stages-box {
+      border: 1px solid #9ca3af;
+      padding: 6px 8px;
+      margin-bottom: 4mm;
+      font-size: 9.3pt;
+    }
+    .stages-box h2 {
+      margin: 0 0 2mm;
+      font-family: "Alhurra", "Times New Roman", serif;
+      font-size: 11pt;
+      color: #111827;
+      font-weight: 400;
+    }
+    .pill {
+      display: inline-block;
+      margin: 0 0 4px 4px;
+      border: 1px solid #9ca3af;
+      background: #fff;
+      padding: 1px 8px;
+      font-size: 8.7pt;
+      color: #1f2937;
+    }
+    .sections { display: block; }
+    .report-section {
+      margin-top: 5mm;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 2mm;
+      padding-bottom: 1.5mm;
+      border-bottom: 1px solid #9ca3af;
+    }
+    .section-head h2 {
+      margin: 0;
+      font-family: "Alhurra", "Times New Roman", serif;
+      font-size: 13pt;
+      font-weight: 400;
+      color: #111827;
+    }
+    .section-count {
+      font-size: 8.8pt;
+      font-weight: 600;
+      color: #4b5563;
+      white-space: nowrap;
+    }
+    .subject-table { font-size: 8.1pt; }
+    .subject-table td.num,
+    .subject-table th.num {
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .subject-main {
+      display: block;
+      font-weight: 600;
+      color: #111827;
+    }
+    .ratio-main {
+      display: block;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: #111827;
+    }
+    .cell-note {
+      display: block;
+      margin-top: 2px;
+      font-size: 7.5pt;
+      line-height: 1.4;
+      color: #4b5563;
+    }
+    .empty-row {
+      text-align: center !important;
+      color: #6b7280;
+      padding: 8px;
+      font-size: 9pt;
+    }
+    .foot {
+      margin-top: 6mm;
+      padding-top: 3mm;
+      border-top: 1px solid #9ca3af;
+      color: #6b7280;
+      font-size: 8.6pt;
+      text-align: center;
+    }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
   </style>
 </head>
 <body>
   <main class="sheet">
-    <section class="head">
-      <h1>تقرير مخصص — متابعة المواقف الامتحانية</h1>
-      <p>تقرير رسمي لحجم الورقة A4</p>
+    <section class="report-brand" dir="ltr">
+      <div class="report-brand-side report-brand-college-side">متابعة المواقف الامتحانية</div>
+      <div style="text-align:center"><img class="report-brand-logo" src="${esc(logoSrc)}" alt="" /></div>
+      <div class="report-brand-side report-brand-uni-side">جامعة البصرة</div>
     </section>
-    <section class="meta">
-      <div><strong>اسم الكلية / التشكيل:</strong> ${esc(formationLabel)}</div>
-      <div><strong>القسم / الفرع:</strong> ${esc(branches.length > 0 ? branches.join("، ") : "—")}</div>
-      <div><strong>اليوم الامتحاني:</strong> ${esc(fmtDate(examDate))}</div>
+    <section class="title-block">
+      <p class="title-kicker">وثيقة رسمية مولدة آليًا</p>
+      <h1>تقرير مخصص لمتابعة المواقف الامتحانية</h1>
     </section>
+    <table class="meta-table" aria-label="بيانات التقرير الأساسية">
+      <tbody>
+        <tr>
+          <th>اسم الكلية / التشكيل</th>
+          <td>${esc(formationLabel)}</td>
+        </tr>
+        <tr>
+          <th>القسم / الفرع</th>
+          <td>${esc(branches.length > 0 ? branches.join("، ") : "—")}</td>
+        </tr>
+        <tr>
+          <th>اليوم الامتحاني</th>
+          <td>${esc(fmtDate(examDate))}</td>
+        </tr>
+      </tbody>
+    </table>
     ${cards}
-    <section class="stages">
-      <strong>المراحل الممتحنة:</strong>
+    <section class="stages-box">
+      <h2>المراحل الممتحنة</h2>
       ${stages.length > 0 ? stages.map((s) => `<span class="pill">${esc(s)}</span>`).join("") : " — "}
     </section>
     <section class="sections">
