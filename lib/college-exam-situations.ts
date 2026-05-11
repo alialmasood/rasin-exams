@@ -1611,6 +1611,9 @@ export async function deleteExamSituationReportForOwner(input: {
 
 export type AdminOfficialSituationFollowupRow = {
   schedule_id: string;
+  study_subject_id: string;
+  room_id: string;
+  room_name: string;
   owner_user_id: string;
   owner_username: string;
   formation_label: string;
@@ -1621,7 +1624,9 @@ export type AdminOfficialSituationFollowupRow = {
   meal_slot: 1 | 2;
   schedule_type: "FINAL" | "SEMESTER";
   workflow_status: CollegeExamScheduleRow["workflow_status"];
+  capacity_total: number;
   attendance_count: number;
+  absence_count: number;
   dean_status: DeanSituationStatus;
   dean_reviewed_at_iso: string | null;
   is_uploaded: boolean;
@@ -1640,6 +1645,9 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
   const pool = getDbPool();
   const r = await pool.query<{
     schedule_id: string | number;
+    study_subject_id: string;
+    room_id: string | number;
+    room_name: string;
     owner_user_id: string | number;
     owner_username: string;
     formation_label: string;
@@ -1671,6 +1679,9 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
   }>(
     `SELECT
         e.id AS schedule_id,
+        e.study_subject_id::text AS study_subject_id,
+        r2.id AS room_id,
+        r2.room_name,
         e.owner_user_id,
         u.username::text AS owner_username,
         COALESCE(
@@ -1813,6 +1824,9 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     const headSubmitted = row.head_submitted_at?.toISOString() ?? null;
     return {
       schedule_id: String(row.schedule_id),
+      study_subject_id: String(row.study_subject_id ?? ""),
+      room_id: String(row.room_id),
+      room_name: row.room_name ?? "—",
       owner_user_id: String(row.owner_user_id),
       owner_username: row.owner_username,
       formation_label: row.formation_label?.trim() || row.owner_username,
@@ -1823,7 +1837,9 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
       meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
       schedule_type: row.schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
       workflow_status: normalizeWorkflowStatusDb(row.workflow_status),
+      capacity_total: cap,
       attendance_count: att,
+      absence_count: abs,
       dean_status: dean,
       dean_reviewed_at_iso: row.dean_reviewed_at?.toISOString() ?? null,
       is_uploaded: Boolean(headSubmitted),

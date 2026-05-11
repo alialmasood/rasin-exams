@@ -260,6 +260,7 @@ export async function getCollegeDashboardSnapshot(
     days,
     situations,
     bookletsAgg,
+    attendanceAgg,
     subjByBranch,
     examByBranch,
     timelineRaw,
@@ -349,6 +350,127 @@ export async function getCollegeDashboardSnapshot(
        WHERE owner_user_id = $1${rid ? " AND college_subject_id = $2::bigint" : ""}`,
       p2
     ),
+    rid
+      ? pool.query<{ present: number; absent: number }>(
+          `SELECT
+              COALESCE(SUM(
+                CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM college_exam_schedules e
+                    WHERE e.owner_user_id = r.owner_user_id
+                      AND e.room_id = r.id
+                      AND e.study_subject_id = r.study_subject_id
+                      AND e.college_subject_id = $2::bigint
+                  )
+                    THEN COALESCE(r.attendance_count, 0)
+                  ELSE 0
+                END
+                +
+                CASE
+                  WHEN r.study_subject_id_2 IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM college_exam_schedules e2
+                      WHERE e2.owner_user_id = r.owner_user_id
+                        AND e2.room_id = r.id
+                        AND e2.study_subject_id = r.study_subject_id_2
+                        AND e2.college_subject_id = $2::bigint
+                    )
+                    THEN COALESCE(r.attendance_count_2, 0)
+                  ELSE 0
+                END
+              ), 0)::int AS present,
+              COALESCE(SUM(
+                CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM college_exam_schedules e
+                    WHERE e.owner_user_id = r.owner_user_id
+                      AND e.room_id = r.id
+                      AND e.study_subject_id = r.study_subject_id
+                      AND e.college_subject_id = $2::bigint
+                  )
+                    THEN COALESCE(r.absence_count, 0)
+                  ELSE 0
+                END
+                +
+                CASE
+                  WHEN r.study_subject_id_2 IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM college_exam_schedules e2
+                      WHERE e2.owner_user_id = r.owner_user_id
+                        AND e2.room_id = r.id
+                        AND e2.study_subject_id = r.study_subject_id_2
+                        AND e2.college_subject_id = $2::bigint
+                    )
+                    THEN COALESCE(r.absence_count_2, 0)
+                  ELSE 0
+                END
+              ), 0)::int AS absent
+           FROM college_exam_rooms r
+           WHERE r.owner_user_id = $1`,
+          p2
+        )
+      : pool.query<{ present: number; absent: number }>(
+          `SELECT
+              COALESCE(SUM(
+                CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM college_exam_schedules e
+                    WHERE e.owner_user_id = r.owner_user_id
+                      AND e.room_id = r.id
+                      AND e.study_subject_id = r.study_subject_id
+                  )
+                    THEN COALESCE(r.attendance_count, 0)
+                  ELSE 0
+                END
+                +
+                CASE
+                  WHEN r.study_subject_id_2 IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM college_exam_schedules e2
+                      WHERE e2.owner_user_id = r.owner_user_id
+                        AND e2.room_id = r.id
+                        AND e2.study_subject_id = r.study_subject_id_2
+                    )
+                    THEN COALESCE(r.attendance_count_2, 0)
+                  ELSE 0
+                END
+              ), 0)::int AS present,
+              COALESCE(SUM(
+                CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM college_exam_schedules e
+                    WHERE e.owner_user_id = r.owner_user_id
+                      AND e.room_id = r.id
+                      AND e.study_subject_id = r.study_subject_id
+                  )
+                    THEN COALESCE(r.absence_count, 0)
+                  ELSE 0
+                END
+                +
+                CASE
+                  WHEN r.study_subject_id_2 IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM college_exam_schedules e2
+                      WHERE e2.owner_user_id = r.owner_user_id
+                        AND e2.room_id = r.id
+                        AND e2.study_subject_id = r.study_subject_id_2
+                    )
+                    THEN COALESCE(r.absence_count_2, 0)
+                  ELSE 0
+                END
+              ), 0)::int AS absent
+           FROM college_exam_rooms r
+           WHERE r.owner_user_id = $1`,
+          [ownerUserId]
+        ),
     pool.query<{ branch_name: string; cnt: number }>(
       `SELECT c.branch_name, COUNT(ss.id)::int AS cnt
        FROM college_subjects c
@@ -460,14 +582,13 @@ export async function getCollegeDashboardSnapshot(
   const srow = sch.rows[0];
   const rmc = rmRow.rows[0];
   const bAgg = bookletsAgg.rows[0];
+  const attAgg = attendanceAgg.rows[0];
 
   let uploaded = 0;
   let notUploaded = 0;
   let complete = 0;
   let incomplete = 0;
   let awaitingOfficialUploadConfirmation = 0;
-  let presentSum = 0;
-  let absentSum = 0;
   for (const row of situations) {
     if (row.is_uploaded) uploaded += 1;
     else notUploaded += 1;
@@ -476,8 +597,6 @@ export async function getCollegeDashboardSnapshot(
     if (!row.is_uploaded && row.dean_status === "APPROVED") {
       awaitingOfficialUploadConfirmation += 1;
     }
-    presentSum += row.attendance_count;
-    absentSum += row.absence_count;
   }
 
   const byBranchSubjects: BranchSubjectRow[] = subjByBranch.rows.map((r) => ({
@@ -535,9 +654,9 @@ export async function getCollegeDashboardSnapshot(
     byBranchExamProgress,
     branchTimeline,
     studentAttendanceSummary: {
-      present: presentSum,
-      absent: absentSum,
-      total: presentSum + absentSum,
+      present: Number(attAgg?.present ?? 0),
+      absent: Number(attAgg?.absent ?? 0),
+      total: Number(attAgg?.present ?? 0) + Number(attAgg?.absent ?? 0),
     },
     recentActivities,
   };
