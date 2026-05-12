@@ -156,6 +156,26 @@ export type UploadStatusDashboardStats = {
   uploadedTodayLogical: number;
   /** إجمالي المواقف المؤكَّد رفعها — بعد دمج القاعات */
   uploadedTotalLogical: number;
+  /** مواقف صادق عليها العميد اليوم — بعد دمج القاعات منطقياً */
+  approvedTodayLogical: number;
+  /** إجمالي المواقف التي صادق عليها العميد — بعد الدمج المنطقي */
+  approvedTotalLogical: number;
+  /** أحدث المصادقات اليوم إن وُجدت، وإلا تُملأ من أحدث المصادقات عمومًا في دالة الحساب */
+  deanApprovalNotices: UploadStatusDeanApprovalNotice[];
+  /** هل القائمة أعلاه تخص مصادقات اليوم فقط؟ */
+  deanApprovalNoticesAreToday: boolean;
+};
+
+export type UploadStatusDeanApprovalNotice = {
+  id: string;
+  subject_name: string;
+  branch_name: string;
+  exam_date: string;
+  start_time: string;
+  end_time: string;
+  room_names_label: string;
+  room_count: number;
+  approved_at_iso: string | null;
 };
 
 function uploadStatusListItemExamFields(item: UploadStatusListItem): {
@@ -175,6 +195,48 @@ function uploadStatusListItemExamFields(item: UploadStatusListItem): {
     start_time: item.start_time,
     end_time: item.end_time,
   };
+}
+
+function logicalDeanApprovalNotices(allRows: UploadStatusTableRow[]): UploadStatusDeanApprovalNotice[] {
+  const items = buildUploadStatusListItems(allRows);
+  const byId = new Map(allRows.map((row) => [row.schedule_id, row]));
+  return items
+    .filter((item) => (item.kind === "single" ? item.row.dean_status : item.dean_status) === "APPROVED")
+    .map((item) => {
+      if (item.kind === "single") {
+        return {
+          id: item.row.schedule_id,
+          subject_name: item.row.subject_name,
+          branch_name: item.row.branch_name,
+          exam_date: item.row.exam_date,
+          start_time: item.row.start_time,
+          end_time: item.row.end_time,
+          room_names_label: item.row.room_name,
+          room_count: 1,
+          approved_at_iso: item.row.dean_reviewed_at?.toISOString() ?? null,
+        };
+      }
+      const approvedAtMs = item.schedule_ids.reduce((latest, scheduleId) => {
+        const reviewedAt = byId.get(scheduleId)?.dean_reviewed_at?.getTime() ?? 0;
+        return reviewedAt > latest ? reviewedAt : latest;
+      }, 0);
+      return {
+        id: item.primary_schedule_id,
+        subject_name: item.subject_name,
+        branch_name: item.branch_name,
+        exam_date: item.exam_date,
+        start_time: item.start_time,
+        end_time: item.end_time,
+        room_names_label: item.room_names_label,
+        room_count: item.room_count,
+        approved_at_iso: approvedAtMs > 0 ? new Date(approvedAtMs).toISOString() : null,
+      };
+    })
+    .sort((a, b) => {
+      const da = a.approved_at_iso ?? "";
+      const db = b.approved_at_iso ?? "";
+      return db.localeCompare(da);
+    });
 }
 
 /** إحصاءات بطاقات لوحة «رفع الموقف» — نفس منطق دمج الجلسات متعددة القاعات */
@@ -213,10 +275,21 @@ export function computeUploadStatusDashboardStats(
     }
   }
 
+  const deanApprovalNoticesAll = logicalDeanApprovalNotices(allRows);
+  const deanApprovalNoticesToday = deanApprovalNoticesAll.filter((item) => {
+    if (!item.approved_at_iso) return false;
+    return calendarDateInTimeZone(new Date(item.approved_at_iso), EXAM_SITUATION_TZ) === today;
+  });
+  const deanApprovalNotices = (deanApprovalNoticesToday.length > 0 ? deanApprovalNoticesToday : deanApprovalNoticesAll).slice(0, 6);
+
   return {
     pendingWindowNotOpen,
     pendingWindowOpenOrLate,
     uploadedTodayLogical,
     uploadedTotalLogical: uploadedItems.length,
+    approvedTodayLogical: deanApprovalNoticesToday.length,
+    approvedTotalLogical: deanApprovalNoticesAll.length,
+    deanApprovalNotices,
+    deanApprovalNoticesAreToday: deanApprovalNoticesToday.length > 0,
   };
 }

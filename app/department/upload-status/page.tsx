@@ -29,6 +29,8 @@ export default async function DepartmentUploadStatusPage() {
       allUploadedPendingNone={allUploadedPendingNone}
       dashboardStats={dashboardStats}
       hideDepartmentColumn={!showBranchInUploadList}
+      showDeanApprovalInsights
+      showUploadConfirmationStats={false}
     />
   );
 }
