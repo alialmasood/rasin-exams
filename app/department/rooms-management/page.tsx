@@ -3,6 +3,7 @@ import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { collegePortalDisplayLabel } from "@/lib/college-portal-scope";
 import { listCollegeExamScheduleHintsByRoom } from "@/lib/college-exam-schedules";
 import { listCollegeExamRoomsByOwner } from "@/lib/college-rooms";
+import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStaffRegistryForOwner } from "@/lib/college-staff-registry";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
 import type { StaffRegistryNamePicklist } from "@/lib/staff-registry-shared";
@@ -17,7 +18,8 @@ export default async function DepartmentRoomsManagementPage() {
   const collegeLabel = profile ? collegePortalDisplayLabel(profile) : ws.collegeLabel;
   const rid = ws.collegeSubjectId;
 
-  const [rows, studySubjects, scheduleHintsByRoom, staffRegistryRows] = await Promise.all([
+  const [branches, rows, studySubjects, scheduleHintsByRoom, staffRegistryRows] = await Promise.all([
+    listCollegeSubjectsByOwner(ws.dataOwnerUserId, rid),
     listCollegeExamRoomsByOwner(ws.dataOwnerUserId, rid),
     listCollegeStudySubjectsByOwner(ws.dataOwnerUserId, rid),
     listCollegeExamScheduleHintsByRoom(ws.dataOwnerUserId, rid),
@@ -39,6 +41,7 @@ export default async function DepartmentRoomsManagementPage() {
   return (
     <Suspense fallback={null}>
       <RoomsManagementPanel
+        branches={branches}
         rows={rows}
         studySubjects={studySubjects}
         scheduleHintsByRoom={scheduleHintsByRoom}

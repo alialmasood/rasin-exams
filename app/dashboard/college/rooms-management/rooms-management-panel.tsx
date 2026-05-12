@@ -5,6 +5,7 @@ import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../co
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
+import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import {
   formatCollegeStudyLevelTierLabel,
@@ -194,6 +195,10 @@ function roomStageExportLabel(level: number): string {
   return `${formatCollegeStudyLevelTierLabel(lv)} — ${formatCollegeStudyStageLabel(lv)}`;
 }
 
+function roomBranchLabel(branch: CollegeSubjectRow | { branch_name: string; branch_type: "DEPARTMENT" | "BRANCH" }) {
+  return `${branch.branch_name} (${branch.branch_type === "BRANCH" ? "فرع" : "قسم"})`;
+}
+
 /** نص واحد للبحث النصي في القاعة (بدون اعتماد على تطبيع أحرف عربية متقدم) */
 function buildRoomRowSearchHaystack(r: CollegeExamRoomRow): string {
   const ext = r.external_room_staff;
@@ -202,6 +207,7 @@ function buildRoomRowSearchHaystack(r: CollegeExamRoomRow): string {
     ...ext.external_invigilators.flatMap((x) => [x.name, x.formation_name]),
   ];
   const parts = [
+    r.college_subject_name,
     r.room_name,
     r.supervisor_name,
     r.supervisor_name_2 ?? "",
@@ -222,6 +228,7 @@ function buildRoomRowSearchHaystack(r: CollegeExamRoomRow): string {
 }
 
 function RoomFields({
+  branches,
   subjects,
   collegeLabel,
   fixedCollegeSubjectId,
@@ -233,6 +240,7 @@ function RoomFields({
   /** إضافة فقط: عدة أسماء قاعات (سطر لكل قاعة) بنفس المادة والسعة */
   multiRoomNames = false,
 }: {
+  branches: CollegeSubjectRow[];
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
   /** بوابة القسم: معرّف القسم الثابت لحساب مراحل هندسة العمارة (5) ضمن الهندسة */
@@ -247,14 +255,26 @@ function RoomFields({
   multiRoomNames?: boolean;
 }) {
   const d = defaults ?? {};
+  const lockedBranchId = fixedCollegeSubjectId?.trim() || null;
+  const branchLockedToDepartment = Boolean(lockedBranchId);
+  const [selectedCollegeSubjectId, setSelectedCollegeSubjectId] = useState(
+    () => d.college_subject_id ?? lockedBranchId ?? ""
+  );
+  const lockedBranchMeta = useMemo(
+    () => (lockedBranchId ? branches.find((b) => b.id === lockedBranchId) : undefined),
+    [branches, lockedBranchId]
+  );
   const undergradStageOptions = useMemo(
     () =>
       getCollegeUndergradStageLevelOptionsForScope({
         collegeLabel,
-        fixedCollegeSubjectId: fixedCollegeSubjectId ?? null,
-        scopedBranchName: scopedBranchName ?? null,
+        fixedCollegeSubjectId: selectedCollegeSubjectId || null,
+        scopedBranchName:
+          branchLockedToDepartment
+            ? (scopedBranchName ?? null)
+            : (branches.find((b) => b.id === selectedCollegeSubjectId)?.branch_name ?? null),
       }),
-    [collegeLabel, fixedCollegeSubjectId, scopedBranchName]
+    [branches, branchLockedToDepartment, collegeLabel, scopedBranchName, selectedCollegeSubjectId]
   );
   const firstUndergrad = undergradStageOptions[0] ?? 1;
   const raw1 = Number(d.stage_level ?? firstUndergrad);
@@ -285,11 +305,10 @@ function RoomFields({
 
   const [exam1SubjectId, setExam1SubjectId] = useState(() => d.study_subject_id ?? "");
   const [exam2SubjectId, setExam2SubjectId] = useState(() => d.study_subject_id_2 ?? "");
-
-  useEffect(() => {
-    setExam1SubjectId(d.study_subject_id ?? "");
-    setExam2SubjectId(d.study_subject_id_2 ?? "");
-  }, [d.study_subject_id, d.study_subject_id_2]);
+  const availableSubjects = useMemo(() => {
+    if (!selectedCollegeSubjectId) return [];
+    return subjects.filter((s) => s.college_subject_id == null || s.college_subject_id === selectedCollegeSubjectId);
+  }, [selectedCollegeSubjectId, subjects]);
 
   useEffect(() => {
     if (!exam1SubjectId) return;
@@ -304,6 +323,15 @@ function RoomFields({
       setUndergradStage1(undergradStageOptions.includes(lv) ? String(lv) : String(firstUndergrad));
     }
   }, [exam1SubjectId, subjects, firstUndergrad, undergradStageOptions]);
+
+  useEffect(() => {
+    if (tier1 === "UNDERGRAD" && !undergradStageOptions.includes(Number(undergradStage1))) {
+      setUndergradStage1(String(firstUndergrad));
+    }
+    if (tier2 === "UNDERGRAD" && !undergradStageOptions.includes(Number(undergradStage2))) {
+      setUndergradStage2(String(firstUndergrad));
+    }
+  }, [firstUndergrad, tier1, tier2, undergradStage1, undergradStage2, undergradStageOptions]);
 
   const invigilatorsFieldId = useId();
   const invSlot1FieldId = `${invigilatorsFieldId}-slot1`;
@@ -1050,6 +1078,48 @@ function RoomFields({
       </div>
 
       <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
+        <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
+        {branchLockedToDepartment ? (
+          <>
+            <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
+            <div
+              className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]"
+              aria-readonly
+            >
+              {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : "قسم حسابك الحالي"}
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+              مرتبط بحساب القسم/الفرع الحالي؛ لا يُغيَّر من هذه الصفحة.
+            </p>
+          </>
+        ) : (
+          <>
+            <select
+              name="college_subject_id"
+              value={selectedCollegeSubjectId}
+              onChange={(e) => {
+                setSelectedCollegeSubjectId(e.target.value);
+                setExam1SubjectId("");
+                setExam2SubjectId("");
+              }}
+              required
+              className={stageSelectClass}
+            >
+              <option value="">اختر القسم/الفرع</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {roomBranchLabel(branch)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+              عند اختيار مادة مشتركة، يحدد هذا الحقل الفرع الذي تتبعه القاعة داخل الجداول والتقارير.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
         <p className="text-sm font-bold text-[#0F172A]">نوع استخدام القاعة</p>
         <p className="mt-1 text-xs leading-5 text-[#64748B]">حدّد إن كانت القاعة لامتحان واحد أو لمادتين امتحانيتين في الوقت نفسه.</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -1094,12 +1164,13 @@ function RoomFields({
           <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية</label>
           <StudySubjectExamSelect
             name="study_subject_id"
-            subjects={subjects}
+            subjects={availableSubjects}
+            value={exam1SubjectId}
             defaultValue={d.study_subject_id ?? ""}
             onValueChange={setExam1SubjectId}
             required
             triggerClassName="bg-[#F8FAFC]"
-            placeholder="اختر المادة الدراسية"
+            placeholder={selectedCollegeSubjectId ? "اختر المادة الدراسية" : "اختر القسم/الفرع أولاً"}
           />
         </div>
 
@@ -1298,12 +1369,13 @@ function RoomFields({
             <label className="mb-1 block text-sm font-semibold text-[#334155]">المادة الامتحانية الثانية</label>
             <StudySubjectExamSelect
               name="study_subject_id_2"
-              subjects={subjects}
+              subjects={availableSubjects}
+              value={exam2SubjectId}
               defaultValue={d.study_subject_id_2 ?? ""}
               onValueChange={setExam2SubjectId}
               required
               triggerClassName="bg-white"
-              placeholder="اختر المادة الثانية"
+              placeholder={selectedCollegeSubjectId ? "اختر المادة الثانية" : "اختر القسم/الفرع أولاً"}
             />
           </div>
 
@@ -1494,6 +1566,7 @@ function RoomFields({
 function AddRoomDialog({
   open,
   onClose,
+  branches,
   subjects,
   collegeLabel,
   fixedCollegeSubjectId,
@@ -1502,6 +1575,7 @@ function AddRoomDialog({
 }: {
   open: boolean;
   onClose: () => void;
+  branches: CollegeSubjectRow[];
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
@@ -1527,6 +1601,7 @@ function AddRoomDialog({
       <form action={formAction} className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">إضافة قاعة جديدة</h2>
         <RoomFields
+          branches={branches}
           subjects={subjects}
           collegeLabel={collegeLabel}
           fixedCollegeSubjectId={fixedCollegeSubjectId}
@@ -1551,6 +1626,7 @@ function AddRoomDialog({
 function EditRoomDialog({
   open,
   onClose,
+  branches,
   subjects,
   collegeLabel,
   fixedCollegeSubjectId,
@@ -1560,6 +1636,7 @@ function EditRoomDialog({
 }: {
   open: boolean;
   onClose: () => void;
+  branches: CollegeSubjectRow[];
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
@@ -1589,6 +1666,7 @@ function EditRoomDialog({
         <input type="hidden" name="id" value={row?.id ?? ""} />
         <input type="hidden" name="serial_no" value={row?.serial_no ?? ""} />
         <RoomFields
+          branches={branches}
           subjects={subjects}
           collegeLabel={collegeLabel}
           fixedCollegeSubjectId={fixedCollegeSubjectId}
@@ -1811,6 +1889,7 @@ function RowDetailHint({
 }
 
 export function RoomsManagementPanel({
+  branches,
   rows,
   studySubjects,
   scheduleHintsByRoom,
@@ -1819,6 +1898,7 @@ export function RoomsManagementPanel({
   scopedBranchName = null,
   staffRegistryPicklist = null,
 }: {
+  branches: CollegeSubjectRow[];
   rows: CollegeExamRoomRow[];
   studySubjects: CollegeStudySubjectRow[];
   scheduleHintsByRoom: Record<string, CollegeRoomScheduleHint[]>;
@@ -2660,6 +2740,7 @@ export function RoomsManagementPanel({
         key={`add-room-${addDialogKey}`}
         open={addOpen}
         onClose={closeAddDialog}
+        branches={branches}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
         fixedCollegeSubjectId={fixedCollegeSubjectId}
@@ -2670,6 +2751,7 @@ export function RoomsManagementPanel({
         key={`edit-room-${editDialogKey}`}
         open={Boolean(editingRow)}
         onClose={closeEditDialog}
+        branches={branches}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
         fixedCollegeSubjectId={fixedCollegeSubjectId}

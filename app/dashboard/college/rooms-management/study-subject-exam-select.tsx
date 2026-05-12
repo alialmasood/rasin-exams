@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import { formatCollegeStudyStageLabel, isPostgraduateStudyStageLevel } from "@/lib/college-study-stage-display";
 
 function stageDetailsText(s: CollegeStudySubjectRow): string {
   const lv = Number(s.study_stage_level);
   const stage = formatCollegeStudyStageLabel(lv);
-  if (isPostgraduateStudyStageLevel(lv)) return `دراسات عليا — ${stage}`;
-  return `الدراسة الأولية — ${stage}`;
+  const scope = s.college_subject_id == null ? "مادة مشتركة" : s.linked_branch_name;
+  if (isPostgraduateStudyStageLevel(lv)) return `${scope} — دراسات عليا — ${stage}`;
+  return `${scope} — الدراسة الأولية — ${stage}`;
 }
 
 function stageDetailsClassName(s: CollegeStudySubjectRow): string {
@@ -18,6 +19,7 @@ function stageDetailsClassName(s: CollegeStudySubjectRow): string {
 type StudySubjectExamSelectProps = {
   name: string;
   subjects: CollegeStudySubjectRow[];
+  value?: string;
   defaultValue?: string;
   required?: boolean;
   /** يُستدعى عند اختيار مادة من القائمة (للمزامنة مع «مستوى الدراسة» في النموذج) */
@@ -30,20 +32,18 @@ type StudySubjectExamSelectProps = {
 export function StudySubjectExamSelect({
   name,
   subjects,
+  value,
   defaultValue = "",
   required,
   onValueChange,
   triggerClassName,
   placeholder = "اختر المادة الدراسية",
 }: StudySubjectExamSelectProps) {
-  const [value, setValue] = useState(defaultValue);
+  const [innerValue, setInnerValue] = useState(defaultValue);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
-
-  useLayoutEffect(() => {
-    setValue(defaultValue);
-  }, [defaultValue]);
+  const resolvedValue = value ?? innerValue;
 
   useEffect(() => {
     if (!open) return;
@@ -61,14 +61,14 @@ export function StudySubjectExamSelect({
     };
   }, [open]);
 
-  const selected = useMemo(() => subjects.find((s) => s.id === value), [subjects, value]);
+  const selected = useMemo(() => subjects.find((s) => s.id === resolvedValue), [subjects, resolvedValue]);
 
   const baseTrigger =
     "flex h-11 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl border border-[#E2E8F0] px-3 text-right outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15";
 
   return (
     <div ref={rootRef} className="relative min-w-0">
-      <input type="hidden" name={name} value={value} required={required} />
+      <input type="hidden" name={name} value={resolvedValue} required={required} />
       <button
         type="button"
         aria-haspopup="listbox"
@@ -107,7 +107,7 @@ export function StudySubjectExamSelect({
           className="absolute end-0 start-0 top-[calc(100%+4px)] z-[140] max-h-[min(280px,45vh)] overflow-auto rounded-xl border border-[#E2E8F0] bg-white py-1 shadow-lg"
         >
           {subjects.map((s) => {
-            const active = s.id === value;
+            const active = s.id === resolvedValue;
             return (
               <li key={s.id} role="option" aria-selected={active}>
                 <button
@@ -116,7 +116,7 @@ export function StudySubjectExamSelect({
                     active ? "bg-[#EFF6FF]" : ""
                   }`}
                   onClick={() => {
-                    setValue(s.id);
+                    if (value == null) setInnerValue(s.id);
                     onValueChange?.(s.id);
                     setOpen(false);
                   }}

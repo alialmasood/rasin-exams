@@ -440,7 +440,7 @@ export function ExamSchedulesPanel({
     }
     const deptId = String(form.collegeSubjectId);
     return studySubjects.filter((x) => {
-      if (String(x.college_subject_id) !== deptId) return false;
+      if (x.college_subject_id != null && String(x.college_subject_id) !== deptId) return false;
       return tierFilter(x);
     });
   }, [studySubjects, form.collegeSubjectId, form.studyTier]);
@@ -453,8 +453,12 @@ export function ExamSchedulesPanel({
 
   const roomsForSelectedSubject = useMemo(() => {
     if (!form.studySubjectId) return [];
-    return rooms.filter((r) => roomMatchesStudySubject(r, form.studySubjectId));
-  }, [rooms, form.studySubjectId]);
+    return rooms.filter(
+      (r) =>
+        roomMatchesStudySubject(r, form.studySubjectId) &&
+        (isAllCollegeBranchesChoice(form.collegeSubjectId) || r.college_subject_id === form.collegeSubjectId)
+    );
+  }, [rooms, form.studySubjectId, form.collegeSubjectId]);
 
   const mappedRows = useMemo(() => {
     return rows.map((r) => ({

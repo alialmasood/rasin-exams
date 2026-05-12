@@ -31,6 +31,8 @@ export function mergeShiftAbsenceNames(morning: string, evening: string): string
 export type CollegeExamRoomRow = {
   id: string;
   owner_user_id: string;
+  college_subject_id: string;
+  college_subject_name: string;
   study_subject_id: string;
   study_subject_name: string;
   /** من college_study_subjects.instructor_name للمادة الأولى */
@@ -158,6 +160,8 @@ export async function listCollegeExamRoomsByOwner(
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
+    college_subject_id: string | number;
+    college_subject_name: string;
     study_subject_id: string | number;
     study_subject_name: string;
     study_subject_instructor_name: string | null;
@@ -200,7 +204,9 @@ export async function listCollegeExamRoomsByOwner(
     created_at: Date;
     updated_at: Date;
   }>(
-    `SELECT r.id, r.owner_user_id, r.study_subject_id,
+    `SELECT r.id, r.owner_user_id, r.college_subject_id,
+            c.branch_name AS college_subject_name,
+            r.study_subject_id,
             s.subject_name AS study_subject_name,
             TRIM(COALESCE(s.instructor_name::text, '')) AS study_subject_instructor_name,
             r.study_subject_id_2,
@@ -221,18 +227,22 @@ export async function listCollegeExamRoomsByOwner(
             r.absence_names_morning_2, r.absence_names_evening_2,
             r.created_at, r.updated_at
      FROM college_exam_rooms r
+     INNER JOIN college_subjects c
+       ON c.id = r.college_subject_id AND c.owner_user_id = r.owner_user_id
      INNER JOIN college_study_subjects s
        ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
      LEFT JOIN college_study_subjects s2
        ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
      WHERE r.owner_user_id = $1
-       ${rid ? `AND (s.college_subject_id = $2::bigint OR (s2.id IS NOT NULL AND s2.college_subject_id = $2::bigint))` : ""}
+       ${rid ? `AND r.college_subject_id = $2::bigint` : ""}
      ORDER BY r.serial_no ASC, r.created_at DESC`,
     rid ? [ownerUserId, rid] : [ownerUserId]
   );
   return r.rows.map((row) => ({
     id: String(row.id),
     owner_user_id: String(row.owner_user_id),
+    college_subject_id: String(row.college_subject_id),
+    college_subject_name: row.college_subject_name,
     study_subject_id: String(row.study_subject_id),
     study_subject_name: row.study_subject_name,
     study_subject_instructor_name: String(row.study_subject_instructor_name ?? "").trim(),
@@ -294,6 +304,8 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
+    college_subject_id: string | number;
+    college_subject_name: string;
     study_subject_id: string | number;
     study_subject_name: string;
     study_subject_instructor_name: string | null;
@@ -338,7 +350,9 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     formation_label: string;
     owner_username: string;
   }>(
-    `SELECT r.id, r.owner_user_id, r.study_subject_id,
+    `SELECT r.id, r.owner_user_id, r.college_subject_id,
+            c.branch_name AS college_subject_name,
+            r.study_subject_id,
             s.subject_name AS study_subject_name,
             TRIM(COALESCE(s.instructor_name::text, '')) AS study_subject_instructor_name,
             r.study_subject_id_2,
@@ -370,6 +384,8 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
             ) AS formation_label,
             u.username::text AS owner_username
      FROM college_exam_rooms r
+     INNER JOIN college_subjects c
+       ON c.id = r.college_subject_id AND c.owner_user_id = r.owner_user_id
      INNER JOIN college_study_subjects s
        ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
      LEFT JOIN college_study_subjects s2
@@ -382,6 +398,8 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
   return r.rows.map((row) => ({
     id: String(row.id),
     owner_user_id: String(row.owner_user_id),
+    college_subject_id: String(row.college_subject_id),
+    college_subject_name: row.college_subject_name,
     study_subject_id: String(row.study_subject_id),
     study_subject_name: row.study_subject_name,
     study_subject_instructor_name: String(row.study_subject_instructor_name ?? "").trim(),
@@ -431,6 +449,7 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
 
 export type CreateCollegeExamRoomInput = {
   ownerUserId: string;
+  collegeSubjectId: string;
   studySubjectId: string;
   studySubjectId2: string;
   serialNo?: string;
@@ -536,6 +555,7 @@ export async function createCollegeExamRoom(
   const attendanceCount = toInt(input.attendanceCount);
   const absenceCount = toInt(input.absenceCount);
 
+  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "اختر القسم أو الفرع أولاً." };
   if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "اختر مادة دراسية صالحة." };
   if (slot.id2 && slot.id2 === input.studySubjectId.trim()) {
     return { ok: false, message: "المادة الثانية يجب أن تختلف عن المادة الأولى." };
@@ -563,15 +583,32 @@ export async function createCollegeExamRoom(
   if (slot.id2 && slot.att2 + slot.abs2 > slot.capT2) {
     return { ok: false, message: "الحضور + الغياب (الامتحان الثاني) لا يمكن أن يتجاوز مجموع سعتيه." };
   }
+  const branchExists = await pool.query(
+    `SELECT 1 FROM college_subjects WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+    [input.collegeSubjectId.trim(), input.ownerUserId]
+  );
+  if ((branchExists.rowCount ?? 0) === 0) {
+    return { ok: false, message: "القسم/الفرع المحدد للقاعة غير موجود." };
+  }
   const subjectExists = await pool.query(
-    `SELECT 1 FROM college_study_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [input.studySubjectId.trim(), input.ownerUserId]
+    `SELECT 1
+     FROM college_study_subjects
+     WHERE id = $1
+       AND owner_user_id = $2
+       AND (college_subject_id = $3::bigint OR college_subject_id IS NULL)
+     LIMIT 1`,
+    [input.studySubjectId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
   );
   if ((subjectExists.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية المختارة غير موجودة." };
   if (slot.id2) {
     const s2 = await pool.query(
-      `SELECT 1 FROM college_study_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-      [slot.id2, input.ownerUserId]
+      `SELECT 1
+       FROM college_study_subjects
+       WHERE id = $1
+         AND owner_user_id = $2
+         AND (college_subject_id = $3::bigint OR college_subject_id IS NULL)
+       LIMIT 1`,
+      [slot.id2, input.ownerUserId, input.collegeSubjectId.trim()]
     );
     if ((s2.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية الثانية غير موجودة." };
   }
@@ -592,7 +629,7 @@ export async function createCollegeExamRoom(
 
   await pool.query(
     `INSERT INTO college_exam_rooms
-      (owner_user_id, study_subject_id, study_subject_id_2, stage_level, stage_level_2, serial_no, room_name, supervisor_name, invigilators,
+      (owner_user_id, college_subject_id, study_subject_id, study_subject_id_2, stage_level, stage_level_2, serial_no, room_name, supervisor_name, invigilators,
        supervisor_name_2, invigilators_2,
        capacity_morning, capacity_evening, capacity_total,
        capacity_morning_2, capacity_evening_2, capacity_total_2,
@@ -601,9 +638,10 @@ export async function createCollegeExamRoom(
        attendance_count_2, absence_count_2, absence_names_2,
        attendance_morning_2, absence_morning_2, attendance_evening_2, absence_evening_2, absence_names_morning_2, absence_names_evening_2,
        external_room_staff, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,NOW(),NOW())`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,NOW(),NOW())`,
     [
       input.ownerUserId,
+      input.collegeSubjectId.trim(),
       input.studySubjectId.trim(),
       slot.id2,
       sl1.v,
@@ -674,6 +712,7 @@ export async function updateCollegeExamRoom(
   const externalStaffPayloadU = serializeExternalRoomStaffForDb(extValU.normalized);
   const attendanceCount = toInt(input.attendanceCount);
   const absenceCount = toInt(input.absenceCount);
+  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "اختر القسم أو الفرع أولاً." };
   if (attendanceCount + absenceCount > slot.capT) {
     return { ok: false, message: "الحضور + الغياب (الامتحان الأول) لا يمكن أن يتجاوز مجموع الصباحي والمسائي." };
   }
@@ -681,15 +720,30 @@ export async function updateCollegeExamRoom(
     return { ok: false, message: "الحضور + الغياب (الامتحان الثاني) لا يمكن أن يتجاوز مجموع سعتيه." };
   }
   const pool = getDbPool();
+  const branchExists = await pool.query(
+    `SELECT 1 FROM college_subjects WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+    [input.collegeSubjectId.trim(), input.ownerUserId]
+  );
+  if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد للقاعة غير موجود." };
   const subjectExists = await pool.query(
-    `SELECT 1 FROM college_study_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [input.studySubjectId.trim(), input.ownerUserId]
+    `SELECT 1
+     FROM college_study_subjects
+     WHERE id = $1
+       AND owner_user_id = $2
+       AND (college_subject_id = $3::bigint OR college_subject_id IS NULL)
+     LIMIT 1`,
+    [input.studySubjectId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
   );
   if ((subjectExists.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية المختارة غير موجودة." };
   if (slot.id2) {
     const s2 = await pool.query(
-      `SELECT 1 FROM college_study_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-      [slot.id2, input.ownerUserId]
+      `SELECT 1
+       FROM college_study_subjects
+       WHERE id = $1
+         AND owner_user_id = $2
+         AND (college_subject_id = $3::bigint OR college_subject_id IS NULL)
+       LIMIT 1`,
+      [slot.id2, input.ownerUserId, input.collegeSubjectId.trim()]
     );
     if ((s2.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية الثانية غير موجودة." };
   }
@@ -710,21 +764,22 @@ export async function updateCollegeExamRoom(
 
   const r = await pool.query(
     `UPDATE college_exam_rooms
-     SET study_subject_id = $1, study_subject_id_2 = $2, stage_level = $3, stage_level_2 = $4,
-         serial_no = $5, room_name = $6, supervisor_name = $7, invigilators = $8,
-         supervisor_name_2 = $9, invigilators_2 = $10,
-         capacity_morning = $11, capacity_evening = $12, capacity_total = $13,
-         capacity_morning_2 = $14, capacity_evening_2 = $15, capacity_total_2 = $16,
-         attendance_count = $17, absence_count = $18, absence_names = $19,
-         attendance_morning = $20, absence_morning = $21, attendance_evening = $22, absence_evening = $23,
-         absence_names_morning = $24, absence_names_evening = $25,
-         attendance_count_2 = $26, absence_count_2 = $27, absence_names_2 = $28,
-         attendance_morning_2 = $29, absence_morning_2 = $30, attendance_evening_2 = $31, absence_evening_2 = $32,
-         absence_names_morning_2 = $33, absence_names_evening_2 = $34,
-         external_room_staff = $35,
+     SET college_subject_id = $1, study_subject_id = $2, study_subject_id_2 = $3, stage_level = $4, stage_level_2 = $5,
+         serial_no = $6, room_name = $7, supervisor_name = $8, invigilators = $9,
+         supervisor_name_2 = $10, invigilators_2 = $11,
+         capacity_morning = $12, capacity_evening = $13, capacity_total = $14,
+         capacity_morning_2 = $15, capacity_evening_2 = $16, capacity_total_2 = $17,
+         attendance_count = $18, absence_count = $19, absence_names = $20,
+         attendance_morning = $21, absence_morning = $22, attendance_evening = $23, absence_evening = $24,
+         absence_names_morning = $25, absence_names_evening = $26,
+         attendance_count_2 = $27, absence_count_2 = $28, absence_names_2 = $29,
+         attendance_morning_2 = $30, absence_morning_2 = $31, attendance_evening_2 = $32, absence_evening_2 = $33,
+         absence_names_morning_2 = $34, absence_names_evening_2 = $35,
+         external_room_staff = $36,
          updated_at = NOW()
-     WHERE id = $36 AND owner_user_id = $37`,
+     WHERE id = $37 AND owner_user_id = $38`,
     [
+      input.collegeSubjectId.trim(),
       input.studySubjectId.trim(),
       slot.id2,
       sl1.v,

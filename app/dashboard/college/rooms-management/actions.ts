@@ -8,7 +8,7 @@ import {
   type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
-import { getCollegePortalDataOwnerUserId } from "@/lib/college-portal-scope";
+import { effectiveCollegeSubjectIdForMutation, getCollegePortalDataOwnerUserId } from "@/lib/college-portal-scope";
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
@@ -232,9 +232,11 @@ export async function createCollegeExamRoomAction(
   }
   const useSplitAttendance = formData.has("s1_att_m");
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
+  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(session, fdStr(formData, "college_subject_id"));
 
   const sharedBase = {
     ownerUserId,
+    collegeSubjectId,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
     stageLevel: fdStr(formData, "stage_level"),
@@ -346,6 +348,7 @@ export async function updateCollegeExamRoomAction(
   const result = await updateCollegeExamRoom({
     id,
     ownerUserId,
+    collegeSubjectId: effectiveCollegeSubjectIdForMutation(session, fdStr(formData, "college_subject_id")),
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
     serialNo: fdStr(formData, "serial_no"),

@@ -125,7 +125,9 @@ async function validateExamScheduleSlot(
   const subjectScope = await pool.query(
     `SELECT 1
      FROM college_study_subjects
-     WHERE id = $1 AND owner_user_id = $2 AND college_subject_id = $3
+     WHERE id = $1
+       AND owner_user_id = $2
+       AND (college_subject_id = $3::bigint OR college_subject_id IS NULL)
      LIMIT 1`,
     [input.studySubjectId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
   );
@@ -133,10 +135,15 @@ async function validateExamScheduleSlot(
     return { ok: false, message: "المادة المختارة لا تتبع القسم/الفرع المحدد." };
   }
   const roomScope = await pool.query(
-    `SELECT 1 FROM college_exam_rooms WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
-    [input.roomId.trim(), input.ownerUserId]
+    `SELECT 1
+     FROM college_exam_rooms
+     WHERE id = $1::bigint AND owner_user_id = $2 AND college_subject_id = $3::bigint
+     LIMIT 1`,
+    [input.roomId.trim(), input.ownerUserId, input.collegeSubjectId.trim()]
   );
-  if ((roomScope.rowCount ?? 0) === 0) return { ok: false, message: "القاعة المختارة غير موجودة." };
+  if ((roomScope.rowCount ?? 0) === 0) {
+    return { ok: false, message: "القاعة المختارة غير موجودة ضمن القسم/الفرع المحدد." };
+  }
   const roomSubjectOk = await assertExamRoomAllowsStudySubject(
     pool,
     input.ownerUserId,

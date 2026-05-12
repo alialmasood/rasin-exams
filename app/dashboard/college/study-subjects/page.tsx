@@ -27,7 +27,12 @@ export default async function CollegeStudySubjectsPage() {
 
   return (
     <Suspense fallback={null}>
-      <StudySubjectsPanel collegeLabel={collegeLabel} branches={branches} rows={rows} />
+      <StudySubjectsPanel
+        collegeLabel={collegeLabel}
+        branches={branches}
+        rows={rows}
+        allowSharedCollegeSubjectOption={profile?.account_kind === "CENTRAL"}
+      />
     </Suspense>
   );
 }

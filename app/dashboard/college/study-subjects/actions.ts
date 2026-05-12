@@ -5,6 +5,7 @@ import {
   deleteCollegeStudySubject,
   updateCollegeStudySubject,
 } from "@/lib/college-study-subjects";
+import { SHARED_COLLEGE_SUBJECT_VALUE } from "@/lib/college-study-subjects-shared";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import {
   getCollegePortalDataOwnerUserId,
@@ -27,10 +28,14 @@ export async function createCollegeStudySubjectAction(
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
   try {
-    const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
-      session,
-      String(formData.get("college_subject_id") ?? "")
-    );
+    const rawCollegeSubjectId = String(formData.get("college_subject_id") ?? "").trim();
+    const collegeSubjectId =
+      session.college_account_kind === "CENTRAL" && rawCollegeSubjectId === SHARED_COLLEGE_SUBJECT_VALUE
+        ? null
+        : effectiveCollegeSubjectIdForMutation(session, rawCollegeSubjectId);
+    if (collegeSubjectId === null && session.college_account_kind !== "CENTRAL") {
+      return { ok: false, message: "خيار المادة المشتركة متاح للحساب المركزي فقط." };
+    }
     const result = await createCollegeStudySubject({
       ownerUserId,
       collegeSubjectId,
@@ -64,10 +69,14 @@ export async function updateCollegeStudySubjectAction(
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف المادة غير صالح." };
   try {
-    const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
-      session,
-      String(formData.get("college_subject_id") ?? "")
-    );
+    const rawCollegeSubjectId = String(formData.get("college_subject_id") ?? "").trim();
+    const collegeSubjectId =
+      session.college_account_kind === "CENTRAL" && rawCollegeSubjectId === SHARED_COLLEGE_SUBJECT_VALUE
+        ? null
+        : effectiveCollegeSubjectIdForMutation(session, rawCollegeSubjectId);
+    if (collegeSubjectId === null && session.college_account_kind !== "CENTRAL") {
+      return { ok: false, message: "خيار المادة المشتركة متاح للحساب المركزي فقط." };
+    }
     const result = await updateCollegeStudySubject({
       id,
       ownerUserId,

@@ -1,19 +1,24 @@
 import {
   POSTGRAD_STUDY_STAGE_DIPLOMA,
   POSTGRAD_STUDY_STAGE_DOCTOR,
-  POSTGRAD_STUDY_STAGE_MASTER,
 } from "@/lib/college-study-stage-display";
+import {
+  type CollegeStudySubjectLinkedType,
+  SHARED_COLLEGE_SUBJECT_VALUE,
+  type StudyType,
+} from "@/lib/college-study-subjects-shared";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
-
-export type StudyType = "ANNUAL" | "SEMESTER" | "COURSES" | "BOLOGNA" | "INTEGRATIVE";
+export { SHARED_COLLEGE_SUBJECT_VALUE } from "@/lib/college-study-subjects-shared";
+export type { CollegeStudySubjectLinkedType, StudyType } from "@/lib/college-study-subjects-shared";
 
 export type CollegeStudySubjectRow = {
   id: string;
   owner_user_id: string;
-  college_subject_id: string;
+  college_subject_id: string | null;
   linked_branch_name: string;
-  linked_branch_type: "DEPARTMENT" | "BRANCH";
+  linked_branch_type: CollegeStudySubjectLinkedType;
+  is_shared: boolean;
   subject_name: string;
   /** اسم التدريسي المعتمد للمادة (قد يكون فارغًا) */
   instructor_name: string;
@@ -57,7 +62,7 @@ export async function listCollegeStudySubjectsByOwner(
   const r = await pool.query<{
     id: string | number;
     owner_user_id: string | number;
-    college_subject_id: string | number;
+    college_subject_id: string | number | null;
     linked_branch_name: string;
     linked_branch_type: string;
     subject_name: string;
@@ -69,27 +74,34 @@ export async function listCollegeStudySubjectsByOwner(
   }>(
     rid
       ? `SELECT s.id, s.owner_user_id, s.college_subject_id,
-              c.branch_name AS linked_branch_name,
-              COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
+              COALESCE(c.branch_name, 'لكل الكلية') AS linked_branch_name,
+              CASE
+                WHEN s.college_subject_id IS NULL THEN 'SHARED'
+                ELSE COALESCE(c.branch_type, 'DEPARTMENT')
+              END AS linked_branch_type,
               s.subject_name,
               COALESCE(s.instructor_name, '') AS instructor_name,
               COALESCE(s.study_type, 'ANNUAL') AS study_type,
               COALESCE(s.study_stage_level, 1) AS study_stage_level,
               s.created_at, s.updated_at
        FROM college_study_subjects s
-       INNER JOIN college_subjects c ON c.id = s.college_subject_id
-       WHERE s.owner_user_id = $1 AND s.college_subject_id = $2::bigint
+       LEFT JOIN college_subjects c ON c.id = s.college_subject_id
+       WHERE s.owner_user_id = $1
+         AND (s.college_subject_id = $2::bigint OR s.college_subject_id IS NULL)
        ORDER BY s.created_at DESC`
       : `SELECT s.id, s.owner_user_id, s.college_subject_id,
-              c.branch_name AS linked_branch_name,
-              COALESCE(c.branch_type, 'DEPARTMENT') AS linked_branch_type,
+              COALESCE(c.branch_name, 'لكل الكلية') AS linked_branch_name,
+              CASE
+                WHEN s.college_subject_id IS NULL THEN 'SHARED'
+                ELSE COALESCE(c.branch_type, 'DEPARTMENT')
+              END AS linked_branch_type,
               s.subject_name,
               COALESCE(s.instructor_name, '') AS instructor_name,
               COALESCE(s.study_type, 'ANNUAL') AS study_type,
               COALESCE(s.study_stage_level, 1) AS study_stage_level,
               s.created_at, s.updated_at
        FROM college_study_subjects s
-       INNER JOIN college_subjects c ON c.id = s.college_subject_id
+       LEFT JOIN college_subjects c ON c.id = s.college_subject_id
        WHERE s.owner_user_id = $1
        ORDER BY s.created_at DESC`,
     rid ? [ownerUserId, rid] : [ownerUserId]
@@ -97,9 +109,15 @@ export async function listCollegeStudySubjectsByOwner(
   return r.rows.map((row) => ({
     id: String(row.id),
     owner_user_id: String(row.owner_user_id),
-    college_subject_id: String(row.college_subject_id),
+    college_subject_id: row.college_subject_id != null ? String(row.college_subject_id) : null,
     linked_branch_name: row.linked_branch_name,
-    linked_branch_type: row.linked_branch_type === "BRANCH" ? "BRANCH" : "DEPARTMENT",
+    linked_branch_type:
+      row.linked_branch_type === "SHARED"
+        ? "SHARED"
+        : row.linked_branch_type === "BRANCH"
+          ? "BRANCH"
+          : "DEPARTMENT",
+    is_shared: row.college_subject_id == null,
     subject_name: row.subject_name,
     instructor_name: normalizeInstructorName(row.instructor_name ?? ""),
     study_type: normalizeStudyType(row.study_type),
@@ -111,7 +129,7 @@ export async function listCollegeStudySubjectsByOwner(
 
 export async function createCollegeStudySubject(input: {
   ownerUserId: string;
-  collegeSubjectId: string;
+  collegeSubjectId: string | null;
   subjectName: string;
   instructorName: string;
   studyType: string;
@@ -119,17 +137,20 @@ export async function createCollegeStudySubject(input: {
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
   const subjectName = input.subjectName.trim();
+  const collegeSubjectId = input.collegeSubjectId?.trim() || null;
   if (subjectName.length < 2) return { ok: false, message: "اسم المادة يجب أن يكون حرفين على الأقل." };
-  if (!/^\d+$/.test(input.collegeSubjectId.trim())) {
+  if (collegeSubjectId !== null && !/^\d+$/.test(collegeSubjectId)) {
     return { ok: false, message: "يرجى اختيار قسم/فرع صالح." };
   }
   await ensureCoreSchema();
   const pool = getDbPool();
-  const branchExists = await pool.query(
-    `SELECT 1 FROM college_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [input.collegeSubjectId.trim(), input.ownerUserId]
-  );
-  if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
+  if (collegeSubjectId !== null) {
+    const branchExists = await pool.query(
+      `SELECT 1 FROM college_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
+      [collegeSubjectId, input.ownerUserId]
+    );
+    if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
+  }
 
   const stageLevel = normalizeStudyStageLevel(input.studyStageLevel);
   const instructorName = normalizeInstructorName(input.instructorName);
@@ -138,21 +159,26 @@ export async function createCollegeStudySubject(input: {
     `SELECT 1
      FROM college_study_subjects
      WHERE owner_user_id = $1
-       AND college_subject_id = $2
+       AND (($2::bigint IS NULL AND college_subject_id IS NULL) OR college_subject_id = $2::bigint)
        AND LOWER(TRIM(subject_name)) = LOWER(TRIM($3))
        AND COALESCE(study_stage_level, 1) = $4
      LIMIT 1`,
-    [input.ownerUserId, input.collegeSubjectId.trim(), subjectName, stageLevel]
+    [input.ownerUserId, collegeSubjectId, subjectName, stageLevel]
   );
-  if ((dup.rowCount ?? 0) > 0) return { ok: false, message: "هذه المادة موجودة مسبقًا ضمن القسم/الفرع ونفس المرحلة." };
+  if ((dup.rowCount ?? 0) > 0) {
+    return {
+      ok: false,
+      message: collegeSubjectId ? "هذه المادة موجودة مسبقًا ضمن القسم/الفرع ونفس المرحلة." : "هذه المادة المشتركة موجودة مسبقًا لنفس المرحلة.",
+    };
+  }
 
   await pool.query(
     `INSERT INTO college_study_subjects
       (owner_user_id, college_subject_id, subject_name, instructor_name, study_type, study_stage_level, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+     VALUES ($1, $2::bigint, $3, $4, $5, $6, NOW(), NOW())`,
     [
       input.ownerUserId,
-      input.collegeSubjectId.trim(),
+      collegeSubjectId,
       subjectName,
       instructorName,
       normalizeStudyType(input.studyType),
@@ -165,7 +191,7 @@ export async function createCollegeStudySubject(input: {
 export async function updateCollegeStudySubject(input: {
   id: string;
   ownerUserId: string;
-  collegeSubjectId: string;
+  collegeSubjectId: string | null;
   subjectName: string;
   instructorName: string;
   studyType: string;
@@ -173,16 +199,21 @@ export async function updateCollegeStudySubject(input: {
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
   const subjectName = input.subjectName.trim();
+  const collegeSubjectId = input.collegeSubjectId?.trim() || null;
   if (!/^\d+$/.test(input.id.trim())) return { ok: false, message: "معرّف المادة غير صالح." };
-  if (!/^\d+$/.test(input.collegeSubjectId.trim())) return { ok: false, message: "القسم/الفرع غير صالح." };
+  if (collegeSubjectId !== null && !/^\d+$/.test(collegeSubjectId)) {
+    return { ok: false, message: "القسم/الفرع غير صالح." };
+  }
   if (subjectName.length < 2) return { ok: false, message: "اسم المادة يجب أن يكون حرفين على الأقل." };
   await ensureCoreSchema();
   const pool = getDbPool();
-  const branchExists = await pool.query(
-    `SELECT 1 FROM college_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
-    [input.collegeSubjectId.trim(), input.ownerUserId]
-  );
-  if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
+  if (collegeSubjectId !== null) {
+    const branchExists = await pool.query(
+      `SELECT 1 FROM college_subjects WHERE id = $1 AND owner_user_id = $2 LIMIT 1`,
+      [collegeSubjectId, input.ownerUserId]
+    );
+    if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد غير موجود." };
+  }
 
   const stageLevel = normalizeStudyStageLevel(input.studyStageLevel);
   const instructorName = normalizeInstructorName(input.instructorName);
@@ -192,20 +223,27 @@ export async function updateCollegeStudySubject(input: {
      FROM college_study_subjects
      WHERE owner_user_id = $1
        AND id <> $2
-       AND college_subject_id = $3
+       AND (($3::bigint IS NULL AND college_subject_id IS NULL) OR college_subject_id = $3::bigint)
        AND LOWER(TRIM(subject_name)) = LOWER(TRIM($4))
        AND COALESCE(study_stage_level, 1) = $5
      LIMIT 1`,
-    [input.ownerUserId, input.id.trim(), input.collegeSubjectId.trim(), subjectName, stageLevel]
+    [input.ownerUserId, input.id.trim(), collegeSubjectId, subjectName, stageLevel]
   );
-  if ((dup.rowCount ?? 0) > 0) return { ok: false, message: "اسم المادة مستخدم مسبقًا ضمن القسم/الفرع ونفس المرحلة." };
+  if ((dup.rowCount ?? 0) > 0) {
+    return {
+      ok: false,
+      message: collegeSubjectId
+        ? "اسم المادة مستخدم مسبقًا ضمن القسم/الفرع ونفس المرحلة."
+        : "اسم المادة المشتركة مستخدم مسبقًا لنفس المرحلة.",
+    };
+  }
 
   const r = await pool.query(
     `UPDATE college_study_subjects
      SET college_subject_id = $1, subject_name = $2, instructor_name = $3, study_type = $4, study_stage_level = $5, updated_at = NOW()
      WHERE id = $6 AND owner_user_id = $7`,
     [
-      input.collegeSubjectId.trim(),
+      collegeSubjectId,
       subjectName,
       instructorName,
       normalizeStudyType(input.studyType),

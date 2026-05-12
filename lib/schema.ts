@@ -303,6 +303,11 @@ export async function ensureCoreSchema() {
   );
   await createIndexSafe(
     pool,
+    "idx_college_exam_rooms_branch",
+    "CREATE INDEX IF NOT EXISTS idx_college_exam_rooms_branch ON college_exam_rooms(college_subject_id)"
+  );
+  await createIndexSafe(
+    pool,
     "idx_college_exam_schedules_owner",
     "CREATE INDEX IF NOT EXISTS idx_college_exam_schedules_owner ON college_exam_schedules(owner_user_id)"
   );
@@ -610,13 +615,22 @@ async function ensureCollegeStudySubjectsTable(pool: Pool) {
     CREATE TABLE IF NOT EXISTS college_study_subjects (
       id BIGSERIAL PRIMARY KEY,
       owner_user_id ${userIdType} NOT NULL,
-      college_subject_id BIGINT NOT NULL,
+      college_subject_id BIGINT,
       subject_name VARCHAR(220) NOT NULL,
       study_type VARCHAR(20) NOT NULL DEFAULT 'ANNUAL',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_study_subjects ALTER COLUMN college_subject_id DROP NOT NULL`
+    );
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+    console.warn("[schema] تعذر جعل college_study_subjects.college_subject_id قابلاً لـ NULL (صلاحيات).");
+  }
 
   try {
     await pool.query(
@@ -757,6 +771,7 @@ async function ensureCollegeExamRoomsTable(pool: Pool) {
     CREATE TABLE IF NOT EXISTS college_exam_rooms (
       id BIGSERIAL PRIMARY KEY,
       owner_user_id ${userIdType} NOT NULL,
+      college_subject_id BIGINT NOT NULL,
       study_subject_id BIGINT NOT NULL,
       serial_no INTEGER NOT NULL,
       room_name VARCHAR(200) NOT NULL,
@@ -771,12 +786,43 @@ async function ensureCollegeExamRoomsTable(pool: Pool) {
     );
   `);
 
+  try {
+    await pool.query(
+      `ALTER TABLE public.college_exam_rooms ADD COLUMN IF NOT EXISTS college_subject_id BIGINT`
+    );
+    await pool.query(`
+      UPDATE public.college_exam_rooms r
+      SET college_subject_id = s.college_subject_id
+      FROM public.college_study_subjects s
+      WHERE r.college_subject_id IS NULL
+        AND s.id = r.study_subject_id
+        AND s.owner_user_id = r.owner_user_id
+        AND s.college_subject_id IS NOT NULL
+    `);
+  } catch (err: unknown) {
+    if (!isPermissionError(err)) throw err;
+    console.warn("[schema] تعذر توسيع college_exam_rooms بإضافة college_subject_id (صلاحيات).");
+  }
+
   if (!(await constraintExists(pool, "college_exam_rooms_owner_user_id_fkey"))) {
     try {
       await pool.query(`
         ALTER TABLE public.college_exam_rooms
         ADD CONSTRAINT college_exam_rooms_owner_user_id_fkey
         FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+
+  if (!(await constraintExists(pool, "college_exam_rooms_college_subject_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_exam_rooms
+        ADD CONSTRAINT college_exam_rooms_college_subject_id_fkey
+        FOREIGN KEY (college_subject_id) REFERENCES public.college_subjects(id) ON DELETE RESTRICT
       `);
     } catch (err: unknown) {
       const msg = String((err as { message?: string }).message ?? "");

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeExamScheduleHintsByRoom } from "@/lib/college-exam-schedules";
 import { listCollegeExamRoomsByOwner } from "@/lib/college-rooms";
+import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
 import { getSession } from "@/lib/session";
 import { RoomsManagementPanel } from "./rooms-management-panel";
@@ -20,7 +21,8 @@ export default async function CollegeRoomsManagementPage() {
       ? (profile.holder_name ?? "حساب متابعة")
       : (profile?.formation_name ?? "حساب كلية");
 
-  const [rows, studySubjects, scheduleHintsByRoom] = await Promise.all([
+  const [branches, rows, studySubjects, scheduleHintsByRoom] = await Promise.all([
+    listCollegeSubjectsByOwner(session.uid),
     listCollegeExamRoomsByOwner(session.uid),
     listCollegeStudySubjectsByOwner(session.uid),
     listCollegeExamScheduleHintsByRoom(session.uid),
@@ -29,6 +31,7 @@ export default async function CollegeRoomsManagementPage() {
   return (
     <Suspense fallback={null}>
       <RoomsManagementPanel
+        branches={branches}
         rows={rows}
         studySubjects={studySubjects}
         scheduleHintsByRoom={scheduleHintsByRoom}

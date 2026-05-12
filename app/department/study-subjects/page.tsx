@@ -25,6 +25,7 @@ export default async function DepartmentStudySubjectsPage() {
         branches={branches}
         rows={rows}
         fixedCollegeSubjectId={ws.collegeSubjectId}
+        allowSharedCollegeSubjectOption={profile?.account_kind === "CENTRAL"}
       />
     </Suspense>
   );

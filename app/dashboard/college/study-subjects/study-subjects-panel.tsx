@@ -6,7 +6,8 @@ import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
-import type { CollegeStudySubjectRow, StudyType } from "@/lib/college-study-subjects";
+import { SHARED_COLLEGE_SUBJECT_VALUE, type StudyType } from "@/lib/college-study-subjects-shared";
+import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import {
   formatCollegeStudyLevelTierLabel,
   formatCollegeStudyStageLabel,
@@ -33,6 +34,15 @@ function studyTypeDisplayByStage(studyType: StudyType, studyStageLevel: number):
   // في الدراسات العليا لا يُعرض نوع الدراسة.
   if (isPostgraduateStudyStageLevel(studyStageLevel)) return "";
   return STUDY_TYPE_LABEL[studyType];
+}
+
+function branchTypeLabel(type: CollegeSubjectRow["branch_type"] | CollegeStudySubjectRow["linked_branch_type"]): string {
+  if (type === "SHARED") return "مادة مشتركة";
+  return type === "BRANCH" ? "فرع" : "قسم";
+}
+
+function branchScopeText(name: string, type: CollegeSubjectRow["branch_type"] | CollegeStudySubjectRow["linked_branch_type"]): string {
+  return `${name} (${branchTypeLabel(type)})`;
 }
 
 /** تمركز بصري: inset-0 + margin:auto + ارتفاع المحتوى؛ يُعرض عبر portal على body لتفادي سياق الـ RTL/التخطيط */
@@ -66,11 +76,12 @@ function SubjectFormFields({
   stageOptions,
   defaults,
   lockedCollegeSubjectId,
+  allowSharedCollegeSubjectOption = false,
 }: {
   branches: CollegeSubjectRow[];
   stageOptions: number[];
   defaults?: {
-    collegeSubjectId?: string;
+    collegeSubjectId?: string | null;
     subjectName?: string;
     instructorName?: string;
     studyType?: StudyType;
@@ -78,6 +89,8 @@ function SubjectFormFields({
   };
   /** بوابة القسم: القسم ثابت ولا يُختار من القائمة */
   lockedCollegeSubjectId?: string;
+  /** الحساب المركزي فقط: يسمح بإنشاء مادة مشتركة لكل الكلية */
+  allowSharedCollegeSubjectOption?: boolean;
 }) {
   const rawStage = defaults?.studyStageLevel ?? stageOptions[0] ?? 1;
   const initialTier: StudyTierUi =
@@ -103,6 +116,10 @@ function SubjectFormFields({
   const lockedBranchMeta = lockedCollegeSubjectId
     ? branches.find((b) => b.id === lockedCollegeSubjectId)
     : undefined;
+  const defaultCollegeSubjectValue =
+    defaults && defaults.collegeSubjectId == null && allowSharedCollegeSubjectOption
+      ? SHARED_COLLEGE_SUBJECT_VALUE
+      : (defaults?.collegeSubjectId ?? "");
 
   return (
     <>
@@ -117,10 +134,7 @@ function SubjectFormFields({
             >
               {lockedBranchMeta ? (
                 <>
-                  {lockedBranchMeta.branch_name}{" "}
-                  <span className="text-[#64748B]">
-                    ({lockedBranchMeta.branch_type === "BRANCH" ? "فرع" : "قسم"})
-                  </span>
+                  {branchScopeText(lockedBranchMeta.branch_name, lockedBranchMeta.branch_type)}
                 </>
               ) : (
                 <span className="text-[#64748B]">قسم حسابك الحالي</span>
@@ -131,21 +145,32 @@ function SubjectFormFields({
             </p>
           </>
         ) : (
-          <select
-            name="college_subject_id"
-            required
-            defaultValue={defaults?.collegeSubjectId ?? ""}
-            className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-          >
-            <option value="" disabled>
-              اختر القسم/الفرع
-            </option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+          <>
+            <select
+              name="college_subject_id"
+              required
+              defaultValue={defaultCollegeSubjectValue}
+              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
+            >
+              <option value="" disabled>
+                اختر القسم/الفرع
               </option>
-            ))}
-          </select>
+              {allowSharedCollegeSubjectOption ? (
+                <option value={SHARED_COLLEGE_SUBJECT_VALUE}>لكل الكلية (مادة مشتركة)</option>
+              ) : null}
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {branchScopeText(b.branch_name, b.branch_type)}
+                </option>
+              ))}
+            </select>
+            {allowSharedCollegeSubjectOption ? (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-[#64748B]">
+                عند اختيار <strong>لكل الكلية</strong> تُحفظ المادة كمادة مشتركة وتصبح متاحة لجميع الفروع داخل الحساب
+                المركزي.
+              </p>
+            ) : null}
+          </>
         )}
       </div>
 
@@ -258,12 +283,14 @@ function AddStudySubjectDialog({
   branches,
   stageOptions,
   lockedCollegeSubjectId,
+  allowSharedCollegeSubjectOption,
 }: {
   open: boolean;
   onClose: () => void;
   branches: CollegeSubjectRow[];
   stageOptions: number[];
   lockedCollegeSubjectId?: string;
+  allowSharedCollegeSubjectOption?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(createCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -292,6 +319,7 @@ function AddStudySubjectDialog({
           branches={branches}
           stageOptions={stageOptions}
           lockedCollegeSubjectId={lockedCollegeSubjectId}
+          allowSharedCollegeSubjectOption={allowSharedCollegeSubjectOption}
         />
         {state && !state.ok ? <p className="text-sm font-semibold text-red-600">{state.message}</p> : null}
         <div className="flex items-center justify-end gap-3 pt-1">
@@ -313,6 +341,7 @@ function EditStudySubjectDialog({
   branches,
   stageOptions,
   lockedCollegeSubjectId,
+  allowSharedCollegeSubjectOption,
 }: {
   row: CollegeStudySubjectRow | null;
   open: boolean;
@@ -320,6 +349,7 @@ function EditStudySubjectDialog({
   branches: CollegeSubjectRow[];
   stageOptions: number[];
   lockedCollegeSubjectId?: string;
+  allowSharedCollegeSubjectOption?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(updateCollegeStudySubjectAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -350,6 +380,7 @@ function EditStudySubjectDialog({
           branches={branches}
           stageOptions={stageOptions}
           lockedCollegeSubjectId={lockedCollegeSubjectId}
+          allowSharedCollegeSubjectOption={allowSharedCollegeSubjectOption}
           defaults={{
             collegeSubjectId: row?.college_subject_id,
             subjectName: row?.subject_name,
@@ -394,11 +425,13 @@ export function StudySubjectsPanel({
   rows,
   /** عند `/department/...` يُثبَّت القسم ويُخفى اختيار قسم آخر */
   fixedCollegeSubjectId = null,
+  allowSharedCollegeSubjectOption = false,
 }: {
   collegeLabel: string;
   branches: CollegeSubjectRow[];
   rows: CollegeStudySubjectRow[];
   fixedCollegeSubjectId?: string | null;
+  allowSharedCollegeSubjectOption?: boolean;
 }) {
   const portalBase = useCollegePortalBasePath();
   const hideAddStudySubjectButton = portalBase === "/dashboard/college";
@@ -424,7 +457,7 @@ export function StudySubjectsPanel({
   }, [editingRow?.study_stage_level, stageOptions]);
   const [query, setQuery] = useState("");
   const [filterStudyType, setFilterStudyType] = useState<"ALL" | StudyType>("ALL");
-  const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH">("ALL");
+  const [filterBranch, setFilterBranch] = useState<"ALL" | "DEPARTMENT" | "BRANCH" | "SHARED">("ALL");
   /** عرض مواد قسم/فرع محدد */
   const [filterCollegeSubjectId, setFilterCollegeSubjectId] = useState<"ALL" | string>(() =>
     fixedCollegeSubjectId?.trim() ? fixedCollegeSubjectId.trim() : "ALL"
@@ -443,7 +476,11 @@ export function StudySubjectsPanel({
       const byStudyType = filterStudyType === "ALL" ? true : row.study_type === filterStudyType;
       const byBranchType = filterBranch === "ALL" ? true : row.linked_branch_type === filterBranch;
       const byCollegeSubject =
-        filterCollegeSubjectId === "ALL" ? true : row.college_subject_id === filterCollegeSubjectId;
+        filterCollegeSubjectId === "ALL"
+          ? true
+          : filterCollegeSubjectId === SHARED_COLLEGE_SUBJECT_VALUE
+            ? row.college_subject_id == null
+            : row.college_subject_id === filterCollegeSubjectId;
       return byQuery && byStudyType && byBranchType && byCollegeSubject;
     });
   }, [rows, normalizedQuery, filterStudyType, filterBranch, filterCollegeSubjectId]);
@@ -460,7 +497,10 @@ export function StudySubjectsPanel({
       return;
     }
     if (filterCollegeSubjectId === "ALL") return;
-    if (!branches.some((b) => b.id === filterCollegeSubjectId)) {
+    if (
+      filterCollegeSubjectId !== SHARED_COLLEGE_SUBJECT_VALUE &&
+      !branches.some((b) => b.id === filterCollegeSubjectId)
+    ) {
       setFilterCollegeSubjectId("ALL");
     }
   }, [branches, filterCollegeSubjectId, fixedCollegeSubjectId]);
@@ -530,7 +570,7 @@ export function StudySubjectsPanel({
     ];
     const lines = filteredRows.map((row) => [
       row.subject_name,
-      `${row.linked_branch_name} (${row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})`,
+      branchScopeText(row.linked_branch_name, row.linked_branch_type),
       row.instructor_name || "—",
       formatCollegeStudyLevelTierLabel(row.study_stage_level),
       studyTypeDisplayByStage(row.study_type, row.study_stage_level),
@@ -560,13 +600,19 @@ export function StudySubjectsPanel({
   const studyCountByCollegeSubjectId = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of rows) {
-      m.set(r.college_subject_id, (m.get(r.college_subject_id) ?? 0) + 1);
+      const k = r.college_subject_id ?? SHARED_COLLEGE_SUBJECT_VALUE;
+      m.set(k, (m.get(k) ?? 0) + 1);
     }
     return m;
   }, [rows]);
 
   const branchSummaryRows = useMemo(() => {
-    return [...branches]
+    const base: Array<{
+      id: string;
+      branchName: string;
+      branchType: CollegeSubjectRow["branch_type"] | CollegeStudySubjectRow["linked_branch_type"];
+      count: number;
+    }> = [...branches]
       .sort((a, b) => a.branch_name.localeCompare(b.branch_name, "ar"))
       .map((b) => ({
         id: b.id,
@@ -574,6 +620,16 @@ export function StudySubjectsPanel({
         branchType: b.branch_type,
         count: studyCountByCollegeSubjectId.get(b.id) ?? 0,
       }));
+    const sharedCount = studyCountByCollegeSubjectId.get(SHARED_COLLEGE_SUBJECT_VALUE) ?? 0;
+    if (sharedCount > 0) {
+      base.unshift({
+        id: SHARED_COLLEGE_SUBJECT_VALUE,
+        branchName: "لكل الكلية",
+        branchType: "SHARED" as const,
+        count: sharedCount,
+      });
+    }
+    return base;
   }, [branches, studyCountByCollegeSubjectId]);
 
   return (
@@ -638,12 +694,13 @@ export function StudySubjectsPanel({
             {departmentSubjectsScope ? null : (
               <select
                 value={filterBranch}
-                onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH")}
+                onChange={(e) => setFilterBranch(e.target.value as "ALL" | "DEPARTMENT" | "BRANCH" | "SHARED")}
                 className="h-10 rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
               >
                 <option value="ALL">الكل</option>
                 <option value="DEPARTMENT">الأقسام</option>
                 <option value="BRANCH">الفروع</option>
+                <option value="SHARED">المواد المشتركة</option>
               </select>
             )}
             {departmentSubjectsScope ? null : (
@@ -654,9 +711,12 @@ export function StudySubjectsPanel({
                 className="h-10 min-w-[12rem] max-w-[min(280px,42vw)] rounded-xl border border-white/25 bg-white/95 px-3 text-sm text-[#0F172A] outline-none focus:border-amber-400/90 focus:ring-2 focus:ring-amber-400/25"
               >
                 <option value="ALL">العرض حسب القسم — الكل</option>
+                {allowSharedCollegeSubjectOption ? (
+                  <option value={SHARED_COLLEGE_SUBJECT_VALUE}>العرض حسب القسم — لكل الكلية (مادة مشتركة)</option>
+                ) : null}
                 {branchesSortedForFilter.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.branch_name} ({b.branch_type === "BRANCH" ? "فرع" : "قسم"})
+                    {branchScopeText(b.branch_name, b.branch_type)}
                   </option>
                 ))}
               </select>
@@ -755,7 +815,7 @@ export function StudySubjectsPanel({
                   <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">{row.subject_name}</td>
                   {departmentSubjectsScope ? null : (
                     <td className="px-4 py-3 text-sm text-[#334155]">
-                      {row.linked_branch_name} ({row.linked_branch_type === "BRANCH" ? "فرع" : "قسم"})
+                      {branchScopeText(row.linked_branch_name, row.linked_branch_type)}
                     </td>
                   )}
                   <td className="px-4 py-3 text-sm text-[#334155]">{row.instructor_name.trim() ? row.instructor_name : "—"}</td>
@@ -905,10 +965,7 @@ export function StudySubjectsPanel({
                 <tr key={b.id} className="hover:bg-[#F8FAFC]">
                   <td className="px-4 py-3 text-sm text-[#334155]">{index + 1}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-[#0F172A]">
-                    {b.branchName}{" "}
-                    <span className="font-normal text-[#64748B]">
-                      ({b.branchType === "BRANCH" ? "فرع" : "قسم"})
-                    </span>
+                    {branchScopeText(b.branchName, b.branchType)}
                   </td>
                   <td className="px-4 py-3 text-sm tabular-nums text-[#334155]">{b.count}</td>
                 </tr>
@@ -926,6 +983,7 @@ export function StudySubjectsPanel({
           branches={branches}
           stageOptions={stageOptions}
           lockedCollegeSubjectId={fixedCollegeSubjectId?.trim() || undefined}
+          allowSharedCollegeSubjectOption={allowSharedCollegeSubjectOption}
         />
       ) : null}
       {editingRow ? (
@@ -937,6 +995,7 @@ export function StudySubjectsPanel({
           branches={branches}
           stageOptions={editStageOptions}
           lockedCollegeSubjectId={fixedCollegeSubjectId?.trim() || undefined}
+          allowSharedCollegeSubjectOption={allowSharedCollegeSubjectOption}
         />
       ) : null}
     </section>
