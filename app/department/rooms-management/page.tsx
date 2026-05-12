@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { collegePortalDisplayLabel } from "@/lib/college-portal-scope";
 import { listCollegeExamScheduleHintsByRoom } from "@/lib/college-exam-schedules";
+import { listCollegeRoomDefinitionsByOwner } from "@/lib/college-room-definitions";
 import { listCollegeExamRoomsByOwner } from "@/lib/college-rooms";
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStaffRegistryForOwner } from "@/lib/college-staff-registry";
@@ -18,12 +19,13 @@ export default async function DepartmentRoomsManagementPage() {
   const collegeLabel = profile ? collegePortalDisplayLabel(profile) : ws.collegeLabel;
   const rid = ws.collegeSubjectId;
 
-  const [branches, rows, studySubjects, scheduleHintsByRoom, staffRegistryRows] = await Promise.all([
+  const [branches, rows, studySubjects, scheduleHintsByRoom, staffRegistryRows, roomDefinitions] = await Promise.all([
     listCollegeSubjectsByOwner(ws.dataOwnerUserId, rid),
     listCollegeExamRoomsByOwner(ws.dataOwnerUserId, rid),
     listCollegeStudySubjectsByOwner(ws.dataOwnerUserId, rid),
     listCollegeExamScheduleHintsByRoom(ws.dataOwnerUserId, rid),
     listCollegeStaffRegistryForOwner(ws.dataOwnerUserId, ws.collegeSubjectId),
+    listCollegeRoomDefinitionsByOwner(ws.dataOwnerUserId, rid),
   ]);
 
   const staffRegistryPicklist: StaffRegistryNamePicklist | null = (() => {
@@ -45,6 +47,7 @@ export default async function DepartmentRoomsManagementPage() {
         rows={rows}
         studySubjects={studySubjects}
         scheduleHintsByRoom={scheduleHintsByRoom}
+        roomDefinitions={roomDefinitions}
         collegeLabel={collegeLabel}
         fixedCollegeSubjectId={ws.collegeSubjectId}
         scopedBranchName={profile?.scoped_branch_name ?? null}

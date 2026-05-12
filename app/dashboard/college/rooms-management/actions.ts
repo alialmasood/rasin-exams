@@ -7,12 +7,50 @@ import {
   updateCollegeExamRoom,
   type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
+import { createCollegeRoomDefinitions } from "@/lib/college-room-definitions";
+import {
+  COLLEGE_BRANCH_ALL_SENTINEL,
+  normalizeCollegeRoomDefinitionName,
+} from "@/lib/college-room-definitions-shared";
+import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
+import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { effectiveCollegeSubjectIdForMutation, getCollegePortalDataOwnerUserId } from "@/lib/college-portal-scope";
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
+/** للحساب المركزي والتشكيل: إذا اختار المستخدم "كل الكلية" في حقل الفرع نستنتج الفرع من المادة الدراسية المختارة. */
+async function resolveCollegeSubjectIdFromStudySubject(
+  ownerUserId: string,
+  studySubjectId: string
+): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
+  const sid = studySubjectId.trim();
+  if (!/^\d+$/.test(sid)) return { ok: false, message: "اختر المادة الدراسية أولاً ليتحدد فرعها." };
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const pool = getDbPool();
+  const r = await pool.query<{ college_subject_id: string | number | null }>(
+    `SELECT college_subject_id FROM college_study_subjects WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
+    [sid, ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية المختارة غير موجودة." };
+  const raw = r.rows[0]?.college_subject_id;
+  if (raw == null) {
+    return {
+      ok: false,
+      message:
+        "المادة المختارة مشتركة بين عدة فروع، اختر القسم/الفرع يدويًا بدلًا من «كل الكلية» لتحديد الفرع.",
+    };
+  }
+  const cid = String(raw).trim();
+  if (!/^\d+$/.test(cid)) return { ok: false, message: "تعذر استنتاج الفرع من المادة المختارة." };
+  return { ok: true, collegeSubjectId: cid };
+}
+
 export type CollegeRoomsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
+export type CollegeRoomDefinitionsActionState =
+  | { ok: true; message: string }
+  | { ok: false; message: string }
+  | null;
 
 function fdStr(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
@@ -57,16 +95,16 @@ function parseRoomsWithStaffJson(raw: string): RoomWithStaffPayload[] | null {
     const seen = new Set<string>();
     for (const x of parsed) {
       if (!x || typeof x !== "object") return null;
-      const roomName = String((x as { roomName?: string }).roomName ?? "").trim();
-      if (roomName.length < 2) return null;
-      if (seen.has(roomName)) continue;
-      seen.add(roomName);
+      const normalized = normalizeCollegeRoomDefinitionName(String((x as { roomName?: string }).roomName ?? ""));
+      if (!normalized) return null;
+      if (seen.has(normalized.roomNameKey)) continue;
+      seen.add(normalized.roomNameKey);
       const cap = (k: string) => {
         const v = (x as Record<string, unknown>)[k];
         return typeof v === "string" || typeof v === "number" ? String(v).trim() : undefined;
       };
       out.push({
-        roomName,
+        roomName: normalized.roomName,
         supervisorName: String((x as { supervisorName?: string }).supervisorName ?? "").trim(),
         invigilators: String((x as { invigilators?: string }).invigilators ?? "").trim(),
         capacityMorning: cap("capacityMorning"),
@@ -83,16 +121,14 @@ function parseRoomsWithStaffJson(raw: string): RoomWithStaffPayload[] | null {
 
 /** سطر لكل قاعة؛ إزالة التكرار مع الحفاظ على الترتيب */
 function parseBulkRoomNames(raw: string): string[] {
-  const lines = raw
-    .split(/\r?\n/u)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 2);
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const line of lines) {
-    if (seen.has(line)) continue;
-    seen.add(line);
-    out.push(line);
+  for (const line of raw.split(/\r?\n/u)) {
+    const normalized = normalizeCollegeRoomDefinitionName(line);
+    if (!normalized) continue;
+    if (seen.has(normalized.roomNameKey)) continue;
+    seen.add(normalized.roomNameKey);
+    out.push(normalized.roomName);
   }
   return out;
 }
@@ -194,6 +230,105 @@ function slot2FromForm(
   };
 }
 
+export async function defineCollegeRoomDefinitionsAction(
+  _prev: CollegeRoomDefinitionsActionState,
+  formData: FormData
+): Promise<CollegeRoomDefinitionsActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const rawCollegeSubjectId = fdStr(formData, "college_subject_id").trim();
+  const roomNamesBulk = fdStr(formData, "room_names_bulk");
+
+  /** «كل الكلية»: حساب التشكيل/المركزي فقط — ننسخ نفس التعريفات على كل فرع. */
+  const isAllBranches =
+    rawCollegeSubjectId === COLLEGE_BRANCH_ALL_SENTINEL &&
+    session.college_account_kind !== "DEPARTMENT";
+
+  if (isAllBranches) {
+    const branches = await listCollegeSubjectsByOwner(ownerUserId);
+    if (branches.length === 0) {
+      return { ok: false, message: "لا توجد أقسام أو فروع معرّفة لهذا التشكيل بعد." };
+    }
+    let totalAdded = 0;
+    let totalExisting = 0;
+    let lastIgnored = 0;
+    let lastDuplicate = 0;
+    let lastNames: string[] = [];
+    let firstError: string | null = null;
+    for (const branch of branches) {
+      const r = await createCollegeRoomDefinitions({
+        ownerUserId,
+        collegeSubjectId: branch.id,
+        roomNamesBulk,
+      });
+      if (!r.ok) {
+        firstError = firstError ?? r.message;
+        continue;
+      }
+      totalAdded += r.addedCount;
+      totalExisting += r.existingCount;
+      lastIgnored = r.ignoredCount;
+      lastDuplicate = r.duplicateInputCount;
+      lastNames = r.roomNames;
+    }
+    if (totalAdded === 0 && firstError) return { ok: false, message: firstError };
+    if (totalAdded > 0) {
+      const preview = lastNames.slice(0, 6).join("، ");
+      const more = lastNames.length > 6 ? ` … (+${lastNames.length - 6})` : "";
+      void recordCollegeActivityEvent({
+        ownerUserId,
+        action: "create",
+        resource: "room_definition",
+        summary: `تعريف ${totalAdded} سجل قاعة موزَّعة على ${branches.length} قسم/فرع: ${preview}${more}.`,
+      });
+    }
+    revalidateCollegePortalSegment("rooms-management");
+    const notes: string[] = [];
+    if (totalExisting > 0) notes.push(`${totalExisting} موجودة سابقًا في بعض الفروع`);
+    if (lastDuplicate > 0) notes.push(`${lastDuplicate} مكررة داخل الإدخال`);
+    if (lastIgnored > 0) notes.push(`${lastIgnored} أسطر غير صالحة`);
+    const lead =
+      totalAdded > 0
+        ? `تمت إضافة ${totalAdded} سجل قاعة موزَّعة على ${branches.length} قسم/فرع`
+        : "لم تُضف قاعات جديدة لأن جميع الأسماء كانت معرّفة مسبقًا في كل الفروع";
+    return {
+      ok: true,
+      message: notes.length > 0 ? `${lead}، مع تجاهل ${notes.join("، ")}.` : lead + ".",
+    };
+  }
+
+  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(session, rawCollegeSubjectId);
+  const result = await createCollegeRoomDefinitions({
+    ownerUserId,
+    collegeSubjectId,
+    roomNamesBulk,
+  });
+  if (!result.ok) return result;
+  if (result.addedCount > 0) {
+    const preview = result.roomNames.slice(0, 6).join("، ");
+    const more = result.roomNames.length > 6 ? ` … (+${result.roomNames.length - 6})` : "";
+    void recordCollegeActivityEvent({
+      ownerUserId,
+      action: "create",
+      resource: "room_definition",
+      summary: `تعريف ${result.addedCount} قاعة في السجل المرجعي: ${preview}${more}.`,
+    });
+  }
+  revalidateCollegePortalSegment("rooms-management");
+  const notes: string[] = [];
+  if (result.existingCount > 0) notes.push(`${result.existingCount} موجودة سابقًا`);
+  if (result.duplicateInputCount > 0) notes.push(`${result.duplicateInputCount} مكررة داخل الإدخال`);
+  if (result.ignoredCount > 0) notes.push(`${result.ignoredCount} أسطر غير صالحة`);
+  const lead =
+    result.addedCount > 0 ? `تمت إضافة ${result.addedCount} قاعة جديدة` : "لم تُضف قاعات جديدة لأن جميع الأسماء كانت معرّفة مسبقًا";
+  return {
+    ok: true,
+    message: notes.length > 0 ? `${lead}، مع تجاهل ${notes.join("، ")}.` : lead + ".",
+  };
+}
+
 export async function createCollegeExamRoomAction(
   _prev: CollegeRoomsActionState,
   formData: FormData
@@ -232,7 +367,25 @@ export async function createCollegeExamRoomAction(
   }
   const useSplitAttendance = formData.has("s1_att_m");
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
-  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(session, fdStr(formData, "college_subject_id"));
+  const rawCollegeSubjectIdForRoom = fdStr(formData, "college_subject_id").trim();
+  let collegeSubjectId: string;
+  const allBranchesMode =
+    rawCollegeSubjectIdForRoom === COLLEGE_BRANCH_ALL_SENTINEL &&
+    session.college_account_kind !== "DEPARTMENT";
+  if (allBranchesMode) {
+    const resolved = await resolveCollegeSubjectIdFromStudySubject(ownerUserId, fdStr(formData, "study_subject_id"));
+    if (!resolved.ok) return { ok: false, message: resolved.message };
+    collegeSubjectId = resolved.collegeSubjectId;
+    /** نضمن وجود تعريف للقاعة في الفرع المستنتج (المستخدم قد اختارها من قاعة معرّفة في فرع آخر فقط). */
+    const namesBulkForDefs = roomEntries.map((e) => e.roomName).join("\n");
+    await createCollegeRoomDefinitions({
+      ownerUserId,
+      collegeSubjectId,
+      roomNamesBulk: namesBulkForDefs,
+    });
+  } else {
+    collegeSubjectId = effectiveCollegeSubjectIdForMutation(session, rawCollegeSubjectIdForRoom);
+  }
 
   const sharedBase = {
     ownerUserId,
@@ -345,10 +498,22 @@ export async function updateCollegeExamRoomAction(
   const hasSecondExam = fdStr(formData, "study_subject_id_2").trim() !== "";
   const s1 = slot1FromForm(formData, useSplitAttendance);
   const s2 = slot2FromForm(formData, useSplitAttendance, hasSecondExam);
+  const rawCollegeSubjectIdForUpdate = fdStr(formData, "college_subject_id").trim();
+  let resolvedCollegeSubjectIdForUpdate: string;
+  if (
+    rawCollegeSubjectIdForUpdate === COLLEGE_BRANCH_ALL_SENTINEL &&
+    session.college_account_kind !== "DEPARTMENT"
+  ) {
+    const resolved = await resolveCollegeSubjectIdFromStudySubject(ownerUserId, fdStr(formData, "study_subject_id"));
+    if (!resolved.ok) return { ok: false, message: resolved.message };
+    resolvedCollegeSubjectIdForUpdate = resolved.collegeSubjectId;
+  } else {
+    resolvedCollegeSubjectIdForUpdate = effectiveCollegeSubjectIdForMutation(session, rawCollegeSubjectIdForUpdate);
+  }
   const result = await updateCollegeExamRoom({
     id,
     ownerUserId,
-    collegeSubjectId: effectiveCollegeSubjectIdForMutation(session, fdStr(formData, "college_subject_id")),
+    collegeSubjectId: resolvedCollegeSubjectIdForUpdate,
     studySubjectId: fdStr(formData, "study_subject_id"),
     studySubjectId2: fdStr(formData, "study_subject_id_2"),
     serialNo: fdStr(formData, "serial_no"),

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getCollegeProfileByUserId } from "@/lib/college-accounts";
 import { listCollegeExamScheduleHintsByRoom } from "@/lib/college-exam-schedules";
+import { listCollegeRoomDefinitionsByOwner } from "@/lib/college-room-definitions";
 import { listCollegeExamRoomsByOwner } from "@/lib/college-rooms";
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { listCollegeStudySubjectsByOwner } from "@/lib/college-study-subjects";
@@ -21,11 +22,12 @@ export default async function CollegeRoomsManagementPage() {
       ? (profile.holder_name ?? "حساب متابعة")
       : (profile?.formation_name ?? "حساب كلية");
 
-  const [branches, rows, studySubjects, scheduleHintsByRoom] = await Promise.all([
+  const [branches, rows, studySubjects, scheduleHintsByRoom, roomDefinitions] = await Promise.all([
     listCollegeSubjectsByOwner(session.uid),
     listCollegeExamRoomsByOwner(session.uid),
     listCollegeStudySubjectsByOwner(session.uid),
     listCollegeExamScheduleHintsByRoom(session.uid),
+    listCollegeRoomDefinitionsByOwner(session.uid),
   ]);
 
   return (
@@ -35,6 +37,7 @@ export default async function CollegeRoomsManagementPage() {
         rows={rows}
         studySubjects={studySubjects}
         scheduleHintsByRoom={scheduleHintsByRoom}
+        roomDefinitions={roomDefinitions}
         collegeLabel={collegeLabel}
       />
     </Suspense>

@@ -322,6 +322,94 @@ export async function submitHeadSituationAction(
   return { ok: true, message: "تم تأكيد رفع الموقف للمتابعة." };
 }
 
+export async function submitHeadSituationsBulkAction(
+  _prev: SituationActionState,
+  formData: FormData
+): Promise<SituationActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح." };
+  if (session.college_account_kind !== "FORMATION") {
+    return {
+      ok: false,
+      message:
+        "تأكيد رفع المواقف دفعة واحدة متاح فقط من حساب عميد التشكيل (حساب التشكيل) عبر لوحة الكلية.",
+    };
+  }
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح." };
+
+  const raw = String(formData.get("schedule_ids_json") ?? "").trim();
+  let scheduleIds: string[] = [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      scheduleIds = parsed
+        .map((x) => String(x ?? "").trim())
+        .filter((x) => /^\d+$/.test(x));
+    }
+  } catch {
+    return { ok: false, message: "قائمة المواقف المطلوب تأكيدها غير صالحة." };
+  }
+  scheduleIds = [...new Set(scheduleIds)];
+  if (scheduleIds.length === 0) {
+    return { ok: false, message: "لا توجد مواقف صالحة لتأكيدها." };
+  }
+
+  let successCount = 0;
+  const failed: string[] = [];
+  const approvedScheduleIds: string[] = [];
+  for (const scheduleId of scheduleIds) {
+    const detail = await getExamSituationDetailForOwner(ownerUserId, scheduleId);
+    if (!detail || !departmentCanAccessCollegeSubjectRow(session, detail.college_subject_id)) {
+      failed.push(`الجدول ${scheduleId}: لا يمكن الوصول إليه.`);
+      continue;
+    }
+    const res = await submitHeadExamSituation({ ownerUserId, scheduleId });
+    if (!res.ok) {
+      const subjectLabel = String(detail.subject_name ?? "").trim() || `الجدول ${scheduleId}`;
+      failed.push(`${subjectLabel}: ${res.message}`);
+      continue;
+    }
+    successCount += 1;
+    approvedScheduleIds.push(scheduleId);
+  }
+
+  if (successCount === 0) {
+    return {
+      ok: false,
+      message: failed[0] ?? "تعذر تأكيد أي موقف من القائمة المحددة.",
+    };
+  }
+
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "submit",
+    resource: "situation_official_upload_bulk",
+    summary: `تأكيد رفع ${successCount} موقفًا امتحانيًا دفعة واحدة للمتابعة الرسمية.`,
+    details: {
+      scheduleIds: approvedScheduleIds,
+      requestedCount: scheduleIds.length,
+      failedCount: failed.length,
+    },
+  });
+  revalidateCollegePortalSegment("upload-status");
+  revalidateCollegePortalSegment("status-followup");
+  for (const scheduleId of approvedScheduleIds) {
+    revalidateCollegePortalSegment(`upload-status/${scheduleId}`);
+  }
+  revalidatePath("/tracking");
+
+  const tail =
+    failed.length > 0
+      ? ` تعذر ${failed.length} موقف${failed.length === 1 ? "" : "ات"} أخرى.${failed.length > 0 ? ` أول سبب: ${failed[0]}` : ""}`
+      : "";
+  return {
+    ok: true,
+    message:
+      (successCount === 1 ? "تم تأكيد موقف واحد بنجاح." : `تم تأكيد ${successCount} مواقف بنجاح.`) + tail,
+  };
+}
+
 export async function approveDeanSituationAction(
   _prev: SituationActionState,
   formData: FormData

@@ -5,6 +5,10 @@ import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../co
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
+import {
+  COLLEGE_BRANCH_ALL_SENTINEL,
+  type CollegeRoomDefinitionRow,
+} from "@/lib/college-room-definitions-shared";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import {
@@ -30,6 +34,7 @@ import {
 } from "@/lib/college-rooms-report-html";
 import {
   createCollegeExamRoomAction,
+  defineCollegeRoomDefinitionsAction,
   deleteCollegeExamRoomAction,
   updateCollegeExamRoomAction,
 } from "./actions";
@@ -45,8 +50,19 @@ function splitNameList(raw: string): string[] {
 }
 
 function parseBulkCapNum(raw: string): number {
-  const n = Number(String(raw).trim());
+  const n = Number(
+    String(raw)
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+  );
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function normalizeBulkCapInput(raw: string): string {
+  return String(raw)
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
 }
 
 function StackedNamesCell({ value }: { value: string }) {
@@ -237,7 +253,8 @@ function RoomFields({
   showSerial = true,
   disableAttendanceFields = false,
   staffRegistryPicklist = null,
-  /** إضافة فقط: عدة أسماء قاعات (سطر لكل قاعة) بنفس المادة والسعة */
+  roomDefinitions = [],
+  /** إضافة فقط: اختيار عدة قاعات من السجل المرجعي بنفس المادة والسعة */
   multiRoomNames = false,
 }: {
   branches: CollegeSubjectRow[];
@@ -252,6 +269,7 @@ function RoomFields({
   disableAttendanceFields?: boolean;
   /** من صفحة السجل المرجعي للأسماء (إدارة المشرفين والمراقبين) — اقتراحات للحقول */
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
+  roomDefinitions?: CollegeRoomDefinitionRow[];
   multiRoomNames?: boolean;
 }) {
   const d = defaults ?? {};
@@ -260,6 +278,7 @@ function RoomFields({
   const [selectedCollegeSubjectId, setSelectedCollegeSubjectId] = useState(
     () => d.college_subject_id ?? lockedBranchId ?? ""
   );
+  const isAllBranchesSelected = selectedCollegeSubjectId === COLLEGE_BRANCH_ALL_SENTINEL;
   const lockedBranchMeta = useMemo(
     () => (lockedBranchId ? branches.find((b) => b.id === lockedBranchId) : undefined),
     [branches, lockedBranchId]
@@ -268,13 +287,14 @@ function RoomFields({
     () =>
       getCollegeUndergradStageLevelOptionsForScope({
         collegeLabel,
-        fixedCollegeSubjectId: selectedCollegeSubjectId || null,
-        scopedBranchName:
-          branchLockedToDepartment
+        fixedCollegeSubjectId: isAllBranchesSelected ? null : selectedCollegeSubjectId || null,
+        scopedBranchName: isAllBranchesSelected
+          ? null
+          : branchLockedToDepartment
             ? (scopedBranchName ?? null)
             : (branches.find((b) => b.id === selectedCollegeSubjectId)?.branch_name ?? null),
       }),
-    [branches, branchLockedToDepartment, collegeLabel, scopedBranchName, selectedCollegeSubjectId]
+    [branches, branchLockedToDepartment, collegeLabel, isAllBranchesSelected, scopedBranchName, selectedCollegeSubjectId]
   );
   const firstUndergrad = undergradStageOptions[0] ?? 1;
   const raw1 = Number(d.stage_level ?? firstUndergrad);
@@ -307,8 +327,25 @@ function RoomFields({
   const [exam2SubjectId, setExam2SubjectId] = useState(() => d.study_subject_id_2 ?? "");
   const availableSubjects = useMemo(() => {
     if (!selectedCollegeSubjectId) return [];
+    if (isAllBranchesSelected) return subjects;
     return subjects.filter((s) => s.college_subject_id == null || s.college_subject_id === selectedCollegeSubjectId);
-  }, [selectedCollegeSubjectId, subjects]);
+  }, [isAllBranchesSelected, selectedCollegeSubjectId, subjects]);
+  const availableRoomDefinitions = useMemo(() => {
+    if (!selectedCollegeSubjectId) return [];
+    if (isAllBranchesSelected) {
+      const seen = new Set<string>();
+      const dedup: CollegeRoomDefinitionRow[] = [];
+      for (const room of roomDefinitions) {
+        if (seen.has(room.room_name_key)) continue;
+        seen.add(room.room_name_key);
+        dedup.push(room);
+      }
+      return dedup.sort((a, b) => a.room_name.localeCompare(b.room_name, "ar"));
+    }
+    return roomDefinitions
+      .filter((room) => room.college_subject_id === selectedCollegeSubjectId)
+      .sort((a, b) => a.room_name.localeCompare(b.room_name, "ar"));
+  }, [isAllBranchesSelected, roomDefinitions, selectedCollegeSubjectId]);
 
   useEffect(() => {
     if (!exam1SubjectId) return;
@@ -335,6 +372,7 @@ function RoomFields({
 
   const invigilatorsFieldId = useId();
   const invSlot1FieldId = `${invigilatorsFieldId}-slot1`;
+  const [singleSupervisorName, setSingleSupervisorName] = useState(() => (d.supervisor_name ?? "").trim());
   const invSplitInit = splitNameList(d.invigilators ?? "");
   const [invPickSlots, setInvPickSlots] = useState<string[]>(() => [
     invSplitInit[0] ?? "",
@@ -353,10 +391,10 @@ function RoomFields({
   const supervisorSelectOptions = useMemo(() => {
     if (!staffRegistryPicklist?.supervisors.length) return [];
     const set = new Set(staffRegistryPicklist.supervisors);
-    const cur = (d.supervisor_name ?? "").trim();
+    const cur = singleSupervisorName.trim();
     if (cur) set.add(cur);
     return [...set].sort((a, b) => a.localeCompare(b, "ar"));
-  }, [staffRegistryPicklist?.supervisors, d.supervisor_name]);
+  }, [staffRegistryPicklist?.supervisors, singleSupervisorName]);
 
   const invSelectOptions = useMemo(() => {
     if (!staffRegistryPicklist?.invigilators.length) return [];
@@ -377,27 +415,35 @@ function RoomFields({
     [invPickSlots]
   );
 
-  /** إضافة جماعية: أسماء القاعات + مشرف ومراقبون لكل قاعة */
-  const [roomNamesText, setRoomNamesText] = useState("");
-  const bulkRoomOrder = useMemo(() => {
-    const lines = roomNamesText
-      .split(/\r?\n/u)
-      .map((s) => s.trim())
-      .filter((s) => s.length >= 2);
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const line of lines) {
-      if (seen.has(line)) continue;
-      seen.add(line);
-      out.push(line);
-    }
-    return out;
-  }, [roomNamesText]);
+  const singleRoomOptions = useMemo(() => {
+    const set = new Set(availableRoomDefinitions.map((room) => room.room_name));
+    const cur = (d.room_name ?? "").trim();
+    if (cur) set.add(cur);
+    return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [availableRoomDefinitions, d.room_name]);
+
+  /** إضافة جماعية: اختيار القاعات المعرّفة + مشرف ومراقبون لكل قاعة */
+  const [roomDefinitionsExpanded, setRoomDefinitionsExpanded] = useState(false);
+  const [roomDefinitionsQuery, setRoomDefinitionsQuery] = useState("");
+  const [selectedDefinedRooms, setSelectedDefinedRooms] = useState<string[]>([]);
+  const availableRoomNamesSet = useMemo(
+    () => new Set(availableRoomDefinitions.map((room) => room.room_name)),
+    [availableRoomDefinitions]
+  );
+  const filteredRoomDefinitions = useMemo(() => {
+    const q = roomDefinitionsQuery.trim().toLowerCase();
+    return availableRoomDefinitions.filter((room) => !q || room.room_name.toLowerCase().includes(q));
+  }, [availableRoomDefinitions, roomDefinitionsQuery]);
+  const bulkRoomOrder = useMemo(
+    () => selectedDefinedRooms.filter((roomName) => availableRoomNamesSet.has(roomName)),
+    [availableRoomNamesSet, selectedDefinedRooms]
+  );
   const [perRoomSupervisor, setPerRoomSupervisor] = useState<Record<string, string>>({});
   const [perRoomInvSlots, setPerRoomInvSlots] = useState<Record<string, [string, string, string, string]>>({});
   const [perRoomInvFree, setPerRoomInvFree] = useState<Record<string, string>>({});
   const [perRoomCap1, setPerRoomCap1] = useState<Record<string, { m: string; e: string }>>({});
   const [perRoomCap2, setPerRoomCap2] = useState<Record<string, { m: string; e: string }>>({});
+  const [externalSupervisorBatchName, setExternalSupervisorBatchName] = useState("");
 
   useEffect(() => {
     if (!multiRoomNames) return;
@@ -434,6 +480,33 @@ function RoomFields({
       return next;
     });
   }, [multiRoomNames, bulkRoomOrder]);
+
+  const toggleDefinedRoom = useCallback((roomName: string) => {
+    setSelectedDefinedRooms((prev) =>
+      prev.includes(roomName) ? prev.filter((name) => name !== roomName) : [...prev, roomName]
+    );
+  }, []);
+
+  const selectAllDefinedRooms = useCallback(() => {
+    setSelectedDefinedRooms(availableRoomDefinitions.map((room) => room.room_name));
+  }, [availableRoomDefinitions]);
+
+  const clearSelectedDefinedRooms = useCallback(() => {
+    setSelectedDefinedRooms([]);
+  }, []);
+
+  const applyExternalSupervisorName = useCallback(
+    (value: string) => {
+      setExternalSupervisorBatchName(value);
+      setPerRoomSupervisor((prev) => {
+        if (bulkRoomOrder.length === 0) return prev;
+        const next = { ...prev };
+        for (const roomName of bulkRoomOrder) next[roomName] = value;
+        return next;
+      });
+    },
+    [bulkRoomOrder]
+  );
 
   const supervisorSelectOptionsMulti = useMemo(() => {
     if (!staffRegistryPicklist?.supervisors.length) return [];
@@ -591,28 +664,130 @@ function RoomFields({
       {multiRoomNames ? (
         <>
           <div className="w-full rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
-            <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
-            <textarea
-              value={roomNamesText}
-              onChange={(e) => setRoomNamesText(e.target.value)}
-              rows={8}
-              placeholder={"قاعة 101\nقاعة 102\nمعمل الحاسوب"}
-              className="min-h-[9rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-            <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
-              أدخل كل قاعة في سطر مستقل. تُطبَّق نفس المادة الامتحانية (والمرحلة) على كل القاعات؛ أما{" "}
-              <span className="font-bold">السعة، ومشرف القاعة، والمراقبون</span> فتُحدَّد لكل قاعة في بطاقتها أدناه. تُزال الأسطر
-              الفارغة، ولا يُكرر اسم القاعة مرتين في نفس الطلب.
-            </p>
+            <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">القاعات المعرّفة لهذا القسم/الفرع</label>
+            {!selectedCollegeSubjectId ? (
+              <p className="rounded-xl border border-dashed border-[#CBD5E1] bg-white px-4 py-3 text-sm text-[#64748B]">
+                اختر القسم/الفرع أولاً لتظهر لك القاعات المعرّفة الجاهزة للاختيار.
+              </p>
+            ) : availableRoomDefinitions.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-[#CBD5E1] bg-white px-4 py-3 text-sm text-[#64748B]">
+                لا توجد قاعات معرّفة لهذا القسم/الفرع بعد. استخدم زر <span className="font-bold">تعريف القاعات</span> ثم عد
+                لاختيارها هنا.
+              </p>
+            ) : (
+              <>
+                <div className="rounded-xl border border-[#DBEAFE] bg-white px-3 py-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-[#0F172A]">
+                        القاعات المختارة الآن: <span className="tabular-nums">{bulkRoomOrder.length}</span> من{" "}
+                        <span className="tabular-nums">{availableRoomDefinitions.length}</span>
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+                        افتح القائمة عند الحاجة فقط، حتى لا تأخذ أسماء القاعات الكثيرة مساحة كبيرة داخل المودل.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRoomDefinitionsExpanded((v) => !v)}
+                      className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-sm font-semibold text-[#1D4ED8]"
+                    >
+                      {roomDefinitionsExpanded ? "إخفاء قائمة القاعات" : "فتح قائمة القاعات"}
+                    </button>
+                  </div>
+                  {bulkRoomOrder.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {bulkRoomOrder.slice(0, 8).map((roomName) => (
+                        <span
+                          key={roomName}
+                          className="inline-flex max-w-full rounded-full bg-[#EFF6FF] px-3 py-1 text-xs font-semibold text-[#1E3A8A]"
+                        >
+                          <span className="truncate">{roomName}</span>
+                        </span>
+                      ))}
+                      {bulkRoomOrder.length > 8 ? (
+                        <span className="inline-flex rounded-full bg-[#E2E8F0] px-3 py-1 text-xs font-semibold text-[#475569]">
+                          +{bulkRoomOrder.length - 8} أخرى
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-[#64748B]">لم يتم اختيار أي قاعة بعد.</p>
+                  )}
+                </div>
+                <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
+                  اختر القاعات التي تريد ربطها بالمادة الامتحانية. يعتمد النظام هنا على السجل المرجعي للقاعات بدل الإدخال
+                  اليدوي الحر.
+                </p>
+                {roomDefinitionsExpanded ? (
+                  <div className="mt-3 rounded-xl border border-[#DBEAFE] bg-white p-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                      <input
+                        value={roomDefinitionsQuery}
+                        onChange={(e) => setRoomDefinitionsQuery(e.target.value)}
+                        placeholder="ابحث باسم القاعة"
+                        className="h-11 flex-1 rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm outline-none focus:border-blue-500"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={selectAllDefinedRooms}
+                          className="rounded-xl border border-[#BFDBFE] bg-white px-3 py-2 text-sm font-semibold text-[#1D4ED8]"
+                        >
+                          تحديد الكل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearSelectedDefinedRooms}
+                          className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-semibold text-[#475569]"
+                        >
+                          إلغاء التحديد
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 max-h-48 overflow-y-auto">
+                      {filteredRoomDefinitions.length === 0 ? (
+                        <p className="text-sm text-[#64748B]">لا توجد نتائج مطابقة لعبارة البحث.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {filteredRoomDefinitions.map((room) => {
+                            const checked = selectedDefinedRooms.includes(room.room_name);
+                            return (
+                              <label
+                                key={room.id}
+                                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${
+                                  checked
+                                    ? "border-[#60A5FA] bg-[#EFF6FF] text-[#1E3A8A]"
+                                    : "border-[#E2E8F0] bg-[#F8FAFC] text-[#334155] hover:bg-white"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleDefinedRoom(room.room_name)}
+                                  className="h-4 w-4"
+                                />
+                                <span className="min-w-0 flex-1 break-words">{room.room_name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
           <input type="hidden" name="capacity_morning" value="0" readOnly />
           <input type="hidden" name="capacity_evening" value="0" readOnly />
           <input type="hidden" name="capacity_morning_2" value="0" readOnly />
           <input type="hidden" name="capacity_evening_2" value="0" readOnly />
+          <input type="hidden" name="room_names_bulk" value={bulkRoomOrder.join("\n")} readOnly />
           <input type="hidden" name="rooms_with_staff_json" value={roomsWithStaffJson} readOnly />
           {bulkRoomOrder.length === 0 ? (
             <p className="rounded-lg border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm text-[#64748B]">
-              بعد كتابة أسماء القاعات أعلاه ستظهر هنا بطاقة لكل قاعة لاختيار المشرف والمراقبين.
+              بعد اختيار القاعات من القائمة أعلاه ستظهر هنا بطاقة لكل قاعة لاختيار المشرف والمراقبين والسعة.
             </p>
           ) : (
             <div className="space-y-3">
@@ -727,7 +902,7 @@ function RoomFields({
                               ...prev,
                               [roomName]: {
                                 ...(prev[roomName] ?? { m: "0", e: "0" }),
-                                m: e.target.value,
+                                m: normalizeBulkCapInput(e.target.value),
                               },
                             }))
                           }
@@ -747,7 +922,7 @@ function RoomFields({
                               ...prev,
                               [roomName]: {
                                 ...(prev[roomName] ?? { m: "0", e: "0" }),
-                                e: e.target.value,
+                                e: normalizeBulkCapInput(e.target.value),
                               },
                             }))
                           }
@@ -772,7 +947,7 @@ function RoomFields({
                                   ...prev,
                                   [roomName]: {
                                     ...(prev[roomName] ?? { m: "0", e: "0" }),
-                                    m: e.target.value,
+                                    m: normalizeBulkCapInput(e.target.value),
                                   },
                                 }))
                               }
@@ -792,7 +967,7 @@ function RoomFields({
                                   ...prev,
                                   [roomName]: {
                                     ...(prev[roomName] ?? { m: "0", e: "0" }),
-                                    e: e.target.value,
+                                    e: normalizeBulkCapInput(e.target.value),
                                   },
                                 }))
                               }
@@ -818,7 +993,7 @@ function RoomFields({
                   </p>
                   <div className="space-y-2 rounded-lg border border-emerald-200/80 bg-white/90 px-3 py-2.5 text-sm text-[#047857]">
                     <p className="font-bold text-[#0F172A]">الامتحان الأول</p>
-                    <ul className="grid gap-1.5 text-[13px] sm:grid-cols-3">
+                    <ul className="space-y-1.5 text-[13px]">
                       <li className="flex justify-between gap-2 tabular-nums">
                         <span className="text-[#64748B]">مجموع الصباحي</span>
                         <span className="font-bold">{bulkCapacityTotals.slot1Morning}</span>
@@ -827,7 +1002,7 @@ function RoomFields({
                         <span className="text-[#64748B]">مجموع المسائي</span>
                         <span className="font-bold">{bulkCapacityTotals.slot1Evening}</span>
                       </li>
-                      <li className="flex justify-between gap-2 border-t border-emerald-100 pt-1.5 tabular-nums sm:border-t-0 sm:pt-0 sm:col-span-1">
+                      <li className="flex justify-between gap-2 border-t border-emerald-100 pt-1.5 tabular-nums">
                         <span className="font-extrabold text-[#065F46]">الإجمالي</span>
                         <span className="text-base font-extrabold text-[#047857]">{bulkCapacityTotals.slot1Total}</span>
                       </li>
@@ -836,7 +1011,7 @@ function RoomFields({
                   {dualExam ? (
                     <div className="mt-3 space-y-2 rounded-lg border border-[#93C5FD]/80 bg-[#EFF6FF]/90 px-3 py-2.5 text-sm text-[#1E40AF]">
                       <p className="font-bold text-[#1E3A8A]">الامتحان الثاني</p>
-                      <ul className="grid gap-1.5 text-[13px] sm:grid-cols-3">
+                      <ul className="space-y-1.5 text-[13px]">
                         <li className="flex justify-between gap-2 tabular-nums">
                           <span className="text-[#64748B]">مجموع الصباحي</span>
                           <span className="font-bold">{bulkCapacityTotals.slot2Morning}</span>
@@ -845,7 +1020,7 @@ function RoomFields({
                           <span className="text-[#64748B]">مجموع المسائي</span>
                           <span className="font-bold">{bulkCapacityTotals.slot2Evening}</span>
                         </li>
-                        <li className="flex justify-between gap-2 border-t border-blue-100 pt-1.5 tabular-nums sm:border-t-0 sm:pt-0">
+                        <li className="flex justify-between gap-2 border-t border-blue-100 pt-1.5 tabular-nums">
                           <span className="font-extrabold text-[#1E3A8A]">الإجمالي</span>
                           <span className="text-base font-extrabold tabular-nums">{bulkCapacityTotals.slot2Total}</span>
                         </li>
@@ -859,15 +1034,25 @@ function RoomFields({
         </>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_minmax(0,1.45fr)]">
+          <input type="hidden" name="supervisor_name" value={singleSupervisorName} readOnly />
           <div className="min-w-0">
             <label className="mb-1 block text-sm font-semibold text-[#334155]">اسم القاعة</label>
-            <input
+            <select
               name="room_name"
               required
-              minLength={2}
-              defaultValue={d.room_name ?? ""}
-              className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
-            />
+              defaultValue={(d.room_name ?? "").trim()}
+              className={stageSelectClass}
+            >
+              <option value="">اختر القاعة المعرّفة</option>
+              {singleRoomOptions.map((roomName) => (
+                <option key={roomName} value={roomName}>
+                  {roomName}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] font-medium leading-relaxed text-[#64748B]">
+              تُعرض هنا القاعات المعرّفة لهذا القسم/الفرع فقط لمنع اختلاف التسمية.
+            </p>
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-sm font-semibold text-[#334155]">مشرف القاعة</label>
@@ -875,8 +1060,8 @@ function RoomFields({
               <>
                 <select
                   key={`sup-${(d as Partial<CollegeExamRoomRow>).id ?? "new"}-${(d.supervisor_name ?? "").slice(0, 48)}`}
-                  name="supervisor_name"
-                  defaultValue={(d.supervisor_name ?? "").trim()}
+                  value={singleSupervisorName}
+                  onChange={(e) => setSingleSupervisorName(e.target.value)}
                   className={stageSelectClass}
                 >
                   <option value="">— بدون / لاحقاً —</option>
@@ -892,9 +1077,9 @@ function RoomFields({
               </>
             ) : (
               <input
-                name="supervisor_name"
                 placeholder="يمكن تركه فارغًا وإكماله لاحقًا"
-                defaultValue={d.supervisor_name ?? ""}
+                value={singleSupervisorName}
+                onChange={(e) => setSingleSupervisorName(e.target.value)}
                 autoComplete="off"
                 className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500"
               />
@@ -966,7 +1151,7 @@ function RoomFields({
       <input type="hidden" name="external_room_staff_json" value={JSON.stringify(extStaff)} readOnly />
 
       <div className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/40 px-4 py-3">
-        <p className="text-sm font-bold text-amber-950">مشرف أو مراقبون من خارج تشكيل الكلية (اختياري)</p>
+        <p className="text-sm font-bold text-amber-950">مشرف أو مراقبون من خارج تشكيل الكلية</p>
         <p className="text-xs leading-relaxed text-amber-900/85">
           إن وُجد مشرف أو مراقب من تشكيل آخر، حدّد ذلك هنا مع اسم التشكيل التابع له. أسماء المشرف والمراقبين الداخليين تُعرَف في{" "}
           {multiRoomNames ? "بطاقة كل قاعة أعلاه." : "الحقول أعلاه."}
@@ -983,17 +1168,31 @@ function RoomFields({
           مشرف القاعة من خارج التشكيل
         </label>
         {extStaff.supervisor_is_external ? (
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-bold text-[#334155]">التشكيل / الكلية التابع لها المشرف</label>
-            <input
-              type="text"
-              value={extStaff.supervisor_formation_name}
-              onChange={(ev) =>
-                setExtStaff((prev) => ({ ...prev, supervisor_formation_name: ev.target.value }))
-              }
-              placeholder="مثال: كلية الهندسة — قسم المدني"
-              className="h-11 w-full rounded-xl border border-amber-200/90 bg-white px-3 text-sm outline-none focus:border-amber-500"
-            />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-bold text-[#334155]">اسم المشرف الخارجي</label>
+              <input
+                type="text"
+                value={multiRoomNames ? externalSupervisorBatchName : singleSupervisorName}
+                onChange={(ev) =>
+                  multiRoomNames ? applyExternalSupervisorName(ev.target.value) : setSingleSupervisorName(ev.target.value)
+                }
+                placeholder={multiRoomNames ? "يُطبَّق على القاعات المختارة ويمكن تعديله لكل قاعة" : "أدخل اسم المشرف الخارجي"}
+                className="h-11 w-full rounded-xl border border-amber-200/90 bg-white px-3 text-sm outline-none focus:border-amber-500"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs font-bold text-[#334155]">التشكيل / الكلية التابع لها المشرف</label>
+              <input
+                type="text"
+                value={extStaff.supervisor_formation_name}
+                onChange={(ev) =>
+                  setExtStaff((prev) => ({ ...prev, supervisor_formation_name: ev.target.value }))
+                }
+                placeholder="مثال: كلية الهندسة — قسم المدني"
+                className="h-11 w-full rounded-xl border border-amber-200/90 bg-white px-3 text-sm outline-none focus:border-amber-500"
+              />
+            </div>
           </div>
         ) : null}
         <div className="min-w-0">
@@ -1106,15 +1305,22 @@ function RoomFields({
               className={stageSelectClass}
             >
               <option value="">اختر القسم/الفرع</option>
+              <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (اختيار من كل المواد والقاعات)</option>
               {branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {roomBranchLabel(branch)}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
-              عند اختيار مادة مشتركة، يحدد هذا الحقل الفرع الذي تتبعه القاعة داخل الجداول والتقارير.
-            </p>
+            {isAllBranchesSelected ? (
+              <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
+                تعمل بنطاق كل الكلية: ستظهر مواد كل الفروع وكل القاعات المعرّفة، وسيتحدد الفرع تلقائيًا من المادة الدراسية المختارة عند الحفظ.
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+                عند اختيار مادة مشتركة، يحدد هذا الحقل الفرع الذي تتبعه القاعة داخل الجداول والتقارير.
+              </p>
+            )}
           </>
         )}
       </div>
@@ -1563,12 +1769,185 @@ function RoomFields({
   );
 }
 
+function RoomDefinitionsDialog({
+  open,
+  onClose,
+  branches,
+  roomDefinitions,
+  fixedCollegeSubjectId,
+  scopedBranchName,
+}: {
+  open: boolean;
+  onClose: () => void;
+  branches: CollegeSubjectRow[];
+  roomDefinitions: CollegeRoomDefinitionRow[];
+  fixedCollegeSubjectId?: string | null;
+  scopedBranchName?: string | null;
+}) {
+  const [state, formAction, pending] = useActionState(defineCollegeRoomDefinitionsAction, null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const lockedBranchId = fixedCollegeSubjectId?.trim() || null;
+  const branchLockedToDepartment = Boolean(lockedBranchId);
+  const lockedBranchMeta = useMemo(
+    () => (lockedBranchId ? branches.find((b) => b.id === lockedBranchId) : undefined),
+    [branches, lockedBranchId]
+  );
+  const [selectedCollegeSubjectId, setSelectedCollegeSubjectId] = useState(() => lockedBranchId ?? "");
+  const isAllBranches = selectedCollegeSubjectId === COLLEGE_BRANCH_ALL_SENTINEL;
+  const visibleDefinitions = useMemo(() => {
+    if (!selectedCollegeSubjectId) return [];
+    if (isAllBranches) return roomDefinitions;
+    return roomDefinitions.filter((room) => room.college_subject_id === selectedCollegeSubjectId);
+  }, [isAllBranches, roomDefinitions, selectedCollegeSubjectId]);
+  /** في وضع «كل الكلية» نعرض ملخصًا لكل فرع لتوضيح أين سيُنسخ التعريف. */
+  const definitionsPerBranchSummary = useMemo(() => {
+    if (!isAllBranches) return null;
+    const byBranch = new Map<string, { branchName: string; count: number }>();
+    for (const room of roomDefinitions) {
+      const key = room.college_subject_id;
+      const cur = byBranch.get(key);
+      if (cur) cur.count += 1;
+      else byBranch.set(key, { branchName: room.college_subject_name, count: 1 });
+    }
+    return [...byBranch.values()].sort((a, b) => a.branchName.localeCompare(b.branchName, "ar"));
+  }, [isAllBranches, roomDefinitions]);
+  useEffect(() => {
+    if (!dialogRef.current) return;
+    if (open && !dialogRef.current.open) dialogRef.current.showModal();
+    if (!open && dialogRef.current.open) dialogRef.current.close();
+  }, [open]);
+  useEffect(() => {
+    if (state?.ok) onClose();
+  }, [state, onClose]);
+  return (
+    <dialog
+      ref={dialogRef}
+      className="fixed inset-0 z-[100] m-auto box-border h-fit max-h-[min(90vh,100dvh)] w-[min(92vw,880px)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-[#E2E8F0] bg-white p-0 shadow-xl"
+      dir="rtl"
+    >
+      <form action={formAction} className="w-full space-y-4 p-6">
+        <h2 className="text-xl font-bold text-[#0F172A]">تعريف القاعات</h2>
+        <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
+          <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
+          {branchLockedToDepartment ? (
+            <>
+              <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
+              <div className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]">
+                {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : (scopedBranchName ?? "قسم حسابك الحالي")}
+              </div>
+            </>
+          ) : (
+            <>
+              <select
+                name="college_subject_id"
+                value={selectedCollegeSubjectId}
+                onChange={(e) => setSelectedCollegeSubjectId(e.target.value)}
+                required
+                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
+              >
+                <option value="">اختر القسم/الفرع</option>
+                <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (تعميم على جميع الأقسام/الفروع)</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {roomBranchLabel(branch)}
+                  </option>
+                ))}
+              </select>
+              {isAllBranches ? (
+                <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
+                  سيُنسخ كل اسم قاعة تكتبه هنا تلقائيًا إلى كل قسم/فرع من أقسام الكلية ({branches.length} قسم/فرع).
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
+          <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
+          <textarea
+            name="room_names_bulk"
+            rows={10}
+            placeholder={"قاعة 1\nقاعة 2\nقاعة 3\nمختبر الحاسوب"}
+            className="min-h-[12rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+          />
+          <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
+            عرّف جميع قاعات هذا القسم/الفرع مرة واحدة هنا. سيُوحِّد النظام الصيغ المتقاربة مثل{" "}
+            <span className="font-bold">قاعة 1</span> و<span className="font-bold">قاعة رقم 1</span> و
+            <span className="font-bold"> ق 1</span> ويمنع تكرارها في السجل المرجعي.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-3 shadow-sm">
+          <p className="text-sm font-bold text-[#0F172A]">القاعات المعرّفة حاليًا</p>
+          {!selectedCollegeSubjectId ? (
+            <p className="mt-2 text-sm text-[#64748B]">اختر القسم/الفرع لعرض القاعات المعرّفة الحالية.</p>
+          ) : isAllBranches ? (
+            <>
+              <p className="mt-1 text-xs text-[#64748B]">
+                إجمالي السجلات في كل الكلية:{" "}
+                <span className="font-bold tabular-nums text-[#0F172A]">{visibleDefinitions.length}</span>
+              </p>
+              {definitionsPerBranchSummary && definitionsPerBranchSummary.length > 0 ? (
+                <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {definitionsPerBranchSummary.map((b) => (
+                      <div
+                        key={b.branchName}
+                        className="flex items-center justify-between rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#334155]"
+                      >
+                        <span className="truncate">{b.branchName}</span>
+                        <span className="ms-2 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-bold text-[#1E3A8A]">
+                          {b.count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-[#64748B]">لا توجد قاعات معرّفة بعد في أيٍّ من الفروع.</p>
+              )}
+            </>
+          ) : visibleDefinitions.length === 0 ? (
+            <p className="mt-2 text-sm text-[#64748B]">لا توجد قاعات معرّفة بعد لهذا القسم/الفرع.</p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-[#64748B]">
+                العدد الحالي: <span className="font-bold tabular-nums text-[#0F172A]">{visibleDefinitions.length}</span>
+              </p>
+              <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {visibleDefinitions.map((room) => (
+                    <div key={room.id} className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#334155]">
+                      {room.room_name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {state ? (
+          <p className={`text-sm font-semibold ${state.ok ? "text-emerald-700" : "text-red-600"}`}>{state.message}</p>
+        ) : null}
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
+            إلغاء
+          </button>
+          <SubmitButton pending={pending} label="حفظ تعريف القاعات" />
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
 function AddRoomDialog({
   open,
   onClose,
   branches,
   subjects,
   collegeLabel,
+  roomDefinitions,
   fixedCollegeSubjectId,
   scopedBranchName,
   staffRegistryPicklist,
@@ -1578,6 +1957,7 @@ function AddRoomDialog({
   branches: CollegeSubjectRow[];
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
+  roomDefinitions: CollegeRoomDefinitionRow[];
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
@@ -1604,6 +1984,7 @@ function AddRoomDialog({
           branches={branches}
           subjects={subjects}
           collegeLabel={collegeLabel}
+          roomDefinitions={roomDefinitions}
           fixedCollegeSubjectId={fixedCollegeSubjectId}
           scopedBranchName={scopedBranchName}
           showSerial={false}
@@ -1629,6 +2010,7 @@ function EditRoomDialog({
   branches,
   subjects,
   collegeLabel,
+  roomDefinitions,
   fixedCollegeSubjectId,
   scopedBranchName,
   staffRegistryPicklist,
@@ -1639,6 +2021,7 @@ function EditRoomDialog({
   branches: CollegeSubjectRow[];
   subjects: CollegeStudySubjectRow[];
   collegeLabel: string;
+  roomDefinitions: CollegeRoomDefinitionRow[];
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
@@ -1669,6 +2052,7 @@ function EditRoomDialog({
           branches={branches}
           subjects={subjects}
           collegeLabel={collegeLabel}
+          roomDefinitions={roomDefinitions}
           fixedCollegeSubjectId={fixedCollegeSubjectId}
           scopedBranchName={scopedBranchName}
           defaults={row ?? undefined}
@@ -1893,6 +2277,7 @@ export function RoomsManagementPanel({
   rows,
   studySubjects,
   scheduleHintsByRoom,
+  roomDefinitions,
   collegeLabel,
   fixedCollegeSubjectId = null,
   scopedBranchName = null,
@@ -1902,6 +2287,7 @@ export function RoomsManagementPanel({
   rows: CollegeExamRoomRow[];
   studySubjects: CollegeStudySubjectRow[];
   scheduleHintsByRoom: Record<string, CollegeRoomScheduleHint[]>;
+  roomDefinitions: CollegeRoomDefinitionRow[];
   collegeLabel: string;
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
@@ -1912,8 +2298,10 @@ export function RoomsManagementPanel({
   const hideAddRoomButton = portalBase === "/dashboard/college";
   const hideEditDeleteRoomActions = portalBase === "/dashboard/college";
   const [addOpen, setAddOpen] = useState(false);
+  const [definitionsOpen, setDefinitionsOpen] = useState(false);
   /** إعادة تركيب مودال الإضافة عند كل فتح حتى تُصفَّر حالة useActionState ولا يبقى ok: true من الجلسة السابقة */
   const [addDialogKey, setAddDialogKey] = useState(0);
+  const [definitionsDialogKey, setDefinitionsDialogKey] = useState(0);
   const [editDialogKey, setEditDialogKey] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [menuCoords, setMenuCoords] = useState<{ top: number; left: number } | null>(null);
@@ -1921,7 +2309,12 @@ export function RoomsManagementPanel({
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const [editingRow, setEditingRow] = useState<CollegeExamRoomRow | null>(null);
   const closeAddDialog = useCallback(() => setAddOpen(false), []);
+  const closeDefinitionsDialog = useCallback(() => setDefinitionsOpen(false), []);
   const closeEditDialog = useCallback(() => setEditingRow(null), []);
+  const openDefinitionsDialog = useCallback(() => {
+    setDefinitionsDialogKey((k) => k + 1);
+    setDefinitionsOpen(true);
+  }, []);
   const openAddDialog = useCallback(() => {
     setAddDialogKey((k) => k + 1);
     setAddOpen(true);
@@ -2223,13 +2616,22 @@ export function RoomsManagementPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f3578] bg-[#274092] px-5 py-4">
           <div className="flex flex-wrap items-center gap-2">
             {!hideAddRoomButton ? (
-              <button
-                type="button"
-                onClick={openAddDialog}
-                className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
-              >
-                إضافة قاعة
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={openDefinitionsDialog}
+                  className="rounded-xl bg-[#DBEAFE] px-4 py-2 text-sm font-bold text-[#1D4ED8] shadow-sm ring-1 ring-white/40 transition hover:bg-[#BFDBFE]"
+                >
+                  تعريف القاعات
+                </button>
+                <button
+                  type="button"
+                  onClick={openAddDialog}
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#274092] shadow-sm ring-1 ring-white/60 transition hover:bg-white/95"
+                >
+                  إضافة قاعة
+                </button>
+              </>
             ) : null}
             <button
               type="button"
@@ -2736,6 +3138,15 @@ export function RoomsManagementPanel({
           )
         : null}
 
+      <RoomDefinitionsDialog
+        key={`room-definitions-${definitionsDialogKey}`}
+        open={definitionsOpen}
+        onClose={closeDefinitionsDialog}
+        branches={branches}
+        roomDefinitions={roomDefinitions}
+        fixedCollegeSubjectId={fixedCollegeSubjectId}
+        scopedBranchName={scopedBranchName}
+      />
       <AddRoomDialog
         key={`add-room-${addDialogKey}`}
         open={addOpen}
@@ -2743,6 +3154,7 @@ export function RoomsManagementPanel({
         branches={branches}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
+        roomDefinitions={roomDefinitions}
         fixedCollegeSubjectId={fixedCollegeSubjectId}
         scopedBranchName={scopedBranchName}
         staffRegistryPicklist={staffRegistryPicklist}
@@ -2754,6 +3166,7 @@ export function RoomsManagementPanel({
         branches={branches}
         subjects={studySubjects}
         collegeLabel={collegeLabel}
+        roomDefinitions={roomDefinitions}
         fixedCollegeSubjectId={fixedCollegeSubjectId}
         scopedBranchName={scopedBranchName}
         staffRegistryPicklist={staffRegistryPicklist}

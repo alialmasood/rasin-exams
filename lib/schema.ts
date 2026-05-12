@@ -261,6 +261,7 @@ export async function ensureCoreSchema() {
   await ensureCollegeAccountProfileSubjectLink(pool);
   await ensureCollegeStudySubjectsTable(pool);
   await ensureCollegeStaffRegistryTable(pool);
+  await ensureCollegeRoomDefinitionsTable(pool);
   await ensureCollegeExamRoomsTable(pool);
   await ensureCollegeExamSchedulesTable(pool);
   await ensureCollegeHolidaysTable(pool);
@@ -290,6 +291,22 @@ export async function ensureCoreSchema() {
     pool,
     "idx_college_study_subjects_branch",
     "CREATE INDEX IF NOT EXISTS idx_college_study_subjects_branch ON college_study_subjects(college_subject_id)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_college_room_definitions_owner_branch",
+    "CREATE INDEX IF NOT EXISTS idx_college_room_definitions_owner_branch ON college_room_definitions(owner_user_id, college_subject_id)"
+  );
+  await createIndexSafe(
+    pool,
+    "idx_college_room_definitions_name_key",
+    "CREATE INDEX IF NOT EXISTS idx_college_room_definitions_name_key ON college_room_definitions(room_name_key)"
+  );
+  await createIndexSafe(
+    pool,
+    "uq_college_room_definitions_owner_branch_key",
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_college_room_definitions_owner_branch_key
+     ON college_room_definitions(owner_user_id, college_subject_id, room_name_key)`
   );
   await createIndexSafe(
     pool,
@@ -762,6 +779,47 @@ async function ensureCollegeStaffRegistryTable(pool: Pool) {
     await pool.query(`ALTER TABLE public.college_staff_registry ALTER COLUMN role_kind DROP NOT NULL`);
   } catch (err: unknown) {
     if (!isPermissionError(err)) throw err;
+  }
+}
+
+async function ensureCollegeRoomDefinitionsTable(pool: Pool) {
+  const userIdType = await getUsersIdSqlType(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS college_room_definitions (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id ${userIdType} NOT NULL,
+      college_subject_id BIGINT NOT NULL,
+      room_name VARCHAR(200) NOT NULL,
+      room_name_key VARCHAR(220) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  if (!(await constraintExists(pool, "college_room_definitions_owner_user_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_room_definitions
+        ADD CONSTRAINT college_room_definitions_owner_user_id_fkey
+        FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
+  }
+
+  if (!(await constraintExists(pool, "college_room_definitions_college_subject_id_fkey"))) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.college_room_definitions
+        ADD CONSTRAINT college_room_definitions_college_subject_id_fkey
+        FOREIGN KEY (college_subject_id) REFERENCES public.college_subjects(id) ON DELETE CASCADE
+      `);
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string }).message ?? "");
+      if (!msg.includes("already exists") && !isPermissionError(err)) throw err;
+    }
   }
 }
 

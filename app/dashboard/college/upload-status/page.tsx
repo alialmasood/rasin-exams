@@ -33,6 +33,7 @@ export default async function CollegeUploadStatusPage() {
       collegeLabel={collegeLabel}
       allUploadedPendingNone={allUploadedPendingNone}
       dashboardStats={dashboardStats}
+      showQuickHeadApproval={session.college_account_kind === "FORMATION"}
     />
   );
 }

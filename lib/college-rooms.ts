@@ -6,6 +6,7 @@ import {
   validateExternalRoomStaffForSave,
   type ExternalRoomStaffStored,
 } from "@/lib/room-external-staff";
+import { resolveCollegeRoomDefinitionName } from "@/lib/college-room-definitions";
 import { ensureCoreSchema } from "@/lib/schema";
 
 export type { ExternalRoomStaffStored } from "@/lib/room-external-staff";
@@ -547,7 +548,7 @@ export async function createCollegeExamRoom(
   await ensureCoreSchema();
   const serialInput = String(input.serialNo ?? "").trim();
   let serialNo = toInt(serialInput, -1);
-  const roomName = input.roomName.trim();
+  const rawRoomName = input.roomName.trim();
   const supervisorName = input.supervisorName.trim();
   const slot = buildSlotPayload(input);
   if (slot.id2 && !slot.inv2Norm.ok) return slot.inv2Norm;
@@ -570,7 +571,7 @@ export async function createCollegeExamRoom(
     );
     serialNo = Number(nextSerial.rows[0]?.next_serial ?? 1);
   }
-  if (roomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
+  if (rawRoomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
   const invigilatorsNorm = normalizeInvigilators(input.invigilators);
   if (!invigilatorsNorm.ok) return invigilatorsNorm;
   const extParsed = parseExternalRoomStaffFromFormJson(String(input.externalRoomStaffJson ?? ""));
@@ -590,6 +591,13 @@ export async function createCollegeExamRoom(
   if ((branchExists.rowCount ?? 0) === 0) {
     return { ok: false, message: "القسم/الفرع المحدد للقاعة غير موجود." };
   }
+  const roomDefinition = await resolveCollegeRoomDefinitionName({
+    ownerUserId: input.ownerUserId,
+    collegeSubjectId: input.collegeSubjectId.trim(),
+    roomName: rawRoomName,
+  });
+  if (!roomDefinition.ok) return roomDefinition;
+  const roomName = roomDefinition.roomName;
   const subjectExists = await pool.query(
     `SELECT 1
      FROM college_study_subjects
@@ -694,11 +702,11 @@ export async function updateCollegeExamRoom(
   await ensureCoreSchema();
   if (!/^\d+$/.test(input.id.trim())) return { ok: false, message: "معرّف القاعة غير صالح." };
   const serialNo = toInt(input.serialNo, -1);
-  const roomName = input.roomName.trim();
+  const rawRoomName = input.roomName.trim();
   const supervisorName = input.supervisorName.trim();
   if (!/^\d+$/.test(input.studySubjectId.trim())) return { ok: false, message: "اختر مادة دراسية صالحة." };
   if (serialNo < 0) return { ok: false, message: "التسلسل يجب أن يكون رقمًا صحيحًا." };
-  if (roomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
+  if (rawRoomName.length < 2) return { ok: false, message: "اسم القاعة يجب أن يكون حرفين على الأقل." };
   const slot = buildSlotPayload(input);
   if (slot.id2 && !slot.inv2Norm.ok) return slot.inv2Norm;
   if (slot.id2 && slot.id2 === input.studySubjectId.trim()) {
@@ -725,6 +733,13 @@ export async function updateCollegeExamRoom(
     [input.collegeSubjectId.trim(), input.ownerUserId]
   );
   if ((branchExists.rowCount ?? 0) === 0) return { ok: false, message: "القسم/الفرع المحدد للقاعة غير موجود." };
+  const roomDefinition = await resolveCollegeRoomDefinitionName({
+    ownerUserId: input.ownerUserId,
+    collegeSubjectId: input.collegeSubjectId.trim(),
+    roomName: rawRoomName,
+  });
+  if (!roomDefinition.ok) return roomDefinition;
+  const roomName = roomDefinition.roomName;
   const subjectExists = await pool.query(
     `SELECT 1
      FROM college_study_subjects

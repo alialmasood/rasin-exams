@@ -307,14 +307,14 @@ export function DashboardChatFab({
   }
 
   return (
-    <div className="fixed bottom-24 end-6 z-[89]" dir="rtl" ref={boxRef}>
+    <div className="fixed bottom-6 end-20 z-[89]" dir="rtl" ref={boxRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "إغلاق المحادثة" : "فتح المحادثة"}
-        className="relative flex size-14 items-center justify-center rounded-full bg-[#1E3A8A] text-white shadow-lg shadow-[#1E3A8A]/35 ring-4 ring-white transition hover:bg-[#172554] focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/50"
+        className="relative flex size-12 items-center justify-center rounded-full bg-[#1E3A8A] text-white shadow-lg shadow-[#1E3A8A]/35 ring-[3px] ring-white transition hover:bg-[#172554] focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/50"
       >
-        <svg className="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.1} aria-hidden>
+        <svg className="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.1} aria-hidden>
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -329,7 +329,7 @@ export function DashboardChatFab({
       </button>
 
       {open ? (
-        <div className="mt-2 w-[min(92vw,420px)] rounded-2xl border border-[#E2E8F0] bg-white shadow-2xl">
+        <div className="absolute bottom-full end-0 mb-2 w-[min(92vw,420px)] rounded-2xl border border-[#E2E8F0] bg-white shadow-2xl">
           <div className="border-b border-[#E2E8F0] px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-extrabold text-[#0F172A]">محادثة النظام</p>

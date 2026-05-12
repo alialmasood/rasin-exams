@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { StudyType } from "@/lib/college-study-subjects";
 import type {
@@ -10,8 +12,9 @@ import type {
 } from "@/lib/upload-status-display";
 import { formatExamScheduleStudyLevelTierStageOnly } from "@/lib/college-study-stage-display";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
-import { formatExamClock12hAr } from "@/lib/exam-situation-window";
+import { calendarDateInTimeZone, canUploadSituationInExamWindow, EXAM_SITUATION_TZ, formatExamClock12hAr } from "@/lib/exam-situation-window";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
+import { submitHeadSituationAction, submitHeadSituationsBulkAction } from "./actions";
 
 const WORKFLOW_LABEL: Record<UploadStatusWorkflow, string> = {
   DRAFT: "مسودة",
@@ -95,11 +98,77 @@ function StatCard({
   );
 }
 
+type QuickHeadApprovalCard = {
+  scheduleId: string;
+  examDate: string;
+  startTime: string;
+  endTime: string;
+  mealSlot: 1 | 2;
+  subjectName: string;
+  stageLevel: number;
+  studyType: StudyType;
+  branchName: string;
+  attendance: number;
+  absence: number;
+  roomCount: number;
+  workflowStatus: UploadStatusWorkflow;
+  deanStatus: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+};
+
+function buildQuickHeadApprovalCards(listItems: UploadStatusListItem[]): QuickHeadApprovalCard[] {
+  return listItems
+    .map((item) => {
+      if (item.kind === "single") {
+        const r = item.row;
+        return {
+          scheduleId: r.schedule_id,
+          examDate: r.exam_date,
+          startTime: r.start_time,
+          endTime: r.end_time,
+          mealSlot: r.meal_slot,
+          subjectName: r.subject_name,
+          stageLevel: r.stage_level,
+          studyType: r.study_type,
+          branchName: r.branch_name,
+          attendance: r.attendance_count,
+          absence: r.absence_count,
+          roomCount: 1,
+          workflowStatus: r.workflow_status,
+          deanStatus: r.dean_status,
+        };
+      }
+      return {
+        scheduleId: item.primary_schedule_id,
+        examDate: item.exam_date,
+        startTime: item.start_time,
+        endTime: item.end_time,
+        mealSlot: item.meal_slot,
+        subjectName: item.subject_name,
+        stageLevel: item.stage_level,
+        studyType: item.study_type,
+        branchName: item.branch_name,
+        attendance: item.attendance_sum,
+        absence: item.absence_sum,
+        roomCount: item.room_count,
+        workflowStatus: item.workflow_status,
+        deanStatus: item.dean_status,
+      };
+    })
+    .sort((a, b) => {
+      const d = a.examDate.localeCompare(b.examDate);
+      if (d !== 0) return d;
+      const m = a.mealSlot - b.mealSlot;
+      if (m !== 0) return m;
+      return a.startTime.localeCompare(b.startTime);
+    });
+}
+
 export function UploadStatusPanel({
   listItems,
   collegeLabel,
   allUploadedPendingNone = false,
   dashboardStats,
+  showQuickHeadApproval = false,
   /** بوابة القسم: إخفاء عمود «القسم» لأن الجدول يخص قسماً واحداً */
   hideDepartmentColumn = false,
   showDeanApprovalInsights = false,
@@ -110,12 +179,79 @@ export function UploadStatusPanel({
   /** كل الجلسات المجدولة أُكّد رفع موقفها — لا شيء بانتظار العمل هنا */
   allUploadedPendingNone?: boolean;
   dashboardStats: UploadStatusDashboardStats;
+  showQuickHeadApproval?: boolean;
   hideDepartmentColumn?: boolean;
   showDeanApprovalInsights?: boolean;
   showUploadConfirmationStats?: boolean;
 }) {
   const portalBase = useCollegePortalBasePath();
+  const router = useRouter();
   const tableColCount = hideDepartmentColumn ? 10 : 11;
+  const [isPending, startTransition] = useTransition();
+  const [pendingScopeKey, setPendingScopeKey] = useState<string | null>(null);
+  const [quickToast, setQuickToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  const quickHeadCards = useMemo(() => buildQuickHeadApprovalCards(listItems), [listItems]);
+  const quickReadyCards = useMemo(
+    () =>
+      quickHeadCards.filter(
+        (item) =>
+          canUploadSituationInExamWindow(item.examDate, item.startTime, item.endTime) &&
+          (item.workflowStatus === "SUBMITTED" || item.workflowStatus === "APPROVED") &&
+          item.deanStatus === "APPROVED"
+      ),
+    [quickHeadCards]
+  );
+  const quickReadyByDate = useMemo(() => {
+    const grouped = new Map<string, QuickHeadApprovalCard[]>();
+    for (const item of quickReadyCards) {
+      if (!grouped.has(item.examDate)) grouped.set(item.examDate, []);
+      grouped.get(item.examDate)!.push(item);
+    }
+    return [...grouped.entries()].map(([examDate, items]) => ({
+      examDate,
+      items,
+      count: items.length,
+      attendance: items.reduce((sum, item) => sum + item.attendance, 0),
+      absence: items.reduce((sum, item) => sum + item.absence, 0),
+    }));
+  }, [quickReadyCards]);
+  const quickReadyToday = useMemo(() => {
+    const today = calendarDateInTimeZone(new Date(), EXAM_SITUATION_TZ);
+    return quickReadyCards.filter((item) => item.examDate === today);
+  }, [quickReadyCards]);
+
+  useEffect(() => {
+    if (!quickToast) return;
+    const t = setTimeout(() => setQuickToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [quickToast]);
+
+  function onQuickConfirm(scheduleId: string) {
+    const fd = new FormData();
+    fd.set("schedule_id", scheduleId);
+    setPendingScopeKey(`single:${scheduleId}`);
+    startTransition(async () => {
+      const res = await submitHeadSituationAction(null, fd);
+      setPendingScopeKey(null);
+      if (!res) return;
+      setQuickToast({ type: res.ok ? "ok" : "err", msg: res.message });
+      if (res.ok) router.refresh();
+    });
+  }
+
+  function onQuickConfirmDay(examDate: string, scheduleIds: string[]) {
+    const fd = new FormData();
+    fd.set("schedule_ids_json", JSON.stringify(scheduleIds));
+    setPendingScopeKey(`day:${examDate}`);
+    startTransition(async () => {
+      const res = await submitHeadSituationsBulkAction(null, fd);
+      setPendingScopeKey(null);
+      if (!res) return;
+      setQuickToast({ type: res.ok ? "ok" : "err", msg: res.message });
+      if (res.ok) router.refresh();
+    });
+  }
 
   return (
     <section className="space-y-6" dir="rtl">
@@ -186,6 +322,113 @@ export function UploadStatusPanel({
           />
         ) : null}
       </div>
+
+      {showQuickHeadApproval ? (
+        <section className="rounded-[22px] border border-[#BFDBFE] bg-gradient-to-b from-[#EFF6FF] via-white to-white px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-[#0F172A]">المصادقة السريعة</h2>
+              <p className="mt-1 text-xs leading-6 text-[#475569]">
+                بطاقات صغيرة لتأكيد المواقف الجاهزة مباشرة من هذه الصفحة، بنفس سلوك زر <span className="font-bold">تأكيد الموقف</span>{" "}
+                الموجود في صفحة التفاصيل.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-xl border border-[#DBEAFE] bg-white px-3 py-2 text-[#1E3A8A]">
+                الجاهز الآن: {quickReadyCards.length}
+              </span>
+              <span className="rounded-xl border border-[#DBEAFE] bg-white px-3 py-2 text-[#0F766E]">
+                الجاهز اليوم: {quickReadyToday.length}
+              </span>
+            </div>
+          </div>
+
+          {quickReadyByDate.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#CBD5E1] bg-white/80 px-4 py-5 text-center text-sm text-[#64748B]">
+              لا توجد مواقف جاهزة للتأكيد السريع الآن. سيظهر هنا فقط ما كانت نافذة رفعه مفتوحة، وتمت مصادقته من القسم/الفرع،
+              ولم يُؤكَّد سابقًا.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {quickReadyByDate.map((group) => (
+                <div key={group.examDate} className="rounded-2xl border border-[#DBEAFE] bg-white/85 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-[#1E3A8A]">{formatExamDateAr(group.examDate)}</h3>
+                      <p className="mt-1 text-[11px] text-[#64748B]">
+                        {group.count} موقف جاهز | حضور {group.attendance} | غياب {group.absence}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onQuickConfirmDay(group.examDate, group.items.map((item) => item.scheduleId))}
+                      disabled={isPending}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-extrabold text-white transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
+                    >
+                      {pendingScopeKey === `day:${group.examDate}` ? "جاري التأكيد..." : "تأكيد كل الجاهز لهذا اليوم"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {group.items.map((item) => (
+                      <div
+                        key={item.scheduleId}
+                        className="rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 shadow-[0_4px_16px_rgba(15,23,42,0.04)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-extrabold text-[#0F172A]">{item.subjectName}</p>
+                            <p className="mt-1 text-[11px] font-semibold text-[#475569]">
+                              {formatExamScheduleStudyLevelTierStageOnly(item.stageLevel)}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10px] font-bold text-[#1D4ED8]">
+                            {formatExamMealSlotLabel(item.mealSlot)}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 space-y-1.5 text-[11px] text-[#475569]">
+                          <p>
+                            الوقت: {formatExamClock12hAr(item.startTime)} - {formatExamClock12hAr(item.endTime)}
+                          </p>
+                          {!hideDepartmentColumn ? <p>القسم/الفرع: {item.branchName}</p> : null}
+                          <p>القاعات: {item.roomCount}</p>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold">
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-800 ring-1 ring-emerald-200">
+                            حضور: {item.attendance}
+                          </span>
+                          <span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-800 ring-1 ring-rose-200">
+                            غياب: {item.absence}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between gap-2">
+                          <Link
+                            href={`${portalBase}/upload-status/${item.scheduleId}`}
+                            className="rounded-lg border border-[#CBD5E1] px-3 py-2 text-[11px] font-bold text-[#475569] transition hover:bg-[#F8FAFC]"
+                          >
+                            التفاصيل
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => onQuickConfirm(item.scheduleId)}
+                            disabled={isPending}
+                            className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[#1E3A8A] px-3 py-2 text-xs font-extrabold text-white transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
+                          >
+                            {pendingScopeKey === `single:${item.scheduleId}` ? "جاري..." : "تأكيد الموقف"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {showDeanApprovalInsights ? (
         <section
@@ -426,6 +669,15 @@ export function UploadStatusPanel({
           </tbody>
         </table>
       </div>
+      {quickToast ? (
+        <div
+          className={`fixed bottom-6 left-1/2 z-[120] max-w-[min(92vw,30rem)] -translate-x-1/2 rounded-2xl px-4 py-3 text-sm font-bold shadow-[0_10px_30px_-8px_rgba(15,23,42,0.35)] ${
+            quickToast.type === "ok" ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
+          }`}
+        >
+          {quickToast.msg}
+        </div>
+      ) : null}
     </section>
   );
 }
