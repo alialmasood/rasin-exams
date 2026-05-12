@@ -419,6 +419,40 @@ export function AdminSituationsFollowupView({
             </button>
           </form>
         </div>
+        <div className="mt-4 rounded-xl border border-[#DBEAFE] bg-[#EFF6FF]/60 p-3">
+          <p className="text-xs font-bold text-[#1E3A8A]">تقرير المشرفين والمراقبين</p>
+          <p className="mt-1 text-[11px] text-[#475569]">
+            اطبع تقريرًا رسميًا بصيغة A4 يتضمن المشرفين والمراقبين لكل تشكيل وقسم/فرع وقاعة، مع المادة الامتحانية
+            والتاريخ ووقت الامتحان، إضافة إلى عدد حالات الغياب والأسماء والأسباب المسجلة.
+          </p>
+          <form
+            className="mt-3 flex flex-wrap items-end gap-2"
+            method="get"
+            action="/dashboard/situations-followup/staff-report"
+            target="_blank"
+          >
+            <label className="flex min-w-[220px] flex-col gap-1 text-xs font-bold text-[#334155]">
+              اليوم الامتحاني
+              <select
+                name="examDate"
+                defaultValue={defaultExamDate}
+                className="h-10 rounded-lg border border-[#CBD5E1] bg-white px-2 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#BFDBFE]"
+              >
+                {availableExamDates.map((d) => (
+                  <option key={`staff-${d}`} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center rounded-lg border border-[#1E3A8A] bg-[#1E3A8A] px-3 text-sm font-bold text-white transition hover:bg-[#163170]"
+            >
+              تقرير المشرفين والمراقبين / حفظ PDF
+            </button>
+          </form>
+        </div>
       </section>
 
       {rows.length === 0 ? (

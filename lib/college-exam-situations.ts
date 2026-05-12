@@ -1620,6 +1620,8 @@ export type AdminOfficialSituationFollowupRow = {
   subject_name: string;
   stage_level: number;
   exam_date: string;
+  start_time: string;
+  end_time: string;
   meal_slot: 1 | 2;
   study_type: StudyType;
   term_label: string | null;
@@ -1665,6 +1667,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     subject_name: string;
     stage_level: number;
     exam_date: string;
+    start_time: string;
+    end_time: string;
     meal_slot: number | string | null;
     study_type: string;
     term_label: string | null;
@@ -1713,6 +1717,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
         s.subject_name,
         e.stage_level,
         e.exam_date::text,
+        e.start_time::text,
+        e.end_time::text,
         COALESCE(e.meal_slot, 1) AS meal_slot,
         COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
         e.term_label,
@@ -1867,6 +1873,8 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
       subject_name: row.subject_name ?? "—",
       stage_level: Number(row.stage_level ?? 1),
       exam_date: row.exam_date,
+      start_time: String(row.start_time ?? "").slice(0, 5),
+      end_time: String(row.end_time ?? "").slice(0, 5),
       meal_slot: normalizeExamMealSlot(String(row.meal_slot ?? 1)),
       study_type: studyType,
       term_label: row.term_label?.trim() ? row.term_label.trim() : null,
