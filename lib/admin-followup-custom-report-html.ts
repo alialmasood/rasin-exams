@@ -93,7 +93,6 @@ function splitNames(raw: string): string[] {
 
 function buildShiftAbsenceLocations(
   rows: AdminOfficialSituationFollowupRow[],
-  formationLabel: string,
   shift: "morning" | "evening"
 ): string[] {
   const seen = new Set<string>();
@@ -103,7 +102,6 @@ function buildShiftAbsenceLocations(
       shift === "morning" ? Math.max(0, Number(row.absence_morning ?? 0)) : Math.max(0, Number(row.absence_evening ?? 0));
     if (absenceCount <= 0) continue;
     const text = [
-      formationLabel.trim() || "—",
       row.branch_name.trim() || "—",
       row.subject_name.trim() || "—",
       `${fmtNum(absenceCount)} غياب`,
@@ -114,6 +112,85 @@ function buildShiftAbsenceLocations(
     items.push(text);
   }
   return items;
+}
+
+function hasSupervisorAbsence(row: AdminOfficialSituationFollowupRow): boolean {
+  const staffAbsences = row.situation_staff_absences;
+  if (staffAbsences.supervisor_absent) return true;
+  return (
+    staffAbsences.supervisor_absence_reason.trim().length > 0 || staffAbsences.supervisor_substitute_name.trim().length > 0
+  );
+}
+
+function collectStaffAbsenceSummary(rows: AdminOfficialSituationFollowupRow[]): {
+  supervisorCount: number;
+  invigilatorCount: number;
+  supervisorItems: string[];
+  invigilatorItems: string[];
+} {
+  const supervisorSeen = new Set<string>();
+  const invigilatorSeen = new Set<string>();
+  const supervisorItemSeen = new Set<string>();
+  const invigilatorItemSeen = new Set<string>();
+  const supervisorItems: string[] = [];
+  const invigilatorItems: string[] = [];
+
+  for (const row of rows) {
+    const branch = row.branch_name.trim() || "—";
+    const subject = row.subject_name.trim() || "—";
+    const room = row.room_name.trim() || "—";
+    const staffAbsences = row.situation_staff_absences;
+
+    if (hasSupervisorAbsence(row)) {
+      const supervisorName = row.supervisor_name.trim() || "—";
+      const supervisorReason = staffAbsences.supervisor_absence_reason.trim() || "—";
+      const supervisorSubstitute = staffAbsences.supervisor_substitute_name.trim() || "—";
+      const supervisorKey = normalizePersonKey(supervisorName !== "—" ? supervisorName : `${branch}::${subject}::${room}`);
+      supervisorSeen.add(supervisorKey);
+
+      const detail = [
+        `الاسم: ${supervisorName}`,
+        `السبب: ${supervisorReason}`,
+        `البديل: ${supervisorSubstitute}`,
+        `القسم/الفرع: ${branch}`,
+        `المادة: ${subject}`,
+        `القاعة: ${room}`,
+      ].join(" — ");
+      const detailKey = normalizePersonKey(detail);
+      if (!supervisorItemSeen.has(detailKey)) {
+        supervisorItemSeen.add(detailKey);
+        supervisorItems.push(detail);
+      }
+    }
+
+    for (const invigilatorAbsence of staffAbsences.invigilator_absences) {
+      const absentName = invigilatorAbsence.absent_name.trim();
+      if (!absentName) continue;
+
+      invigilatorSeen.add(normalizePersonKey(absentName));
+
+      const detail = [
+        `الاسم: ${absentName}`,
+        `السبب: ${invigilatorAbsence.absence_reason.trim() || "—"}`,
+        `البديل: ${invigilatorAbsence.substitute_name.trim() || "—"}`,
+        `القسم/الفرع: ${branch}`,
+        `المادة: ${subject}`,
+        `القاعة: ${room}`,
+      ].join(" — ");
+      const detailKey = normalizePersonKey(detail);
+      if (!invigilatorItemSeen.has(detailKey)) {
+        invigilatorItemSeen.add(detailKey);
+        invigilatorItems.push(detail);
+      }
+    }
+  }
+
+  return {
+    supervisorCount: supervisorSeen.size,
+    invigilatorCount: invigilatorSeen.size,
+    supervisorItems,
+    invigilatorItems,
+  };
 }
 
 type AggregatedExamSubject = {
@@ -314,8 +391,9 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
   const examinedSubjects = subjects.length;
   const stageSet = new Set(subjects.map((subject) => Number(subject.stageLevel)).filter((n) => Number.isFinite(n)));
   const stages = [...stageSet].sort((a, b) => a - b).map((n) => formatCollegeStudyStageLabel(n));
-  const morningAbsenceLocations = buildShiftAbsenceLocations(rows, formationLabel, "morning");
-  const eveningAbsenceLocations = buildShiftAbsenceLocations(rows, formationLabel, "evening");
+  const morningAbsenceLocations = buildShiftAbsenceLocations(rows, "morning");
+  const eveningAbsenceLocations = buildShiftAbsenceLocations(rows, "evening");
+  const staffAbsenceSummary = collectStaffAbsenceSummary(rows);
   const supervisorKeys = new Set<string>();
   const invigilatorKeys = new Set<string>();
   for (const row of rows) {
@@ -367,6 +445,7 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
     ["حضور الصباحي", attendanceMorning, "غياب الصباحي", absenceMorning],
     ["حضور المسائي", attendanceEvening, "غياب المسائي", absenceEvening],
     ["عدد المشرفين الكلي", supervisorKeys.size, "عدد المراقبين الكلي", invigilatorKeys.size],
+    ["عدد غياب المشرفين", staffAbsenceSummary.supervisorCount, "عدد غياب المراقبين", staffAbsenceSummary.invigilatorCount],
   ]
     .map(
       ([rightLabel, rightValue, leftLabel, leftValue]) => `
@@ -381,6 +460,8 @@ export function buildAdminFollowupCustomFormationReportHtml(args: {
   const shiftAbsenceDetailRows = [
     ["مواضع غياب الصباحي", morningAbsenceLocations],
     ["مواضع غياب المسائي", eveningAbsenceLocations],
+    ["المشرفون الغياب", staffAbsenceSummary.supervisorItems],
+    ["المراقبون الغياب", staffAbsenceSummary.invigilatorItems],
   ]
     .map(
       ([label, items]) => `

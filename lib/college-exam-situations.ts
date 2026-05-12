@@ -12,7 +12,6 @@ import {
 import {
   parseSituationStaffAbsencesFromDb,
   serializeSituationStaffAbsencesForDb,
-  splitInvigilatorNamesList,
   validateSituationStaffAbsences,
   type SituationStaffAbsencesState,
 } from "@/lib/situation-staff-absences";
@@ -1637,6 +1636,7 @@ export type AdminOfficialSituationFollowupRow = {
   absence_evening: number;
   supervisor_name: string;
   invigilators: string;
+  situation_staff_absences: SituationStaffAbsencesState;
   dean_status: DeanSituationStatus;
   dean_reviewed_at_iso: string | null;
   is_uploaded: boolean;
@@ -1687,6 +1687,7 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
     absence_names: string | null;
     absence_names_morning: string | null;
     absence_names_evening: string | null;
+    situation_staff_absences: unknown | null;
     exam_booklets_received: number;
     exam_booklets_used: number;
     exam_booklets_damaged: number;
@@ -1804,6 +1805,7 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
             THEN r2.absence_names_evening_2
           ELSE r2.absence_names_evening
         END AS absence_names_evening,
+        e.situation_staff_absences,
         COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
         COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
         COALESCE(e.exam_booklets_damaged, 0) AS exam_booklets_damaged
@@ -1881,6 +1883,7 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
       absence_evening: absE,
       supervisor_name: supervisorName,
       invigilators,
+      situation_staff_absences: parseSituationStaffAbsencesFromDb(row.situation_staff_absences),
       dean_status: dean,
       dean_reviewed_at_iso: row.dean_reviewed_at?.toISOString() ?? null,
       is_uploaded: Boolean(headSubmitted),
