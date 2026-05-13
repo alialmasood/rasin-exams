@@ -19,10 +19,63 @@ import { effectiveCollegeSubjectIdForMutation, getCollegePortalDataOwnerUserId }
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
-/** للحساب المركزي والتشكيل: إذا اختار المستخدم "كل الكلية" في حقل الفرع نستنتج الفرع من المادة الدراسية المختارة. */
-async function resolveCollegeSubjectIdFromStudySubject(
+/**
+ * مواد «لكل الكلية» في college_study_subjects تُخزَّن بـ college_subject_id = NULL؛ عند اختيار «كل الكلية» في واجهة القاعات
+ * نستنتج الفرع من القاعات المختارة (سجل التعريف) بحيث يوجد قسم/فرع واحد يضم جميع مفاتيح أسماء القاعات.
+ */
+async function inferCollegeSubjectIdFromRoomDefinitionsBulk(
   ownerUserId: string,
-  studySubjectId: string
+  roomNames: string[]
+): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const rn of roomNames) {
+    const n = normalizeCollegeRoomDefinitionName(rn);
+    if (!n) {
+      return {
+        ok: false,
+        message: "تعذر ربط القاعات بفرع: أسماء القاعات غير صالحة لتعريف السجل المرجعي.",
+      };
+    }
+    if (!seen.has(n.roomNameKey)) {
+      seen.add(n.roomNameKey);
+      keys.push(n.roomNameKey);
+    }
+  }
+  if (keys.length === 0) {
+    return {
+      ok: false,
+      message: "أدخل قاعة واحدة على الأقل ليُستنتج الفرع عند اختيار «كل الكلية» مع مادة مشتركة على مستوى الكلية.",
+    };
+  }
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const pool = getDbPool();
+  const q = await pool.query<{ college_subject_id: string }>(
+    `SELECT college_subject_id::text
+     FROM college_room_definitions
+     WHERE owner_user_id = $1 AND room_name_key = ANY($2::text[])
+     GROUP BY college_subject_id
+     HAVING COUNT(DISTINCT room_name_key) = $3::int
+     ORDER BY college_subject_id::bigint ASC
+     LIMIT 1`,
+    [ownerUserId, keys, keys.length]
+  );
+  const cid = q.rows[0]?.college_subject_id?.trim();
+  if (!cid || !/^\d+$/.test(cid)) {
+    return {
+      ok: false,
+      message:
+        "المادة مشتركة على مستوى الكلية ولا يوجد قسم/فرع واحد يضم جميع القاعات المختارة في «تعريف القاعات». عرّف القاعات في فرع واحد أو اختر قسمًا محددًا من الحقل أعلاه.",
+    };
+  }
+  return { ok: true, collegeSubjectId: cid };
+}
+
+/** للحساب المركزي والتشكيل: «كل الكلية» — فرع من المادة إن وُجد، وإلا من القاعات المختارة (مواد مشتركة college_subject_id = NULL). */
+async function resolveCollegeSubjectIdForAllBranchesExam(
+  ownerUserId: string,
+  studySubjectId: string,
+  roomNames: string[]
 ): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
   const sid = studySubjectId.trim();
   if (!/^\d+$/.test(sid)) return { ok: false, message: "اختر المادة الدراسية أولاً ليتحدد فرعها." };
@@ -34,16 +87,12 @@ async function resolveCollegeSubjectIdFromStudySubject(
   );
   if ((r.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية المختارة غير موجودة." };
   const raw = r.rows[0]?.college_subject_id;
-  if (raw == null) {
-    return {
-      ok: false,
-      message:
-        "المادة المختارة مشتركة بين عدة فروع، اختر القسم/الفرع يدويًا بدلًا من «كل الكلية» لتحديد الفرع.",
-    };
+  if (raw != null) {
+    const cid = String(raw).trim();
+    if (!/^\d+$/.test(cid)) return { ok: false, message: "تعذر استنتاج الفرع من المادة المختارة." };
+    return { ok: true, collegeSubjectId: cid };
   }
-  const cid = String(raw).trim();
-  if (!/^\d+$/.test(cid)) return { ok: false, message: "تعذر استنتاج الفرع من المادة المختارة." };
-  return { ok: true, collegeSubjectId: cid };
+  return inferCollegeSubjectIdFromRoomDefinitionsBulk(ownerUserId, roomNames);
 }
 
 export type CollegeRoomsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
@@ -373,7 +422,11 @@ export async function createCollegeExamRoomAction(
     rawCollegeSubjectIdForRoom === COLLEGE_BRANCH_ALL_SENTINEL &&
     session.college_account_kind !== "DEPARTMENT";
   if (allBranchesMode) {
-    const resolved = await resolveCollegeSubjectIdFromStudySubject(ownerUserId, fdStr(formData, "study_subject_id"));
+    const resolved = await resolveCollegeSubjectIdForAllBranchesExam(
+      ownerUserId,
+      fdStr(formData, "study_subject_id"),
+      roomEntries.map((e) => e.roomName)
+    );
     if (!resolved.ok) return { ok: false, message: resolved.message };
     collegeSubjectId = resolved.collegeSubjectId;
     /** نضمن وجود تعريف للقاعة في الفرع المستنتج (المستخدم قد اختارها من قاعة معرّفة في فرع آخر فقط). */
@@ -504,7 +557,11 @@ export async function updateCollegeExamRoomAction(
     rawCollegeSubjectIdForUpdate === COLLEGE_BRANCH_ALL_SENTINEL &&
     session.college_account_kind !== "DEPARTMENT"
   ) {
-    const resolved = await resolveCollegeSubjectIdFromStudySubject(ownerUserId, fdStr(formData, "study_subject_id"));
+    const resolved = await resolveCollegeSubjectIdForAllBranchesExam(
+      ownerUserId,
+      fdStr(formData, "study_subject_id"),
+      [fdStr(formData, "room_name")]
+    );
     if (!resolved.ok) return { ok: false, message: resolved.message };
     resolvedCollegeSubjectIdForUpdate = resolved.collegeSubjectId;
   } else {

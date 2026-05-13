@@ -645,6 +645,57 @@ function RoomFields({
   const stageSelectClass =
     "h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 outline-none focus:border-blue-500";
 
+  const branchSection = (
+    <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
+      <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
+      {branchLockedToDepartment ? (
+        <>
+          <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
+          <div
+            className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]"
+            aria-readonly
+          >
+            {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : "قسم حسابك الحالي"}
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+            مرتبط بحساب القسم/الفرع الحالي؛ لا يُغيَّر من هذه الصفحة.
+          </p>
+        </>
+      ) : (
+        <>
+          <select
+            name="college_subject_id"
+            value={selectedCollegeSubjectId}
+            onChange={(e) => {
+              setSelectedCollegeSubjectId(e.target.value);
+              setExam1SubjectId("");
+              setExam2SubjectId("");
+            }}
+            required
+            className={stageSelectClass}
+          >
+            <option value="">اختر القسم/الفرع</option>
+            <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (اختيار من كل المواد والقاعات)</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {roomBranchLabel(branch)}
+              </option>
+            ))}
+          </select>
+          {isAllBranchesSelected ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
+              تعمل بنطاق كل الكلية: ستظهر مواد كل الفروع وكل القاعات المعرّفة. عند الحفظ يُستنتج الفرع من المادة عند ربطها بقسم محدد، وإلا من القاعات المختارة إن كانت المادة مشتركة على مستوى الكلية.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+              عند اختيار مادة مشتركة، يحدد هذا الحقل الفرع الذي تتبعه القاعة داخل الجداول والتقارير.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
     <>
       {showSerial ? (
@@ -660,6 +711,8 @@ function RoomFields({
           />
         </div>
       ) : null}
+
+      {multiRoomNames ? branchSection : null}
 
       {multiRoomNames ? (
         <>
@@ -1276,54 +1329,7 @@ function RoomFields({
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
-        <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
-        {branchLockedToDepartment ? (
-          <>
-            <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
-            <div
-              className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]"
-              aria-readonly
-            >
-              {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : "قسم حسابك الحالي"}
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
-              مرتبط بحساب القسم/الفرع الحالي؛ لا يُغيَّر من هذه الصفحة.
-            </p>
-          </>
-        ) : (
-          <>
-            <select
-              name="college_subject_id"
-              value={selectedCollegeSubjectId}
-              onChange={(e) => {
-                setSelectedCollegeSubjectId(e.target.value);
-                setExam1SubjectId("");
-                setExam2SubjectId("");
-              }}
-              required
-              className={stageSelectClass}
-            >
-              <option value="">اختر القسم/الفرع</option>
-              <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (اختيار من كل المواد والقاعات)</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {roomBranchLabel(branch)}
-                </option>
-              ))}
-            </select>
-            {isAllBranchesSelected ? (
-              <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
-                تعمل بنطاق كل الكلية: ستظهر مواد كل الفروع وكل القاعات المعرّفة، وسيتحدد الفرع تلقائيًا من المادة الدراسية المختارة عند الحفظ.
-              </p>
-            ) : (
-              <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
-                عند اختيار مادة مشتركة، يحدد هذا الحقل الفرع الذي تتبعه القاعة داخل الجداول والتقارير.
-              </p>
-            )}
-          </>
-        )}
-      </div>
+      {!multiRoomNames ? branchSection : null}
 
       <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
         <p className="text-sm font-bold text-[#0F172A]">نوع استخدام القاعة</p>
