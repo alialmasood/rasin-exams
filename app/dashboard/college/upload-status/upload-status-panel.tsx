@@ -14,7 +14,7 @@ import { formatExamScheduleStudyLevelTierStageOnly } from "@/lib/college-study-s
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import { calendarDateInTimeZone, canUploadSituationInExamWindow, EXAM_SITUATION_TZ, formatExamClock12hAr } from "@/lib/exam-situation-window";
 import { STUDY_TYPE_LABEL_AR } from "@/lib/study-type-labels-ar";
-import { submitHeadSituationAction, submitHeadSituationsBulkAction } from "./actions";
+import { submitHeadSituationsBulkAction } from "./actions";
 
 const WORKFLOW_LABEL: Record<UploadStatusWorkflow, string> = {
   DRAFT: "مسودة",
@@ -99,7 +99,10 @@ function StatCard({
 }
 
 type QuickHeadApprovalCard = {
+  /** أول معرّف جدول للرابط إلى صفحة التفاصيل (نفس المادة/الوقت؛ قد تكون قاعة واحدة من المجموعة) */
   scheduleId: string;
+  /** كل صفوف `college_exam_schedules` للموقف المنطقي (قاعة واحدة أو عدة قاعات) — يُؤكَّد الرفع لكلّها */
+  scheduleIds: string[];
   examDate: string;
   startTime: string;
   endTime: string;
@@ -122,6 +125,7 @@ function buildQuickHeadApprovalCards(listItems: UploadStatusListItem[]): QuickHe
         const r = item.row;
         return {
           scheduleId: r.schedule_id,
+          scheduleIds: [r.schedule_id],
           examDate: r.exam_date,
           startTime: r.start_time,
           endTime: r.end_time,
@@ -139,6 +143,7 @@ function buildQuickHeadApprovalCards(listItems: UploadStatusListItem[]): QuickHe
       }
       return {
         scheduleId: item.primary_schedule_id,
+        scheduleIds: item.schedule_ids,
         examDate: item.exam_date,
         startTime: item.start_time,
         endTime: item.end_time,
@@ -227,12 +232,15 @@ export function UploadStatusPanel({
     return () => clearTimeout(t);
   }, [quickToast]);
 
-  function onQuickConfirm(scheduleId: string) {
+  function onQuickConfirmScheduleIds(scheduleIds: string[]) {
+    const ids = [...new Set(scheduleIds.map((x) => x.trim()).filter((x) => /^\d+$/.test(x)))];
+    if (ids.length === 0) return;
     const fd = new FormData();
-    fd.set("schedule_id", scheduleId);
-    setPendingScopeKey(`single:${scheduleId}`);
+    fd.set("schedule_ids_json", JSON.stringify(ids));
+    const scopeKey = `quick:${[...ids].sort((a, b) => Number(a) - Number(b)).join(",")}`;
+    setPendingScopeKey(scopeKey);
     startTransition(async () => {
-      const res = await submitHeadSituationAction(null, fd);
+      const res = await submitHeadSituationsBulkAction(null, fd);
       setPendingScopeKey(null);
       if (!res) return;
       setQuickToast({ type: res.ok ? "ok" : "err", msg: res.message });
@@ -240,9 +248,9 @@ export function UploadStatusPanel({
     });
   }
 
-  function onQuickConfirmDay(examDate: string, scheduleIds: string[]) {
+  function onQuickConfirmDay(examDate: string, allScheduleIds: string[]) {
     const fd = new FormData();
-    fd.set("schedule_ids_json", JSON.stringify(scheduleIds));
+    fd.set("schedule_ids_json", JSON.stringify([...new Set(allScheduleIds.map((x) => x.trim()).filter((x) => /^\d+$/.test(x)))]));
     setPendingScopeKey(`day:${examDate}`);
     startTransition(async () => {
       const res = await submitHeadSituationsBulkAction(null, fd);
@@ -330,7 +338,8 @@ export function UploadStatusPanel({
               <h2 className="text-base font-extrabold text-[#0F172A]">المصادقة السريعة</h2>
               <p className="mt-1 text-xs leading-6 text-[#475569]">
                 بطاقات صغيرة لتأكيد المواقف الجاهزة مباشرة من هذه الصفحة، بنفس سلوك زر <span className="font-bold">تأكيد الموقف</span>{" "}
-                الموجود في صفحة التفاصيل.
+                في صفحة التفاصيل: يشمل التأكيد <span className="font-bold">كل القاعات</span> المرتبطة بالموقف عند توزيع المادة على أكثر من قاعة.
+                زر <span className="font-bold">تأكيد كل الجاهز لهذا اليوم</span> يؤكّد جميع المواقف الجاهزة في ذلك التاريخ وكل قاعات كل موقف.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -361,7 +370,12 @@ export function UploadStatusPanel({
                     </div>
                     <button
                       type="button"
-                      onClick={() => onQuickConfirmDay(group.examDate, group.items.map((item) => item.scheduleId))}
+                      onClick={() =>
+                        onQuickConfirmDay(
+                          group.examDate,
+                          group.items.flatMap((item) => item.scheduleIds)
+                        )
+                      }
                       disabled={isPending}
                       className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#1E3A8A] px-4 py-2 text-sm font-extrabold text-white transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
                     >
@@ -372,7 +386,7 @@ export function UploadStatusPanel({
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {group.items.map((item) => (
                       <div
-                        key={item.scheduleId}
+                        key={item.scheduleIds.join("-")}
                         className="rounded-2xl border border-[#E2E8F0] bg-white px-4 py-3 shadow-[0_4px_16px_rgba(15,23,42,0.04)]"
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -413,11 +427,14 @@ export function UploadStatusPanel({
                           </Link>
                           <button
                             type="button"
-                            onClick={() => onQuickConfirm(item.scheduleId)}
+                            onClick={() => onQuickConfirmScheduleIds(item.scheduleIds)}
                             disabled={isPending}
                             className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[#1E3A8A] px-3 py-2 text-xs font-extrabold text-white transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
                           >
-                            {pendingScopeKey === `single:${item.scheduleId}` ? "جاري..." : "تأكيد الموقف"}
+                            {pendingScopeKey ===
+                            `quick:${[...item.scheduleIds].sort((a, b) => Number(a) - Number(b)).join(",")}`
+                              ? "جاري..."
+                              : "تأكيد الموقف"}
                           </button>
                         </div>
                       </div>

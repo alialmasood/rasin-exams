@@ -712,7 +712,7 @@ function RoomFields({
         </div>
       ) : null}
 
-      {multiRoomNames ? branchSection : null}
+      {branchSection}
 
       {multiRoomNames ? (
         <>
@@ -1328,8 +1328,6 @@ function RoomFields({
           )}
         </div>
       </div>
-
-      {!multiRoomNames ? branchSection : null}
 
       <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
         <p className="text-sm font-bold text-[#0F172A]">نوع استخدام القاعة</p>
