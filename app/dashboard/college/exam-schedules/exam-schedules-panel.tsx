@@ -73,6 +73,38 @@ function isAllCollegeBranchesChoice(collegeSubjectId: string): boolean {
   return collegeSubjectId === ALL_COLLEGE_BRANCHES_VALUE;
 }
 
+/** وضع «كل الفروع»: إن وُجد فرع على المادة نستخدمه؛ وإلا (مادة مشتركة على مستوى الكلية) نستنتج من القاعات المختارة. */
+function resolveCollegeSubjectIdForAllBranchesSchedule(
+  studySubjectId: string,
+  roomIds: string[],
+  studySubjects: CollegeStudySubjectRow[],
+  rooms: CollegeExamRoomRow[]
+): { ok: true; collegeSubjectId: string } | { ok: false; message: string } {
+  const subj = studySubjects.find((s) => s.id === studySubjectId);
+  if (!subj) return { ok: false, message: "المادة الدراسية المحددة غير موجودة في القائمة." };
+  const explicit = subj.college_subject_id?.trim();
+  if (explicit && /^\d+$/.test(explicit)) return { ok: true, collegeSubjectId: explicit };
+  const branchIds = new Set<string>();
+  for (const rid of roomIds) {
+    const r = rooms.find((x) => x.id === rid);
+    const cid = r?.college_subject_id?.trim();
+    if (cid && /^\d+$/.test(cid)) branchIds.add(cid);
+  }
+  if (branchIds.size === 1) return { ok: true, collegeSubjectId: [...branchIds][0]! };
+  if (branchIds.size === 0) {
+    return {
+      ok: false,
+      message:
+        "المادة مشتركة على مستوى الكلية: بعد اختيار القاعات الامتحانية يُستنتج القسم/الفرع منها تلقائيًا. تأكد من اختيار قاعة واحدة على الأقل.",
+    };
+  }
+  return {
+    ok: false,
+    message:
+      "القاعات المختارة تتبع أكثر من فرع. اختر قاعات من فرع واحد، أو حدد القسم/الفرع يدويًا من القائمة بدل «كل الفروع».",
+  };
+}
+
 function suggestedAcademicYear() {
   const d = new Date();
   const y = d.getFullYear();
@@ -577,8 +609,16 @@ export function ExamSchedulesPanel({
     if (!stageOptionsForForm.includes(stageN)) return "المرحلة المختارة غير متاحة لمستوى الدراسة الحالي";
     const subj = studySubjects.find((s) => s.id === form.studySubjectId);
     if (!subj) return "المادة الدراسية المحددة غير موجودة في القائمة.";
-    if (isAllCollegeBranchesChoice(form.collegeSubjectId) && !subj.college_subject_id?.trim()) {
-      return "لا يمكن تحديد القسم/الفرع من المادة المختارة.";
+    if (isAllCollegeBranchesChoice(form.collegeSubjectId)) {
+      if (form.roomIds.length > 0 || Boolean(subj.college_subject_id?.trim())) {
+        const branchRes = resolveCollegeSubjectIdForAllBranchesSchedule(
+          form.studySubjectId,
+          form.roomIds,
+          studySubjects,
+          rooms
+        );
+        if (!branchRes.ok) return branchRes.message;
+      }
     }
     if (subj.study_stage_level !== stageN) {
       return "مرحلة المادة الدراسية المختارة لا تطابق حقل المرحلة — أعد الاختيار أو غيّر المادة.";
@@ -598,9 +638,20 @@ export function ExamSchedulesPanel({
       setToast({ type: "error", msg: err });
       return;
     }
-    const resolvedCollegeSubjectId = isAllCollegeBranchesChoice(form.collegeSubjectId)
-      ? (studySubjects.find((s) => s.id === form.studySubjectId)?.college_subject_id ?? "").trim()
-      : form.collegeSubjectId.trim();
+    let resolvedCollegeSubjectId = form.collegeSubjectId.trim();
+    if (isAllCollegeBranchesChoice(form.collegeSubjectId)) {
+      const br = resolveCollegeSubjectIdForAllBranchesSchedule(
+        form.studySubjectId,
+        form.roomIds,
+        studySubjects,
+        rooms
+      );
+      if (!br.ok) {
+        setToast({ type: "error", msg: br.message });
+        return;
+      }
+      resolvedCollegeSubjectId = br.collegeSubjectId;
+    }
     if (!resolvedCollegeSubjectId) {
       setToast({ type: "error", msg: "لا يمكن تحديد القسم/الفرع للجدول." });
       return;
@@ -1098,8 +1149,8 @@ export function ExamSchedulesPanel({
                   <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
                     {isAllCollegeBranchesChoice(form.collegeSubjectId)
                       ? form.studyTier === "POSTGRAD"
-                        ? "تُعرض مواد الدراسات العليا من جميع أقسام/فروع التشكيل."
-                        : "تُعرض مواد الدراسة الأولية من جميع أقسام/فروع التشكيل."
+                        ? "تُعرض مواد الدراسات العليا من جميع أقسام/فروع التشكيل. للمواد المشتركة على مستوى الكلية يُستنتج القسم/الفرع عند الحفظ من القاعات المختارة (فرع واحد)."
+                        : "تُعرض مواد الدراسة الأولية من جميع أقسام/فروع التشكيل. للمواد المشتركة على مستوى الكلية يُستنتج القسم/الفرع عند الحفظ من القاعات المختارة (فرع واحد)."
                       : form.studyTier === "POSTGRAD"
                         ? "تُعرض فقط المواد المعرّفة كدراسات عليا (دبلوم عالي / ماجستير / دكتوراه) ضمن القسم المختار."
                         : "تُعرض فقط المواد المعرّفة للدراسة الأولية ضمن القسم المختار."}
