@@ -105,6 +105,24 @@ function formatDuration(minutes: number) {
   return `${m} دقيقة`;
 }
 
+/** يطابق منطق الخادم: اعتماد الموقف من القسم/الفرع + اكتمال الحضور/الغياب والدفاتر الامتحانية. */
+function roomSituationFullyComplete(s: ExamSituationDetail): boolean {
+  return s.dean_status === "APPROVED" && s.is_complete;
+}
+
+function roomSituationCompletionHint(s: ExamSituationDetail): string {
+  if (roomSituationFullyComplete(s)) {
+    return "مكتمل: تم اعتماد الموقف من القسم/الفرع، وأُدخلت أعداد الحضور والغياب والدفاتر الامتحانية بشكل صحيح ومطابق للسعة.";
+  }
+  if (s.dean_status === "REJECTED") {
+    return "غير مكتمل: الموقف مرفوض من الاعتماد — راجع القسم/الفرع.";
+  }
+  if (s.dean_status !== "APPROVED") {
+    return "غير مكتمل: لم يُعتمد الموقف بعد من صفحة هذه القاعة (زر اعتماد الموقف)، أو بانتظار الاعتماد.";
+  }
+  return "غير مكتمل: وُسِم الموقف معتمدًا لكن بيانات الحضور والغياب أو أسماء الغياب أو الدفاتر الامتحانية ناقصة أو لا تطابق السعة والقواعد.";
+}
+
 /** عدّ الأسماء من أسطر أو فواصل (إنجليزية/عربية/فاصلة منقوطة). */
 function countParsedAbsenceNames(text: string): number {
   const raw = text.trim();
@@ -1062,24 +1080,55 @@ export function SituationDetailClient({
             <p className="mb-2 text-sm font-extrabold" style={{ color: PRIMARY }}>
               نفس المادة والوقت — موزّعة على {bundle.sessions.length} قاعة
             </p>
-            <p className="mb-3 text-xs text-slate-600">
+            <p className="mb-2 text-xs text-slate-600">
               اختر القاعة لتعديل حضورها وغيابها. الإجمالي أدناه يجمع كل القاعات المرتبطة بهذه الجلسة.
             </p>
+            <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] font-semibold leading-relaxed text-slate-600">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block size-2.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                <span className="text-emerald-800">مكتمل: اعتماد + حضور/غياب + دفاتر صحيحة</span>
+              </span>
+              <span className="text-slate-400" aria-hidden>
+                |
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block size-2.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+                <span className="text-amber-900">غير مكتمل: بانتظار الاعتماد أو بيانات ناقصة/خاطئة</span>
+              </span>
+            </p>
             <div className="flex flex-wrap gap-2">
-              {bundle.sessions.map((s) => (
-                <button
-                  key={s.schedule_id}
-                  type="button"
-                  onClick={() => setActiveScheduleId(s.schedule_id)}
-                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
-                    s.schedule_id === activeScheduleId
-                      ? "border-[#1E3A8A] bg-[#EFF6FF] text-[#1E3A8A]"
-                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
-                  }`}
-                >
-                  {s.room_name.trim() || "قاعة"}
-                </button>
-              ))}
+              {bundle.sessions.map((s) => {
+                const complete = roomSituationFullyComplete(s);
+                const active = s.schedule_id === activeScheduleId;
+                return (
+                  <button
+                    key={s.schedule_id}
+                    type="button"
+                    title={roomSituationCompletionHint(s)}
+                    onClick={() => setActiveScheduleId(s.schedule_id)}
+                    className={`inline-flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-start text-xs font-bold transition ${
+                      active
+                        ? "border-[#1E3A8A] bg-[#EFF6FF] text-[#1E3A8A] ring-2 ring-[#1E3A8A]/25"
+                        : complete
+                          ? "border-emerald-300 bg-emerald-50/90 text-emerald-950 hover:border-emerald-400"
+                          : "border-amber-300 bg-amber-50/85 text-amber-950 hover:border-amber-400"
+                    }`}
+                  >
+                    <span
+                      className={`size-2 shrink-0 rounded-full ${complete ? "bg-emerald-500" : "bg-amber-500"}`}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{s.room_name.trim() || "قاعة"}</span>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold ${
+                        complete ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                      }`}
+                    >
+                      {complete ? "مكتمل" : "غير مكتمل"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
