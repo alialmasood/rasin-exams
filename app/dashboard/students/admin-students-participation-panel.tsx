@@ -4,11 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import type { AdminExamParticipationRow } from "@/lib/admin-exam-participation-report";
 import {
   buildParticipationReportPrintHtml,
+  buildParticipationReportPrintHtmlAllFormationsOneDay,
   exportParticipationExcel,
+  exportParticipationExcelAllFormationsOneDay,
   participationExportNowLabel,
   printParticipationReportHtml,
   type ParticipationExcelDeptBlock,
   type ParticipationExcelRow,
+  type ParticipationUnifiedExportRow,
 } from "@/lib/admin-exam-participation-export";
 import { groupExamScheduleRowsIntoSessions } from "@/lib/exam-schedule-logical-group";
 import { fetchAdminExamParticipationAction } from "./actions";
@@ -257,6 +260,32 @@ function buildFormationBlocks(rows: AdminExamParticipationRow[]): FormationBlock
   });
 }
 
+function buildUnifiedRowsForAllFormationsOneDay(
+  blocks: FormationBlock[],
+  examDate: string
+): ParticipationUnifiedExportRow[] {
+  const out: ParticipationUnifiedExportRow[] = [];
+  let seq = 1;
+  const sortedBlocks = [...blocks].sort((a, b) => a.formationLabel.localeCompare(b.formationLabel, "ar"));
+  for (const b of sortedBlocks) {
+    const day = b.dates.find((d) => d.examDate === examDate);
+    if (!day) continue;
+    const sortedDepts = [...day.departments].sort((a, x) => a.deptName.localeCompare(x.deptName, "ar"));
+    for (const dep of sortedDepts) {
+      for (const s of dep.sessions) {
+        const row = sessionToExcelRow(seq, examDate, s);
+        seq += 1;
+        out.push({
+          التشكيل: b.formationLabel,
+          "القسم / الفرع": dep.deptName,
+          ...row,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function workflowBadgeClass(st: AdminExamParticipationRow["workflow_status"]) {
   if (st === "APPROVED" || st === "SUBMITTED") return "bg-emerald-100 text-emerald-900 ring-emerald-200";
   if (st === "REJECTED") return "bg-red-100 text-red-900 ring-red-200";
@@ -305,6 +334,25 @@ export function AdminStudentsParticipationPanel({ initialRows }: Props) {
   const [openDepts, setOpenDepts] = useState<Set<string>>(() => new Set());
   const [exportBusyKey, setExportBusyKey] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const examDatesSorted = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (r.exam_date?.trim()) s.add(r.exam_date.trim());
+    }
+    return [...s].sort((a, b) => b.localeCompare(a));
+  }, [rows]);
+
+  const [globalExportDate, setGlobalExportDate] = useState("");
+  useEffect(() => {
+    if (examDatesSorted.length === 0) {
+      setGlobalExportDate("");
+      return;
+    }
+    if (!globalExportDate || !examDatesSorted.includes(globalExportDate)) {
+      setGlobalExportDate(examDatesSorted[0]!);
+    }
+  }, [examDatesSorted, globalExportDate]);
 
   const refresh = useCallback(() => {
     startTransition(async () => {
@@ -475,13 +523,63 @@ export function AdminStudentsParticipationPanel({ initialRows }: Props) {
     }
   }, []);
 
+  const onExportAllFormationsOneDayXlsx = useCallback(async () => {
+    const d = globalExportDate.trim();
+    if (!d) {
+      window.alert("اختر تاريخ اليوم الامتحاني أولاً.");
+      return;
+    }
+    const key = `global|day-xlsx|${d}`;
+    setExportBusyKey(key);
+    try {
+      const unified = buildUnifiedRowsForAllFormationsOneDay(blocks, d);
+      if (unified.length === 0) {
+        window.alert("لا توجد جلسات في اليوم المحدد ضمن البيانات الحالية (بعد التصفية إن وُجدت).");
+        return;
+      }
+      await exportParticipationExcelAllFormationsOneDay({ examDate: d, rows: unified });
+    } catch {
+      window.alert("تعذر تصدير ملف Excel. أعد المحاولة.");
+    } finally {
+      setExportBusyKey(null);
+    }
+  }, [blocks, globalExportDate]);
+
+  const onExportAllFormationsOneDayPdf = useCallback(() => {
+    const d = globalExportDate.trim();
+    if (!d) {
+      window.alert("اختر تاريخ اليوم الامتحاني أولاً.");
+      return;
+    }
+    const key = `global|day-pdf|${d}`;
+    setExportBusyKey(key);
+    try {
+      const unified = buildUnifiedRowsForAllFormationsOneDay(blocks, d);
+      if (unified.length === 0) {
+        window.alert("لا توجد جلسات في اليوم المحدد ضمن البيانات الحالية (بعد التصفية إن وُجدت).");
+        return;
+      }
+      const html = buildParticipationReportPrintHtmlAllFormationsOneDay({
+        examDate: d,
+        scopeTitleAr: `يوم الامتحان: ${d} (${weekdayAr(d)}) — جميع التشكيلات — ${unified.length} جلسة`,
+        rows: unified,
+        generatedLabel: participationExportNowLabel(),
+      });
+      const ok = printParticipationReportHtml(html);
+      if (!ok) window.alert("تعذّر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة أو جرّب متصفحاً آخر.");
+    } finally {
+      setExportBusyKey(null);
+    }
+  }, [blocks, globalExportDate]);
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-6">
       <header className="space-y-1">
         <h1 className="text-3xl font-bold text-[#0F172A]">مشاركة الطلبة في الامتحان</h1>
         <p className="text-base text-[#64748B]">
           عرض منظم حسب التشكيل، ثم اليوم الامتحاني، ثم القسم (الفرع). لكل جلسة: المقاعد، الحضور، الغياب، وأسماء الغائبين عند
-          التوفر. التصدير: Excel أو PDF رسمي (A4 أفقي) ليوم محدد أو لجميع أيام التشكيل.
+          التوفر. التصدير: Excel أو PDF رسمي (A4 أفقي) ليوم محدد أو لجميع أيام التشكيل، أو تقرير موحّد ليوم واحد يشمل{" "}
+          <strong className="text-[#334155]">كل التشكيلات</strong> بنفس تفاصيل الأعمدة مع عمودي التشكيل والقسم.
         </p>
       </header>
 
@@ -537,6 +635,53 @@ export function AdminStudentsParticipationPanel({ initialRows }: Props) {
           غياب: <strong>{stats.abs}</strong>
         </span>
       </div>
+
+      {examDatesSorted.length > 0 ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/50 p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="global-export-exam-date" className="mb-1 block text-sm font-bold text-[#1E3A8A]">
+              تصدير موحّد — جميع التشكيلات (يوم امتحاني واحد)
+            </label>
+            <p className="mb-2 text-[11px] leading-relaxed text-[#475569]">
+              نفس أعمدة تقرير التشكيل (المادة، الوقت، القاعة، المقاعد، الحضور، الغياب، أسماء الغائبين، النوع، العام الدراسي، حالة
+              الجدول…) مع إضافة عمود <strong>التشكيل</strong> وعمود <strong>القسم / الفرع</strong>. يُحترم البحث الحالي: إن وُجد
+              نص بحث يُصدَّر فقط ما يظهر في القائمة.
+            </p>
+            <select
+              id="global-export-exam-date"
+              value={globalExportDate}
+              onChange={(e) => setGlobalExportDate(e.target.value)}
+              className="w-full max-w-md rounded-lg border border-[#93C5FD] bg-white px-3 py-2 text-sm font-semibold text-[#0F172A] outline-none ring-[#2563EB]/20 focus:ring-2 sm:w-auto"
+            >
+              {examDatesSorted.map((dt) => (
+                <option key={dt} value={dt}>
+                  {dt} ({weekdayAr(dt)})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!globalExportDate || exportBusyKey === `global|day-pdf|${globalExportDate}`}
+              onClick={() => onExportAllFormationsOneDayPdf()}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#1E3A8A]/40 bg-white px-4 py-2.5 text-sm font-bold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-50"
+              title="تقرير PDF — A4 أفقي — اليوم المحدد لكل التشكيلات"
+            >
+              {exportBusyKey === `global|day-pdf|${globalExportDate}` ? "جاري…" : "PDF — كل التشكيلات (اليوم)"}
+            </button>
+            <button
+              type="button"
+              disabled={!globalExportDate || exportBusyKey === `global|day-xlsx|${globalExportDate}`}
+              onClick={() => void onExportAllFormationsOneDayXlsx()}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-800/30 bg-white px-4 py-2.5 text-sm font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50"
+              title="Excel — جدول واحد — اليوم المحدد لكل التشكيلات"
+            >
+              {exportBusyKey === `global|day-xlsx|${globalExportDate}` ? "جاري التحميل…" : "Excel — كل التشكيلات (اليوم)"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {blocks.length === 0 ? (
         <p className="rounded-xl border border-dashed border-[#CBD5E1] bg-white px-4 py-10 text-center text-base text-[#64748B]">

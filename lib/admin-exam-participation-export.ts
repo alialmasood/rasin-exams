@@ -19,6 +19,12 @@ export type ParticipationExcelRow = {
   "عدد قاعات الجلسة": number;
 };
 
+/** صف موحّد: يوم واحد لجميع التشكيلات — نفس أعمدة الجلسة مع التشكيل والقسم */
+export type ParticipationUnifiedExportRow = ParticipationExcelRow & {
+  التشكيل: string;
+  "القسم / الفرع": string;
+};
+
 export type ParticipationExcelDeptBlock = {
   deptName: string;
   rows: ParticipationExcelRow[];
@@ -95,6 +101,28 @@ export async function exportParticipationExcel(input: ParticipationExcelInput): 
 
   const fileBase = safeFilenamePart(`${input.formationLabel}-${input.ownerUsername}-${input.scopeSlug}`, 120);
   xlsx.writeFile(wb, `musharaka-${fileBase}.xlsx`);
+}
+
+/**
+ * Excel واحد ليوم امتحاني واحد — جميع التشكيلات، جدول واحد (أعمدة التشكيل والقسم ثم بقية التفاصيل).
+ */
+export async function exportParticipationExcelAllFormationsOneDay(input: {
+  examDate: string;
+  rows: ParticipationUnifiedExportRow[];
+}): Promise<void> {
+  const xlsx = await import("xlsx");
+  const wb = xlsx.utils.book_new();
+  const used = new Set<string>();
+  const sheetName = excelSheetNameSafe(`يوم-${input.examDate}`, used);
+  const ws = xlsx.utils.json_to_sheet(
+    input.rows.length
+      ? input.rows
+      : [{ ملاحظة: "لا توجد جلسات في اليوم المحدد ضمن البيانات الحالية" }]
+  );
+  applyLargerRowHeights(ws, xlsx);
+  xlsx.utils.book_append_sheet(wb, ws, sheetName);
+  const base = safeFilenamePart(`كل-التشكيلات-${input.examDate}`, 100);
+  xlsx.writeFile(wb, `musharaka-${base}.xlsx`);
 }
 
 /** مدخلات الطباعة / PDF: نفس بيانات Excel مع عنوان النطاق بالعربية للتقرير الرسمي */
@@ -294,6 +322,172 @@ export function buildParticipationReportPrintHtml(
     صدور التقرير: <span class="mono">${e(generatedLabel)}</span>
   </p>
   ${deptSections}
+  <div class="footer">
+    ورق بحجم A4 (وضع أفقي / عرضي) — يُحفظ كملف PDF من نافذة الطباعة عند اختيار «حفظ كـ PDF» أو الطابعة المناسبة.
+  </div>
+  </body>
+</html>`;
+}
+
+/** تقرير PDF/طباعة — يوم واحد، جميع التشكيلات، جدول واحد بنفس تفاصيل أعمدة التشكيل الواحد + التشكيل والقسم */
+export function buildParticipationReportPrintHtmlAllFormationsOneDay(opts: {
+  examDate: string;
+  scopeTitleAr: string;
+  rows: ParticipationUnifiedExportRow[];
+  generatedLabel: string;
+}): string {
+  const e = escapeHtml;
+  const logoSrc = "/uob-logo.png";
+
+  const bodyRows =
+    opts.rows.length === 0
+      ? `<tr><td colspan="17" class="muted">لا توجد بيانات في نطاق التقرير المحدد.</td></tr>`
+      : opts.rows
+          .map((r) => {
+            const termYear =
+              [r["عام دراسي"], r["فصل"]].filter((x) => x && String(x).trim() && x !== "—").join(" · ") || "—";
+            return `<tr>
+            <td class="num">${r["#"]}</td>
+            <td class="formation">${e(r["التشكيل"])}</td>
+            <td class="dept">${e(r["القسم / الفرع"])}</td>
+            <td class="num">${e(r.التاريخ)}</td>
+            <td class="compact">${e(r.اليوم)}</td>
+            <td class="subj">${e(r.المادة)}</td>
+            <td class="num">${r.مرحلة}</td>
+            <td class="num nowrap">${e(r.الوقت)}</td>
+            <td class="num nowrap">${e(r.المدة)}</td>
+            <td class="room">${e(r.القاعة)}</td>
+            <td class="num">${r.مقاعد}</td>
+            <td class="num pres">${r.حضور}</td>
+            <td class="num abs">${r.غياب}</td>
+            <td class="abs-names">${e(r["أسماء الغائبين"])}</td>
+            <td class="compact">${e(r.نوع)}</td>
+            <td class="yr">${e(termYear)}</td>
+            <td class="compact">${e(r["حالة الجدول"])}</td>
+          </tr>`;
+          })
+          .join("");
+
+  return `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>تقرير مشاركة الطلبة — جميع التشكيلات — ${e(opts.examDate)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body {
+      font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+      margin: 0;
+      padding: 8mm 10mm 10mm;
+      color: #0f172a;
+      font-size: 9.5pt;
+      line-height: 1.35;
+    }
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+    .report-brand {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 3mm;
+      padding-bottom: 3mm;
+      border-bottom: 2px solid #1e3a8a;
+    }
+    .report-brand-side { font-size: 11pt; font-weight: 800; color: #1e3a8a; }
+    .report-brand-college-side { text-align: left; }
+    .report-brand-uni-side { text-align: right; }
+    .report-brand-logo { height: 52px; width: auto; max-width: 90px; object-fit: contain; }
+    h1 {
+      font-size: 13pt;
+      text-align: center;
+      margin: 0 0 1mm;
+      color: #1e3a8a;
+      font-weight: 800;
+      padding-bottom: 2mm;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .sub { text-align: center; font-size: 9.2pt; color: #475569; margin: 2mm 0 3mm; line-height: 1.5; }
+    .scope { display: block; margin-top: 1mm; font-weight: 700; color: #334155; }
+    .mono { font-family: Consolas, ui-monospace, monospace; font-size: 9pt; }
+    table.data { width: 100%; border-collapse: collapse; margin: 1mm 0; font-size: 7.3pt; table-layout: fixed; }
+    th, td {
+      border: 1px solid #94a3b8;
+      padding: 2px 3px;
+      text-align: right;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+    th {
+      background: #e2e8f0;
+      font-weight: 800;
+      color: #1e293b;
+      font-size: 7.5pt;
+    }
+    td.num { text-align: center; font-variant-numeric: tabular-nums; }
+    td.compact { font-size: 7pt; }
+    td.nowrap { white-space: nowrap; }
+    td.subj { font-weight: 700; font-size: 7.4pt; }
+    td.room { font-size: 7pt; }
+    td.formation { font-weight: 700; font-size: 7.2pt; color: #1e3a8a; }
+    td.dept { font-size: 7.1pt; color: #334155; }
+    td.pres { color: #065f46; font-weight: 700; }
+    td.abs { color: #92400e; font-weight: 700; }
+    td.abs-names { font-size: 6.9pt; line-height: 1.3; color: #334155; }
+    td.yr { font-size: 7pt; }
+    .muted { color: #64748b; text-align: center; }
+    .footer {
+      margin-top: 4mm;
+      padding-top: 2mm;
+      border-top: 1px solid #cbd5e1;
+      font-size: 8.5pt;
+      color: #64748b;
+      text-align: center;
+    }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <div class="report-brand" dir="ltr">
+    <div class="report-brand-side report-brand-college-side">تقرير مشاركة الطلبة في الامتحان</div>
+    <div style="text-align:center"><img class="report-brand-logo" src="${e(logoSrc)}" alt="" /></div>
+    <div class="report-brand-side report-brand-uni-side">جامعة البصرة</div>
+  </div>
+  <h1>مشاركة الطلبة في الامتحان — جميع التشكيلات</h1>
+  <p class="sub">
+    <span class="scope">${e(opts.scopeTitleAr)}</span>
+    <br />
+    صدور التقرير: <span class="mono">${e(opts.generatedLabel)}</span>
+  </p>
+  <table class="data">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>التشكيل</th>
+        <th>القسم / الفرع</th>
+        <th>التاريخ</th>
+        <th>اليوم</th>
+        <th>المادة</th>
+        <th>مرحلة</th>
+        <th>الوقت</th>
+        <th>المدة</th>
+        <th>القاعة</th>
+        <th>مقاعد</th>
+        <th>حضور</th>
+        <th>غياب</th>
+        <th>أسماء الغائبين</th>
+        <th>نوع الامتحان</th>
+        <th>عام / فصل</th>
+        <th>حالة الجدول</th>
+      </tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
   <div class="footer">
     ورق بحجم A4 (وضع أفقي / عرضي) — يُحفظ كملف PDF من نافذة الطباعة عند اختيار «حفظ كـ PDF» أو الطابعة المناسبة.
   </div>
