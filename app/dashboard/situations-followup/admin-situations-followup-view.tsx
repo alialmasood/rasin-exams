@@ -106,7 +106,7 @@ type FormationFollowupCompletion = {
   total: number;
 };
 
-/** اكتمال مصادقة العميد واعتماد القسم — لكل مالك بيانات ضمن الصفوف المعروضة */
+/** اكتمال مصادقة العميد واعتماد القسم — لكل مالك بيانات ضمن الصفوف الممرَّرة (مثلاً جلسات يوم واحد) */
 function computeFormationFollowupCompletionByOwner(rows: AdminOfficialSituationFollowupRow[]) {
   const byOwner = new Map<string, AdminOfficialSituationFollowupRow[]>();
   for (const r of rows) {
@@ -245,7 +245,12 @@ export function AdminSituationsFollowupView({
   );
   const stats = computeStats(rows);
   const mealFormationStats = useMemo(() => computeFormationMealSlotBreakdown(rows), [rows]);
-  const formationFollowupCompletion = useMemo(() => computeFormationFollowupCompletionByOwner(rows), [rows]);
+  /** شارات التشكيل: فقط جلسات «اليوم» بتوقيت بغداد — لا تربط بتاريخ تقرير مخصص ولا بفلاتر العرض */
+  const formationFollowupCompletionToday = useMemo(() => {
+    const day = todayBaghdadIso.trim();
+    const todayRows = day ? allRows.filter((r) => r.exam_date.trim() === day) : [];
+    return computeFormationFollowupCompletionByOwner(todayRows);
+  }, [allRows, todayBaghdadIso]);
   const { byDate, dates } = buildGroups(rows);
   const navigator = buildNavigator(rows);
   const examTodaySet = useMemo(() => new Set(ownerUserIdsWithExamToday), [ownerUserIdsWithExamToday]);
@@ -323,7 +328,9 @@ export function AdminSituationsFollowupView({
           <h2 className="text-base font-extrabold text-[#0F172A]">التنقل الذكي حسب التشكيل / القسم / اليوم</h2>
           <p className="mt-1 text-xs text-[#64748B]">
             افتح التشكيل، ثم اختر القسم/الفرع واليوم الامتحاني للانتقال مباشرة إلى السجلات المطابقة داخل الصفحة. تُحسب
-            شارات «مصادقة العميد» و«اعتماد القسم» على الجلسات الظاهرة حالياً (مع الفلاتر والبحث).
+            شارات «مصادقة العميد» و«اعتماد القسم» تخصّ جلسات{" "}
+            <strong className="font-semibold text-[#475569]">اليوم الامتحاني بتوقيت بغداد</strong> فقط ({todayBaghdadIso})،
+            ضمن نتيجة البحث الحالية — بغض النظر عن فلاتر العرض أو تاريخ التقرير المخصص.
           </p>
           <div className="mt-3 space-y-2">
             {navigator.map((formation) => (
@@ -359,7 +366,7 @@ export function AdminSituationsFollowupView({
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                       {(() => {
-                        const fc = formationFollowupCompletion.get(formation.ownerUserId);
+                        const fc = formationFollowupCompletionToday.get(formation.ownerUserId);
                         if (!fc || fc.total === 0) return null;
                         return (
                           <>
@@ -369,7 +376,7 @@ export function AdminSituationsFollowupView({
                                   ? "inline-flex h-7 items-center rounded-md border border-sky-300 bg-sky-50 px-2 text-[9px] font-extrabold leading-tight text-sky-950 whitespace-nowrap"
                                   : "inline-flex h-7 items-center rounded-md border border-slate-300 bg-slate-50 px-2 text-[9px] font-bold leading-tight text-slate-700 whitespace-nowrap"
                               }
-                              title={`تأكيد رفع الموقف من حساب العميد: ${formatNum(fc.deanDone)} من ${formatNum(fc.total)} جلسة ضمن العرض الحالي`}
+                              title={`تأكيد رفع الموقف من حساب العميد ليوم ${todayBaghdadIso} (بغداد): ${formatNum(fc.deanDone)} من ${formatNum(fc.total)} جلسة`}
                               role="status"
                             >
                               {fc.fullDean ? "مصادقة العميد: كاملة" : "مصادقة العميد: ناقصة"}
@@ -380,7 +387,7 @@ export function AdminSituationsFollowupView({
                                   ? "inline-flex h-7 items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 text-[9px] font-extrabold leading-tight text-emerald-950 whitespace-nowrap"
                                   : "inline-flex h-7 items-center rounded-md border border-amber-300 bg-amber-50 px-2 text-[9px] font-bold leading-tight text-amber-950 whitespace-nowrap"
                               }
-                              title={`اعتماد رئيس القسم/الفرع (معتمد): ${formatNum(fc.deptApproved)} من ${formatNum(fc.total)} جلسة ضمن العرض الحالي`}
+                              title={`اعتماد رئيس القسم/الفرع (معتمد) ليوم ${todayBaghdadIso} (بغداد): ${formatNum(fc.deptApproved)} من ${formatNum(fc.total)} جلسة`}
                               role="status"
                             >
                               {fc.fullDept ? "اعتماد القسم: كامل" : "اعتماد القسم: ناقص"}
