@@ -166,6 +166,7 @@ function IconCog() {
 
 export const dashboardNavItems: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: <IconDashboard /> },
+  { href: "/dashboard/today-exams", label: "امتحانات اليوم", icon: <IconCalendar /> },
   { href: "/dashboard/situations-followup", label: "متابعة المواقف", icon: <IconClipboardList /> },
   { href: "/dashboard/exams", label: "الامتحانات", icon: <IconBook /> },
   { href: "/dashboard/students", label: "الطلاب", icon: <IconUsers /> },

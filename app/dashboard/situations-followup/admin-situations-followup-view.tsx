@@ -160,11 +160,17 @@ export function AdminSituationsFollowupView({
   availableExamDates,
   defaultExamDate,
   queryText = "",
+  todayBaghdadIso,
+  ownerUserIdsWithExamToday,
 }: {
   rows: AdminOfficialSituationFollowupRow[];
   availableExamDates: string[];
   defaultExamDate: string;
   queryText?: string;
+  /** تاريخ اليوم بتوقيت بغداد (YYYY-MM-DD) — يُحسب على الخادم لكل طلب */
+  todayBaghdadIso: string;
+  /** مالكو التشكيلات الذين لديهم جدول امتحان في `todayBaghdadIso` */
+  ownerUserIdsWithExamToday: string[];
 }) {
   const [deanAuthFilter, setDeanAuthFilter] = useState<"ALL" | "AUTHED" | "NOT_AUTHED">("ALL");
   const [deptApprovalFilter, setDeptApprovalFilter] = useState<"ALL" | "APPROVED" | "NOT_APPROVED">("ALL");
@@ -185,6 +191,7 @@ export function AdminSituationsFollowupView({
   const stats = computeStats(rows);
   const { byDate, dates } = buildGroups(rows);
   const navigator = buildNavigator(rows);
+  const examTodaySet = useMemo(() => new Set(ownerUserIdsWithExamToday), [ownerUserIdsWithExamToday]);
 
   return (
     <div id="top" className="mx-auto max-w-6xl space-y-8 px-4 py-6" dir="rtl">
@@ -247,7 +254,13 @@ export function AdminSituationsFollowupView({
               <details key={formation.formationLabel} className="rounded-xl border border-[#E2E8F0] bg-[#FAFBFC]">
                 <summary className="cursor-pointer list-none px-3 py-2 text-sm font-bold text-[#1E3A8A]">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
+                    <div
+                      title={
+                        examTodaySet.has(formation.ownerUserId)
+                          ? `يوجد جدول امتحان مجدول اليوم (${todayBaghdadIso} بتوقيت بغداد)`
+                          : `لا يوجد جدول امتحان مجدول اليوم (${todayBaghdadIso} بتوقيت بغداد)`
+                      }
+                    >
                       {formation.formationLabel}
                       <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
                         ({formatNum(formation.totalRows)} موقفاً · {formatNum(formation.branches.length)} قسم/فرع)
@@ -257,7 +270,7 @@ export function AdminSituationsFollowupView({
                       method="get"
                       action="/dashboard/situations-followup/custom-report"
                       target="_blank"
-                      className="flex items-center gap-1"
+                      className="flex flex-wrap items-center gap-1"
                     >
                       <input type="hidden" name="ownerUserId" value={formation.ownerUserId} />
                       <select
@@ -282,6 +295,15 @@ export function AdminSituationsFollowupView({
                         تقرير مخصص
                       </button>
                     </form>
+                    {examTodaySet.has(formation.ownerUserId) ? (
+                      <span
+                        className="inline-flex max-w-[11rem] items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold leading-tight text-emerald-900"
+                        title={`يوجد جدول امتحان مجدول لهذا التشكيل في ${todayBaghdadIso} (اليوم بتوقيت بغداد)`}
+                        role="status"
+                      >
+                        امتحان اليوم
+                      </span>
+                    ) : null}
                   </div>
                 </summary>
                 <div className="space-y-2 border-t border-[#E2E8F0] px-3 py-2">

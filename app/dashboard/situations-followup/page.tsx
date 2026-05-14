@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { listAllOfficialExamSituationsForAdmin } from "@/lib/college-exam-situations";
+import { listCollegeOwnerUserIdsWithExamScheduledOnDate } from "@/lib/college-exam-schedules";
 import { getSession } from "@/lib/session";
 import { AdminSituationsFollowupView } from "./admin-situations-followup-view";
 
@@ -58,6 +59,7 @@ export default async function SituationsFollowupHubPage({
   );
   const today = baghdadIsoDateNow();
   const defaultExamDate = availableExamDates.includes(today) ? today : (availableExamDates[0] ?? today);
+  const ownerUserIdsWithExamToday = await listCollegeOwnerUserIdsWithExamScheduledOnDate(today);
 
   return (
     <AdminSituationsFollowupView
@@ -65,6 +67,8 @@ export default async function SituationsFollowupHubPage({
       availableExamDates={availableExamDates}
       defaultExamDate={defaultExamDate}
       queryText={qRaw}
+      todayBaghdadIso={today}
+      ownerUserIdsWithExamToday={ownerUserIdsWithExamToday}
     />
   );
 }
