@@ -7,7 +7,11 @@ import {
   updateCollegeExamRoom,
   type ShiftAttendanceSplit,
 } from "@/lib/college-rooms";
-import { createCollegeRoomDefinitions } from "@/lib/college-room-definitions";
+import {
+  createCollegeRoomDefinitions,
+  deleteCollegeRoomDefinition,
+  updateCollegeRoomDefinition,
+} from "@/lib/college-room-definitions";
 import {
   COLLEGE_BRANCH_ALL_SENTINEL,
   normalizeCollegeRoomDefinitionName,
@@ -15,7 +19,11 @@ import {
 import { listCollegeSubjectsByOwner } from "@/lib/college-subjects";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
-import { effectiveCollegeSubjectIdForMutation, getCollegePortalDataOwnerUserId } from "@/lib/college-portal-scope";
+import {
+  departmentCanAccessCollegeSubjectRow,
+  effectiveCollegeSubjectIdForMutation,
+  getCollegePortalDataOwnerUserId,
+} from "@/lib/college-portal-scope";
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
 
@@ -117,6 +125,27 @@ function mergeAbsenceNames(morning: string, evening: string): string {
   if (!e) return m;
   if (!m) return e;
   return `${m}\n--- دوام مسائي ---\n${e}`;
+}
+
+async function fetchRoomDefinitionBranchForOwnerGuard(
+  ownerUserId: string,
+  definitionId: string
+): Promise<{ ok: true; branchId: string } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  const pool = getDbPool();
+  const r = await pool.query<{ college_subject_id: string }>(
+    `SELECT college_subject_id::text AS college_subject_id
+     FROM college_room_definitions
+     WHERE id = $1::bigint AND owner_user_id = $2
+     LIMIT 1`,
+    [definitionId.trim(), ownerUserId]
+  );
+  if ((r.rowCount ?? 0) === 0) {
+    return { ok: false, message: "سجل التعريف غير موجود أو لا تملك صلاحية الوصول إليه." };
+  }
+  const branchId = String(r.rows[0]?.college_subject_id ?? "").trim();
+  if (!/^\d+$/.test(branchId)) return { ok: false, message: "بيانات التعريف غير صالحة." };
+  return { ok: true, branchId };
 }
 
 const MAX_ROOMS_BULK = 80;
@@ -376,6 +405,71 @@ export async function defineCollegeRoomDefinitionsAction(
     ok: true,
     message: notes.length > 0 ? `${lead}، مع تجاهل ${notes.join("، ")}.` : lead + ".",
   };
+}
+
+export async function updateCollegeRoomDefinitionAction(
+  _prev: CollegeRoomDefinitionsActionState,
+  formData: FormData
+): Promise<CollegeRoomDefinitionsActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const id = fdStr(formData, "id").trim();
+  const newRoomName = fdStr(formData, "new_room_name");
+  if (!id || !/^\d+$/.test(id)) return { ok: false, message: "معرّف التعريف غير صالح." };
+  const branchProbe = await fetchRoomDefinitionBranchForOwnerGuard(ownerUserId, id);
+  if (!branchProbe.ok) return branchProbe;
+  if (!departmentCanAccessCollegeSubjectRow(session, branchProbe.branchId)) {
+    return { ok: false, message: "غير مصرح بتعديل تعريفات قاعات قسم آخر." };
+  }
+  const result = await updateCollegeRoomDefinition({
+    ownerUserId,
+    definitionId: id,
+    newRoomNameRaw: newRoomName,
+  });
+  if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "update",
+    resource: "room_definition",
+    summary: `تعديل اسم قاعة في السجل المرجعي (المعرّف ${id}).`,
+    details: { roomDefinitionId: id },
+  });
+  revalidateCollegePortalSegment("rooms-management");
+  return { ok: true, message: "تم تحديث اسم القاعة وتطبيقه على السجلات المرتبطة (بما فيها القديمة)." };
+}
+
+export async function deleteCollegeRoomDefinitionAction(
+  _prev: CollegeRoomDefinitionsActionState,
+  formData: FormData
+): Promise<CollegeRoomDefinitionsActionState> {
+  const session = await getSession();
+  if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const ownerUserId = await getCollegePortalDataOwnerUserId(session);
+  if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
+  const id = fdStr(formData, "id").trim();
+  if (!id || !/^\d+$/.test(id)) return { ok: false, message: "معرّف التعريف غير صالح." };
+  const branchProbe = await fetchRoomDefinitionBranchForOwnerGuard(ownerUserId, id);
+  if (!branchProbe.ok) return branchProbe;
+  if (!departmentCanAccessCollegeSubjectRow(session, branchProbe.branchId)) {
+    return { ok: false, message: "غير مصرح بحذف تعريفات قاعات قسم آخر." };
+  }
+  const result = await deleteCollegeRoomDefinition({ ownerUserId, definitionId: id });
+  if (!result.ok) return result;
+  void recordCollegeActivityEvent({
+    ownerUserId,
+    action: "delete",
+    resource: "room_definition",
+    summary: `حذف تعريف قاعة من السجل المرجعي (المعرّف ${id})${result.removedExamRooms > 0 ? ` مع إزالة ${result.removedExamRooms} سجل قاعة امتحان مرتبط` : ""}.`,
+    details: { roomDefinitionId: id, removedExamRooms: result.removedExamRooms },
+  });
+  revalidateCollegePortalSegment("rooms-management");
+  const tail =
+    result.removedExamRooms > 0
+      ? ` كما أُزيلت ${result.removedExamRooms} سجل قاعة امتحان مطابقًا (بدون جلسات جدولة).`
+      : "";
+  return { ok: true, message: `تم حذف تعريف القاعة.${tail}` };
 }
 
 export async function createCollegeExamRoomAction(

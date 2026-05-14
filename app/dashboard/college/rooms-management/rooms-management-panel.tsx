@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
@@ -36,7 +37,9 @@ import {
   createCollegeExamRoomAction,
   defineCollegeRoomDefinitionsAction,
   deleteCollegeExamRoomAction,
+  deleteCollegeRoomDefinitionAction,
   updateCollegeExamRoomAction,
+  updateCollegeRoomDefinitionAction,
 } from "./actions";
 import { RoomReportModal } from "./room-report-modal";
 import { StudySubjectExamSelect } from "./study-subject-exam-select";
@@ -90,6 +93,90 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
     >
       {pending ? "جاري الحفظ..." : label}
     </button>
+  );
+}
+
+function SubmitButtonRow({ pending, label }: { pending: boolean; label: string }) {
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-lg bg-[#1E3A8A] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#172554] disabled:opacity-60"
+    >
+      {pending ? "…" : label}
+    </button>
+  );
+}
+
+function UpdateRoomDefinitionNameForm({
+  room,
+  onCancel,
+}: {
+  room: CollegeRoomDefinitionRow;
+  onCancel: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(updateCollegeRoomDefinitionAction, null);
+  const router = useRouter();
+  useEffect(() => {
+    if (state?.ok) {
+      onCancel();
+      router.refresh();
+    }
+  }, [state?.ok, onCancel, router]);
+  return (
+    <form action={formAction} className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <input type="hidden" name="id" value={room.id} />
+      <input
+        name="new_room_name"
+        defaultValue={room.room_name}
+        required
+        className="min-w-0 flex-1 rounded-lg border border-[#BFDBFE] bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+      />
+      <div className="flex shrink-0 items-center gap-2">
+        <SubmitButtonRow pending={pending} label="حفظ" />
+        <button
+          type="button"
+          className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs text-[#64748B]"
+          onClick={onCancel}
+        >
+          إلغاء
+        </button>
+      </div>
+      {state && !state.ok ? <p className="w-full text-xs font-semibold text-red-600">{state.message}</p> : null}
+    </form>
+  );
+}
+
+function DeleteRoomDefinitionForm({ id }: { id: string }) {
+  const [state, formAction, pending] = useActionState(deleteCollegeRoomDefinitionAction, null);
+  const router = useRouter();
+  useEffect(() => {
+    if (state?.ok) router.refresh();
+  }, [state?.ok, router]);
+  return (
+    <form
+      action={formAction}
+      className="inline"
+      onSubmit={(e) => {
+        if (
+          !confirm(
+            "حذف تعريف القاعة؟ سيتم أيضًا حذف سجلات «قاعات الامتحان» المطابقة لنفس الاسم في هذا القسم إذا لم تكن مرتبطة بجداول امتحانية."
+          )
+        ) {
+          e.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="id" value={id} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+      >
+        {pending ? "…" : "حذف"}
+      </button>
+      {state && !state.ok ? <p className="mt-1 max-w-[14rem] text-[11px] text-red-600">{state.message}</p> : null}
+    </form>
   );
 }
 
@@ -1790,6 +1877,7 @@ function RoomDefinitionsDialog({
 }) {
   const [state, formAction, pending] = useActionState(defineCollegeRoomDefinitionsAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const lockedBranchId = fixedCollegeSubjectId?.trim() || null;
   const branchLockedToDepartment = Boolean(lockedBranchId);
   const lockedBranchMeta = useMemo(
@@ -1816,6 +1904,9 @@ function RoomDefinitionsDialog({
     return [...byBranch.values()].sort((a, b) => a.branchName.localeCompare(b.branchName, "ar"));
   }, [isAllBranches, roomDefinitions]);
   useEffect(() => {
+    setEditingId(null);
+  }, [selectedCollegeSubjectId]);
+  useEffect(() => {
     if (!dialogRef.current) return;
     if (open && !dialogRef.current.open) dialogRef.current.showModal();
     if (!open && dialogRef.current.open) dialogRef.current.close();
@@ -1826,121 +1917,159 @@ function RoomDefinitionsDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="fixed inset-0 z-[100] m-auto box-border h-fit max-h-[min(90vh,100dvh)] w-[min(92vw,880px)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-[#E2E8F0] bg-white p-0 shadow-xl"
+      className="fixed inset-0 z-[100] m-auto box-border h-fit max-h-[min(90vh,100dvh)] w-[min(96vw,1020px)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-[#E2E8F0] bg-white p-0 shadow-xl"
       dir="rtl"
     >
-      <form action={formAction} className="w-full space-y-4 p-6">
+      <div className="w-full space-y-4 p-6">
         <h2 className="text-xl font-bold text-[#0F172A]">تعريف القاعات</h2>
-        <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
-          <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
-          {branchLockedToDepartment ? (
-            <>
-              <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
-              <div className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]">
-                {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : (scopedBranchName ?? "قسم حسابك الحالي")}
-              </div>
-            </>
-          ) : (
-            <>
-              <select
-                name="college_subject_id"
-                value={selectedCollegeSubjectId}
-                onChange={(e) => setSelectedCollegeSubjectId(e.target.value)}
-                required
-                className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
-              >
-                <option value="">اختر القسم/الفرع</option>
-                <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (تعميم على جميع الأقسام/الفروع)</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {roomBranchLabel(branch)}
-                  </option>
-                ))}
-              </select>
-              {isAllBranches ? (
-                <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
-                  سيُنسخ كل اسم قاعة تكتبه هنا تلقائيًا إلى كل قسم/فرع من أقسام الكلية ({branches.length} قسم/فرع).
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
+        <form action={formAction} className="space-y-4">
+          <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
+            <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
+            {branchLockedToDepartment ? (
+              <>
+                <input type="hidden" name="college_subject_id" value={lockedBranchId ?? ""} />
+                <div className="flex min-h-11 w-full items-center rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#334155]">
+                  {lockedBranchMeta ? roomBranchLabel(lockedBranchMeta) : (scopedBranchName ?? "قسم حسابك الحالي")}
+                </div>
+              </>
+            ) : (
+              <>
+                <select
+                  name="college_subject_id"
+                  value={selectedCollegeSubjectId}
+                  onChange={(e) => setSelectedCollegeSubjectId(e.target.value)}
+                  required
+                  className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-white px-3 outline-none focus:border-blue-500"
+                >
+                  <option value="">اختر القسم/الفرع</option>
+                  <option value={COLLEGE_BRANCH_ALL_SENTINEL}>كل الكلية (تعميم على جميع الأقسام/الفروع)</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {roomBranchLabel(branch)}
+                    </option>
+                  ))}
+                </select>
+                {isAllBranches ? (
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#1E3A8A]">
+                    سيُنسخ كل اسم قاعة تكتبه هنا تلقائيًا إلى كل قسم/فرع من أقسام الكلية ({branches.length} قسم/فرع).
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
 
-        <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
-          <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
-          <textarea
-            name="room_names_bulk"
-            rows={10}
-            placeholder={"قاعة 1\nقاعة 2\nقاعة 3\nمختبر الحاسوب"}
-            className="min-h-[12rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-          />
-          <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
-            عرّف جميع قاعات هذا القسم/الفرع مرة واحدة هنا. سيُوحِّد النظام الصيغ المتقاربة مثل{" "}
-            <span className="font-bold">قاعة 1</span> و<span className="font-bold">قاعة رقم 1</span> و
-            <span className="font-bold"> ق 1</span> ويمنع تكرارها في السجل المرجعي.
-          </p>
-        </div>
+          <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/80 px-4 py-3">
+            <label className="mb-1 block text-sm font-semibold text-[#1E3A8A]">أسماء القاعات (سطر لكل قاعة)</label>
+            <textarea
+              name="room_names_bulk"
+              rows={10}
+              placeholder={"قاعة 1\nقاعة 2\nقاعة 3\nمختبر الحاسوب"}
+              className="min-h-[12rem] w-full resize-y rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+            <p className="mt-2 text-[11px] font-medium leading-relaxed text-[#475569]">
+              عرّف جميع قاعات هذا القسم/الفرع مرة واحدة هنا. سيُوحِّد النظام الصيغ المتقاربة مثل{" "}
+              <span className="font-bold">قاعة 1</span> و<span className="font-bold">قاعة رقم 1</span> و
+              <span className="font-bold"> ق 1</span> ويمنع تكرارها في السجل المرجعي.
+            </p>
+          </div>
+
+          {state ? (
+            <p className={`text-sm font-semibold ${state.ok ? "text-emerald-700" : "text-red-600"}`}>{state.message}</p>
+          ) : null}
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
+              إلغاء
+            </button>
+            <SubmitButton pending={pending} label="حفظ تعريف القاعات" />
+          </div>
+        </form>
 
         <div className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-3 shadow-sm">
           <p className="text-sm font-bold text-[#0F172A]">القاعات المعرّفة حاليًا</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
+            الجدول أدناه للاطلاع والتعديل والحذف. عند التعديل يُوحَّد اسم القاعة ويُحدَّث في سجلات «قاعات الامتحان» القديمة والجديدة
+            التي تطابق نفس القاعة في هذا القسم/الفرع. الحذف يزيل التعريف وسجلات قاعات الامتحان المطابقة إن لم تكن مرتبطة بجداول
+            امتحانية.
+          </p>
           {!selectedCollegeSubjectId ? (
             <p className="mt-2 text-sm text-[#64748B]">اختر القسم/الفرع لعرض القاعات المعرّفة الحالية.</p>
-          ) : isAllBranches ? (
-            <>
-              <p className="mt-1 text-xs text-[#64748B]">
-                إجمالي السجلات في كل الكلية:{" "}
-                <span className="font-bold tabular-nums text-[#0F172A]">{visibleDefinitions.length}</span>
-              </p>
-              {definitionsPerBranchSummary && definitionsPerBranchSummary.length > 0 ? (
-                <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {definitionsPerBranchSummary.map((b) => (
-                      <div
-                        key={b.branchName}
-                        className="flex items-center justify-between rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#334155]"
-                      >
-                        <span className="truncate">{b.branchName}</span>
-                        <span className="ms-2 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-bold text-[#1E3A8A]">
-                          {b.count}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-[#64748B]">لا توجد قاعات معرّفة بعد في أيٍّ من الفروع.</p>
-              )}
-            </>
           ) : visibleDefinitions.length === 0 ? (
-            <p className="mt-2 text-sm text-[#64748B]">لا توجد قاعات معرّفة بعد لهذا القسم/الفرع.</p>
+            <p className="mt-2 text-sm text-[#64748B]">
+              {isAllBranches
+                ? "لا توجد قاعات معرّفة بعد في أيٍّ من الفروع."
+                : "لا توجد قاعات معرّفة بعد لهذا القسم/الفرع."}
+            </p>
           ) : (
             <>
-              <p className="mt-1 text-xs text-[#64748B]">
-                العدد الحالي: <span className="font-bold tabular-nums text-[#0F172A]">{visibleDefinitions.length}</span>
+              <p className="mt-2 text-xs text-[#64748B]">
+                العدد: <span className="font-bold tabular-nums text-[#0F172A]">{visibleDefinitions.length}</span>
+                {isAllBranches ? (
+                  <span className="ms-1">(عرض شامل — عمود «القسم/الفرع»)</span>
+                ) : null}
               </p>
-              <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {visibleDefinitions.map((room) => (
-                    <div key={room.id} className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#334155]">
-                      {room.room_name}
-                    </div>
-                  ))}
+              {isAllBranches && definitionsPerBranchSummary && definitionsPerBranchSummary.length > 0 ? (
+                <p className="mt-1 text-[11px] leading-relaxed text-[#475569]">
+                  ملخص حسب الفرع:{" "}
+                  {definitionsPerBranchSummary.map((b) => `${b.branchName} (${b.count})`).join(" · ")}
+                </p>
+              ) : null}
+              <div className="mt-3 overflow-hidden rounded-xl border border-[#CBD5E1] bg-white">
+                <div className="max-h-[min(52vh,24rem)] overflow-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-right text-sm">
+                    <thead className="sticky top-0 z-[1] border-b border-[#CBD5E1] bg-[#F1F5F9] text-[#0F172A]">
+                      <tr>
+                        <th className="whitespace-nowrap border-e border-[#CBD5E1] px-3 py-2.5 text-xs font-bold">م</th>
+                        {isAllBranches ? (
+                          <th className="whitespace-nowrap border-e border-[#CBD5E1] px-3 py-2.5 text-xs font-bold">
+                            القسم / الفرع
+                          </th>
+                        ) : null}
+                        <th className="min-w-[12rem] border-e border-[#CBD5E1] px-3 py-2.5 text-xs font-bold">اسم القاعة</th>
+                        <th className="w-[1%] whitespace-nowrap px-3 py-2.5 text-xs font-bold">إجراءات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E2E8F0]">
+                      {visibleDefinitions.map((room, idx) => (
+                        <tr key={room.id} className="bg-white text-[#334155] transition hover:bg-[#F8FAFC]">
+                          <td className="whitespace-nowrap border-e border-[#E2E8F0] px-3 py-2.5 text-center text-xs tabular-nums text-[#64748B]">
+                            {idx + 1}
+                          </td>
+                          {isAllBranches ? (
+                            <td className="max-w-[16rem] truncate border-e border-[#E2E8F0] px-3 py-2.5 align-middle text-xs">
+                              {room.college_subject_name}
+                            </td>
+                          ) : null}
+                          <td className="border-e border-[#E2E8F0] px-3 py-2.5 align-middle text-sm font-medium">
+                            {editingId === room.id ? (
+                              <UpdateRoomDefinitionNameForm room={room} onCancel={() => setEditingId(null)} />
+                            ) : (
+                              <span className="leading-relaxed">{room.room_name}</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2 align-top">
+                            {editingId === room.id ? null : (
+                              <div className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
+                                <button
+                                  type="button"
+                                  className="rounded-lg px-2 py-1 text-xs font-semibold text-[#1E3A8A] transition hover:bg-[#EFF6FF]"
+                                  onClick={() => setEditingId(room.id)}
+                                >
+                                  تعديل الاسم
+                                </button>
+                                <DeleteRoomDefinitionForm id={room.id} />
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </>
           )}
         </div>
-
-        {state ? (
-          <p className={`text-sm font-semibold ${state.ok ? "text-emerald-700" : "text-red-600"}`}>{state.message}</p>
-        ) : null}
-        <div className="flex items-center justify-end gap-3">
-          <button type="button" className="rounded-xl border border-[#E2E8F0] px-4 py-2 text-sm text-[#64748B]" onClick={onClose}>
-            إلغاء
-          </button>
-          <SubmitButton pending={pending} label="حفظ تعريف القاعات" />
-        </div>
-      </form>
+      </div>
     </dialog>
   );
 }

@@ -187,3 +187,184 @@ export async function resolveCollegeRoomDefinitionName(input: {
     roomNameKey: normalized.roomNameKey,
   };
 }
+
+const MAX_ROOM_NAME_CHARS = 200;
+
+export async function updateCollegeRoomDefinition(input: {
+  ownerUserId: string;
+  definitionId: string;
+  newRoomNameRaw: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  await ensureCoreSchema();
+  const defId = input.definitionId.trim();
+  if (!/^\d+$/.test(defId)) return { ok: false, message: "معرّف التعريف غير صالح." };
+  const normalized = normalizeCollegeRoomDefinitionName(input.newRoomNameRaw);
+  if (!normalized) {
+    return { ok: false, message: "اسم القاعة الجديد غير صالح (حرفان على الأقل بعد التوحيد)." };
+  }
+  if (normalized.roomName.length > MAX_ROOM_NAME_CHARS) {
+    return { ok: false, message: `اسم القاعة أطول من الحد المسموح (${MAX_ROOM_NAME_CHARS} حرفًا).` };
+  }
+  const pool = getDbPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const cur = await client.query<{ college_subject_id: string; room_name_key: string }>(
+      `SELECT college_subject_id::text AS college_subject_id, room_name_key
+       FROM college_room_definitions
+       WHERE id = $1::bigint AND owner_user_id = $2
+       LIMIT 1
+       FOR UPDATE`,
+      [defId, input.ownerUserId]
+    );
+    if ((cur.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "سجل التعريف غير موجود أو لا تملك صلاحية تعديله." };
+    }
+    const collegeSubjectId = String(cur.rows[0]?.college_subject_id ?? "").trim();
+    const oldKey = String(cur.rows[0]?.room_name_key ?? "").trim();
+    if (!collegeSubjectId || !oldKey) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "بيانات التعريف غير صالحة." };
+    }
+    if (normalized.roomNameKey !== oldKey) {
+      const dup = await client.query(
+        `SELECT 1 FROM college_room_definitions
+         WHERE owner_user_id = $1 AND college_subject_id = $2::bigint
+           AND room_name_key = $3 AND id <> $4::bigint
+         LIMIT 1`,
+        [input.ownerUserId, collegeSubjectId, normalized.roomNameKey, defId]
+      );
+      if ((dup.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          message: "يوجد تعريف آخر لنفس القاعة (بعد توحيد الصيغة) في هذا القسم/الفرع. اختر اسمًا مختلفًا.",
+        };
+      }
+    }
+    await client.query(
+      `UPDATE college_room_definitions
+       SET room_name = $3, room_name_key = $4, updated_at = NOW()
+       WHERE id = $1::bigint AND owner_user_id = $2`,
+      [defId, input.ownerUserId, normalized.roomName, normalized.roomNameKey]
+    );
+    const examRows = await client.query<{ id: string; room_name: string }>(
+      `SELECT id::text AS id, room_name
+       FROM college_exam_rooms
+       WHERE owner_user_id = $1 AND college_subject_id = $2::bigint`,
+      [input.ownerUserId, collegeSubjectId]
+    );
+    for (const er of examRows.rows) {
+      const k = normalizeCollegeRoomDefinitionName(er.room_name)?.roomNameKey;
+      if (k !== oldKey) continue;
+      await client.query(
+        `UPDATE college_exam_rooms SET room_name = $2, updated_at = NOW() WHERE id = $1::bigint AND owner_user_id = $3`,
+        [er.id.trim(), normalized.roomName, input.ownerUserId]
+      );
+    }
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (err: unknown) {
+    await client.query("ROLLBACK");
+    const code = String((err as { code?: string }).code ?? "");
+    if (code === "23505") {
+      return {
+        ok: false,
+        message: "تعارض مع تعريف موجود (مفتاح الاسم الموحّد). جرّب اسمًا مختلفًا.",
+      };
+    }
+    return { ok: false, message: "تعذر حفظ تعديل اسم القاعة." };
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteCollegeRoomDefinition(input: {
+  ownerUserId: string;
+  definitionId: string;
+}): Promise<{ ok: true; removedExamRooms: number } | { ok: false; message: string }> {
+  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
+  await ensureCoreSchema();
+  const defId = input.definitionId.trim();
+  if (!/^\d+$/.test(defId)) return { ok: false, message: "معرّف التعريف غير صالح." };
+  const pool = getDbPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const cur = await client.query<{ college_subject_id: string; room_name_key: string }>(
+      `SELECT college_subject_id::text AS college_subject_id, room_name_key
+       FROM college_room_definitions
+       WHERE id = $1::bigint AND owner_user_id = $2
+       LIMIT 1
+       FOR UPDATE`,
+      [defId, input.ownerUserId]
+    );
+    if ((cur.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "سجل التعريف غير موجود أو لا تملك صلاحية حذفه." };
+    }
+    const collegeSubjectId = String(cur.rows[0]?.college_subject_id ?? "").trim();
+    const nameKey = String(cur.rows[0]?.room_name_key ?? "").trim();
+    if (!collegeSubjectId || !nameKey) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "بيانات التعريف غير صالحة." };
+    }
+    const examRows = await client.query<{ id: string; room_name: string }>(
+      `SELECT id::text AS id, room_name
+       FROM college_exam_rooms
+       WHERE owner_user_id = $1 AND college_subject_id = $2::bigint`,
+      [input.ownerUserId, collegeSubjectId]
+    );
+    const matchingIds: string[] = [];
+    for (const er of examRows.rows) {
+      const k = normalizeCollegeRoomDefinitionName(er.room_name)?.roomNameKey;
+      if (k === nameKey) matchingIds.push(er.id.trim());
+    }
+    if (matchingIds.length > 0) {
+      const inUse = await client.query(
+        `SELECT COUNT(*)::int AS c
+         FROM college_exam_schedules
+         WHERE owner_user_id = $1 AND room_id = ANY($2::bigint[])`,
+        [input.ownerUserId, matchingIds]
+      );
+      const c = Number(inUse.rows[0]?.c ?? 0);
+      if (c > 0) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          message:
+            "تعذر الحذف: توجد جلسات في الجداول الامتحانية مرتبطة بقاعة امتحانية تحمل هذا الاسم. عدّل الجدول أو احذف تلك الجلسات أولاً ثم أعد المحاولة.",
+        };
+      }
+      await client.query(
+        `DELETE FROM college_exam_rooms
+         WHERE owner_user_id = $1 AND id = ANY($2::bigint[])`,
+        [input.ownerUserId, matchingIds]
+      );
+    }
+    const delDef = await client.query(
+      `DELETE FROM college_room_definitions WHERE id = $1::bigint AND owner_user_id = $2`,
+      [defId, input.ownerUserId]
+    );
+    if ((delDef.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, message: "تعذر حذف سجل التعريف." };
+    }
+    await client.query("COMMIT");
+    return { ok: true, removedExamRooms: matchingIds.length };
+  } catch (err: unknown) {
+    await client.query("ROLLBACK");
+    const code = String((err as { code?: string }).code ?? "");
+    if (code === "23503") {
+      return {
+        ok: false,
+        message: "تعذر الحذف بسبب ارتباطات أخرى بالقاعة. أزل الجداول أو السجلات المرتبطة أولاً.",
+      };
+    }
+    return { ok: false, message: "تعذر حذف تعريف القاعة." };
+  } finally {
+    client.release();
+  }
+}
