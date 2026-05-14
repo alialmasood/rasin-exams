@@ -76,6 +76,61 @@ function computeStats(rows: AdminOfficialSituationFollowupRow[]) {
   };
 }
 
+/** عدد التشكيلات (مالكو البيانات) حسب وجود جلسات بالوجبة الأولى و/أو الثانية ضمن الصفوف المعروضة. */
+function computeFormationMealSlotBreakdown(rows: AdminOfficialSituationFollowupRow[]) {
+  const byOwner = new Map<string, { has1: boolean; has2: boolean }>();
+  for (const r of rows) {
+    const oid = r.owner_user_id.trim();
+    if (!oid) continue;
+    if (!byOwner.has(oid)) byOwner.set(oid, { has1: false, has2: false });
+    const b = byOwner.get(oid)!;
+    if (r.meal_slot === 1) b.has1 = true;
+    if (r.meal_slot === 2) b.has2 = true;
+  }
+  let onlyMeal1 = 0;
+  let onlyMeal2 = 0;
+  let bothMeals = 0;
+  for (const b of byOwner.values()) {
+    if (b.has1 && b.has2) bothMeals += 1;
+    else if (b.has1) onlyMeal1 += 1;
+    else if (b.has2) onlyMeal2 += 1;
+  }
+  return { onlyMeal1Formations: onlyMeal1, onlyMeal2Formations: onlyMeal2, bothMealsFormations: bothMeals };
+}
+
+type FormationFollowupCompletion = {
+  fullDean: boolean;
+  fullDept: boolean;
+  deanDone: number;
+  deptApproved: number;
+  total: number;
+};
+
+/** اكتمال مصادقة العميد واعتماد القسم — لكل مالك بيانات ضمن الصفوف المعروضة */
+function computeFormationFollowupCompletionByOwner(rows: AdminOfficialSituationFollowupRow[]) {
+  const byOwner = new Map<string, AdminOfficialSituationFollowupRow[]>();
+  for (const r of rows) {
+    const oid = r.owner_user_id.trim();
+    if (!oid) continue;
+    if (!byOwner.has(oid)) byOwner.set(oid, []);
+    byOwner.get(oid)!.push(r);
+  }
+  const out = new Map<string, FormationFollowupCompletion>();
+  for (const [oid, list] of byOwner) {
+    const total = list.length;
+    const deanDone = list.filter((x) => x.is_uploaded).length;
+    const deptApproved = list.filter((x) => x.dean_status === "APPROVED").length;
+    out.set(oid, {
+      fullDean: total > 0 && deanDone === total,
+      fullDept: total > 0 && deptApproved === total,
+      deanDone,
+      deptApproved,
+      total,
+    });
+  }
+  return out;
+}
+
 function deptApprovalLabel(s: AdminOfficialSituationFollowupRow["dean_status"]): string {
   if (s === "APPROVED") return "معتمد من رئيس القسم/الفرع";
   if (s === "REJECTED") return "مرفوض من رئيس القسم/الفرع";
@@ -189,6 +244,8 @@ export function AdminSituationsFollowupView({
     [allRows, deanAuthFilter, deptApprovalFilter, mealSlotFilter]
   );
   const stats = computeStats(rows);
+  const mealFormationStats = useMemo(() => computeFormationMealSlotBreakdown(rows), [rows]);
+  const formationFollowupCompletion = useMemo(() => computeFormationFollowupCompletionByOwner(rows), [rows]);
   const { byDate, dates } = buildGroups(rows);
   const navigator = buildNavigator(rows);
   const examTodaySet = useMemo(() => new Set(ownerUserIdsWithExamToday), [ownerUserIdsWithExamToday]);
@@ -233,7 +290,7 @@ export function AdminSituationsFollowupView({
         </form>
       </header>
 
-      <section aria-label="إحصائيات موجزة" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <section aria-label="إحصائيات موجزة" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <StatCard title="مواقف مسجّلة" value={formatNum(stats.totalRows)} hint="إجمالي الجلسات" accent="blue" />
         <StatCard title="تشكيلات شاركت" value={formatNum(stats.distinctFormations)} hint="حسابات مالكة" accent="slate" />
         <StatCard title="أيام امتحان" value={formatNum(stats.distinctExamDays)} hint="تواريخ مميّزة" accent="slate" />
@@ -241,69 +298,126 @@ export function AdminSituationsFollowupView({
         <StatCard title="غير معتمد من رئيس القسم/الفرع" value={formatNum(stats.deptNotApproved)} hint="تحتاج اعتماد رئيس القسم/الفرع" accent="amber" />
         <StatCard title="مصادق من حساب العميد" value={formatNum(stats.deanAuthenticated)} hint="تم تأكيد رفع الموقف" accent="blue" />
         <StatCard title="غير مصادق من حساب العميد" value={formatNum(stats.deanNotAuthenticated)} hint="لم يتم تأكيد الرفع بعد" accent="slate" />
+        <StatCard
+          title="تشكيلات — وجبة أولى فقط"
+          value={formatNum(mealFormationStats.onlyMeal1Formations)}
+          hint="لديها جلسات بالوجبة الأولى دون أي جلسة بالوجبة الثانية"
+          accent="blue"
+        />
+        <StatCard
+          title="تشكيلات — وجبة ثانية فقط"
+          value={formatNum(mealFormationStats.onlyMeal2Formations)}
+          hint="لديها جلسات بالوجبة الثانية دون أي جلسة بالوجبة الأولى"
+          accent="amber"
+        />
+        <StatCard
+          title="تشكيلات — الوجبتان"
+          value={formatNum(mealFormationStats.bothMealsFormations)}
+          hint="لديها جلسات في الوجبة الأولى والثانية ضمن البيانات المعروضة"
+          accent="emerald"
+        />
       </section>
 
       {navigator.length > 0 ? (
         <section className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm" aria-label="التنقل الذكي حسب التشكيل">
           <h2 className="text-base font-extrabold text-[#0F172A]">التنقل الذكي حسب التشكيل / القسم / اليوم</h2>
           <p className="mt-1 text-xs text-[#64748B]">
-            افتح التشكيل، ثم اختر القسم/الفرع واليوم الامتحاني للانتقال مباشرة إلى السجلات المطابقة داخل الصفحة.
+            افتح التشكيل، ثم اختر القسم/الفرع واليوم الامتحاني للانتقال مباشرة إلى السجلات المطابقة داخل الصفحة. تُحسب
+            شارات «مصادقة العميد» و«اعتماد القسم» على الجلسات الظاهرة حالياً (مع الفلاتر والبحث).
           </p>
           <div className="mt-3 space-y-2">
             {navigator.map((formation) => (
               <details key={formation.formationLabel} className="rounded-xl border border-[#E2E8F0] bg-[#FAFBFC]">
                 <summary className="cursor-pointer list-none px-3 py-2 text-sm font-bold text-[#1E3A8A]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div
-                      title={
-                        examTodaySet.has(formation.ownerUserId)
-                          ? `يوجد جدول امتحان مجدول اليوم (${todayBaghdadIso} بتوقيت بغداد)`
-                          : `لا يوجد جدول امتحان مجدول اليوم (${todayBaghdadIso} بتوقيت بغداد)`
-                      }
-                    >
-                      {formation.formationLabel}
-                      <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
-                        ({formatNum(formation.totalRows)} موقفاً · {formatNum(formation.branches.length)} قسم/فرع)
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0">
+                        {formation.formationLabel}
+                        <span className="mr-2 text-[11px] font-semibold text-[#64748B]">
+                          ({formatNum(formation.totalRows)} موقفاً · موزعة على{" "}
+                          {formatNum(formation.branches.length)}{" "}
+                          {formation.branches.length === 1 ? "قسم أو فرع" : "أقسام أو فروع"})
+                        </span>
                       </span>
+                      {examTodaySet.has(formation.ownerUserId) ? (
+                        <span
+                          className="inline-flex h-7 shrink-0 items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 text-[10px] font-extrabold leading-tight text-emerald-900 whitespace-nowrap"
+                          title={`يوجد جدول امتحان مجدول لهذا التشكيل في ${todayBaghdadIso} (اليوم بتوقيت بغداد)`}
+                          role="status"
+                        >
+                          امتحان اليوم
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-300 bg-slate-50 px-2 text-[10px] font-bold leading-tight text-slate-700 whitespace-nowrap"
+                          title={`لا يوجد جدول امتحان مجدول لهذا التشكيل في ${todayBaghdadIso} (اليوم بتوقيت بغداد)`}
+                          role="status"
+                        >
+                          لا امتحان اليوم
+                        </span>
+                      )}
                     </div>
-                    <form
-                      method="get"
-                      action="/dashboard/situations-followup/custom-report"
-                      target="_blank"
-                      className="flex flex-wrap items-center gap-1"
-                    >
-                      <input type="hidden" name="ownerUserId" value={formation.ownerUserId} />
-                      <select
-                        name="examDate"
-                        defaultValue={formation.examDates[0] ?? defaultExamDate}
-                        className="h-7 rounded-md border border-[#CBD5E1] bg-white px-2 text-[11px] font-semibold text-[#334155]"
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                      {(() => {
+                        const fc = formationFollowupCompletion.get(formation.ownerUserId);
+                        if (!fc || fc.total === 0) return null;
+                        return (
+                          <>
+                            <span
+                              className={
+                                fc.fullDean
+                                  ? "inline-flex h-7 items-center rounded-md border border-sky-300 bg-sky-50 px-2 text-[9px] font-extrabold leading-tight text-sky-950 whitespace-nowrap"
+                                  : "inline-flex h-7 items-center rounded-md border border-slate-300 bg-slate-50 px-2 text-[9px] font-bold leading-tight text-slate-700 whitespace-nowrap"
+                              }
+                              title={`تأكيد رفع الموقف من حساب العميد: ${formatNum(fc.deanDone)} من ${formatNum(fc.total)} جلسة ضمن العرض الحالي`}
+                              role="status"
+                            >
+                              {fc.fullDean ? "مصادقة العميد: كاملة" : "مصادقة العميد: ناقصة"}
+                            </span>
+                            <span
+                              className={
+                                fc.fullDept
+                                  ? "inline-flex h-7 items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 text-[9px] font-extrabold leading-tight text-emerald-950 whitespace-nowrap"
+                                  : "inline-flex h-7 items-center rounded-md border border-amber-300 bg-amber-50 px-2 text-[9px] font-bold leading-tight text-amber-950 whitespace-nowrap"
+                              }
+                              title={`اعتماد رئيس القسم/الفرع (معتمد): ${formatNum(fc.deptApproved)} من ${formatNum(fc.total)} جلسة ضمن العرض الحالي`}
+                              role="status"
+                            >
+                              {fc.fullDept ? "اعتماد القسم: كامل" : "اعتماد القسم: ناقص"}
+                            </span>
+                          </>
+                        );
+                      })()}
+                      <form
+                        method="get"
+                        action="/dashboard/situations-followup/custom-report"
+                        target="_blank"
+                        className="flex flex-wrap items-center gap-1.5"
                       >
-                        {formation.examDates.length > 0
-                          ? formation.examDates.map((d) => (
-                              <option key={`${formation.formationLabel}-${d}`} value={d}>
-                                {d}
-                              </option>
-                            ))
-                          : (
-                              <option value={defaultExamDate}>{defaultExamDate}</option>
-                            )}
-                      </select>
-                      <button
-                        type="submit"
-                        className="inline-flex h-7 items-center rounded-md border border-[#1E3A8A] bg-[#1E3A8A] px-2 text-[11px] font-extrabold text-white transition hover:bg-[#163170]"
-                      >
-                        تقرير مخصص
-                      </button>
-                    </form>
-                    {examTodaySet.has(formation.ownerUserId) ? (
-                      <span
-                        className="inline-flex max-w-[11rem] items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold leading-tight text-emerald-900"
-                        title={`يوجد جدول امتحان مجدول لهذا التشكيل في ${todayBaghdadIso} (اليوم بتوقيت بغداد)`}
-                        role="status"
-                      >
-                        امتحان اليوم
-                      </span>
-                    ) : null}
+                        <input type="hidden" name="ownerUserId" value={formation.ownerUserId} />
+                        <select
+                          name="examDate"
+                          defaultValue={formation.examDates[0] ?? defaultExamDate}
+                          className="h-7 rounded-md border border-[#CBD5E1] bg-white px-2 text-[11px] font-semibold text-[#334155]"
+                        >
+                          {formation.examDates.length > 0
+                            ? formation.examDates.map((d) => (
+                                <option key={`${formation.formationLabel}-${d}`} value={d}>
+                                  {d}
+                                </option>
+                              ))
+                            : (
+                                <option value={defaultExamDate}>{defaultExamDate}</option>
+                              )}
+                        </select>
+                        <button
+                          type="submit"
+                          className="inline-flex h-7 items-center rounded-md border border-[#1E3A8A] bg-[#1E3A8A] px-2 text-[11px] font-extrabold text-white transition hover:bg-[#163170]"
+                        >
+                          تقرير مخصص
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 </summary>
                 <div className="space-y-2 border-t border-[#E2E8F0] px-3 py-2">
