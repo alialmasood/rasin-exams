@@ -31,9 +31,8 @@ function sortRows(rows: AdminCollegeExamRoomDayParticipationRow[]): AdminCollege
   return [...rows].sort((a, b) => {
     const fa = a.formation_label.localeCompare(b.formation_label, "ar");
     if (fa !== 0) return fa;
-    const ua = a.owner_username.localeCompare(b.owner_username);
-    if (ua !== 0) return ua;
-    if (a.serial_no !== b.serial_no) return a.serial_no - b.serial_no;
+    const rn = a.room_name.localeCompare(b.room_name, "ar");
+    if (rn !== 0) return rn;
     const ma = a.exam_meal_slot - b.exam_meal_slot;
     if (ma !== 0) return ma;
     return a.exam_start_time.localeCompare(b.exam_start_time);
@@ -72,7 +71,7 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
   const e = escapeHtml;
   const { examDate, rows, generatedLabel, assetsBaseUrl } = input;
   const base = (assetsBaseUrl ?? "").replace(/\/$/, "");
-  const logoSrc = base ? `${base}/uob-logo.png` : "/uob-logo.png";
+  const logoSrc = base ? `${base}/logo3.png` : "/logo3.png";
   const sorted = sortRows(rows);
   const uniqueRooms = new Set(sorted.map((r) => `${r.owner_user_id}:${r.id}`));
   const formations = new Set(sorted.map((r) => r.owner_user_id));
@@ -85,8 +84,6 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
       return `<tr>
         <td>${index + 1}</td>
         <td>${e(row.formation_label)}</td>
-        <td class="mono">${e(row.owner_username)}</td>
-        <td class="num">${row.serial_no}</td>
         <td><strong>${e(row.room_name)}</strong></td>
         <td>${e(row.supervisor_name)}</td>
         <td style="font-size:8.8pt">${e(row.exam_study_subject_name)} — ${e(formatCollegeStudyStageLabel(row.exam_stage_level))}</td>
@@ -94,7 +91,6 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
         <td>${e(scheduleTypeLabelAr(row.exam_schedule_type))}</td>
         <td>${e(formatExamMealSlotLabel(row.exam_meal_slot))}</td>
         <td style="font-size:8.5pt;white-space:nowrap">${e(examTimeRangeAr(row.exam_start_time, row.exam_end_time))}</td>
-        <td class="num">${row.exam_student_count}</td>
         <td style="font-size:8.5pt">${e(shiftCapacityLabel(row, 1))}${dual ? `<br/>${e(shiftCapacityLabel(row, 2))}` : ""}</td>
         <td style="font-size:8.5pt;max-width:36mm;word-break:break-word">${e((row.invigilators || "—").slice(0, 320))}</td>
       </tr>`;
@@ -114,7 +110,8 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
     .report-brand-side { font-size: 10.5pt; font-weight: 800; color: #1e3a8a; }
     .report-brand-college-side { text-align: left; }
     .report-brand-uni-side { text-align: right; }
-    .report-brand-logo { height: 52px; width: auto; max-width: 96px; object-fit: contain; }
+    .report-brand-logo-wrap { display: flex; justify-content: center; align-items: center; }
+    .report-brand-logo { height: 52px; width: auto; max-width: 96px; object-fit: contain; display: block; }
     h1 { font-size: 14pt; text-align: center; margin: 0 0 3mm; border-bottom: 2px solid #1e3a8a; padding-bottom: 3mm; color: #1e3a8a; }
     .sub { text-align: center; font-size: 9.5pt; color: #475569; margin-bottom: 1mm; }
     .mono { font-family: Consolas, ui-monospace, monospace; font-size: 9pt; }
@@ -136,7 +133,9 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
 <body>
   <div class="report-brand" dir="ltr">
     <div class="report-brand-side report-brand-college-side">قاعات مشاركة بالامتحان</div>
-    <div style="text-align:center"><img class="report-brand-logo" src="${e(logoSrc)}" width="96" height="96" alt="" /></div>
+    <div class="report-brand-logo-wrap">
+      <img class="report-brand-logo" src="${e(logoSrc)}" width="96" height="96" alt="شعار جامعة البصرة" />
+    </div>
     <div class="report-brand-side report-brand-uni-side">جامعة البصرة</div>
   </div>
   <h1>تقرير تفاصيل القاعات — يوم الامتحان ${e(dayLabel)} (${e(weekday)})</h1>
@@ -159,8 +158,6 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
       <tr>
         <th>#</th>
         <th>التشكيل</th>
-        <th>الحساب</th>
-        <th>تسلسل</th>
         <th>القاعة</th>
         <th>مشرف القاعة</th>
         <th>مادة الامتحان / المرحلة</th>
@@ -168,12 +165,11 @@ export function buildAdminRoomsByDateReportHtml(input: AdminRoomsByDateReportInp
         <th>نوع الجدول</th>
         <th>الوجبة</th>
         <th>الوقت</th>
-        <th>سعة الجلسة</th>
         <th>سعة القاعة</th>
         <th>المراقبون</th>
       </tr>
     </thead>
-    <tbody>${sorted.length ? tableRows : `<tr><td colspan="14" style="text-align:center;padding:8mm;color:#64748b">لا توجد قاعات مشاركة في هذا اليوم.</td></tr>`}</tbody>
+    <tbody>${sorted.length ? tableRows : `<tr><td colspan="11" style="text-align:center;padding:8mm;color:#64748b">لا توجد قاعات مشاركة في هذا اليوم.</td></tr>`}</tbody>
   </table>
   <div class="footer">تقرير صادر عن نظام رصين — قاعات شاركت بامتحان في التاريخ المحدد.</div>
 </body>
@@ -189,8 +185,6 @@ export function adminRoomsByDateRowsToExcelRecords(
     return {
       "تاريخ الامتحان": r.exam_date,
       "التشكيل / الكلية": r.formation_label,
-      "حساب المالك": r.owner_username,
-      التسلسل: r.serial_no,
       "اسم القاعة": r.room_name,
       "مشرف القاعة": r.supervisor_name,
       "مادة الامتحان (جدول)": r.exam_study_subject_name,
@@ -199,7 +193,6 @@ export function adminRoomsByDateRowsToExcelRecords(
       "نوع الجدول": scheduleTypeLabelAr(r.exam_schedule_type),
       الوجبة: formatExamMealSlotLabel(r.exam_meal_slot),
       "وقت الامتحان": examTimeRangeAr(r.exam_start_time, r.exam_end_time),
-      "سعة الجلسة": r.exam_student_count,
       "قسم القاعة (تعريف)": r.college_subject_name,
       "مادة القاعة 1": r.study_subject_name,
       "مادة القاعة 2": r.study_subject_name_2 ?? "",
