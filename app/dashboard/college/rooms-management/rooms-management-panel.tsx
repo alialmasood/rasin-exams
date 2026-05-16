@@ -9,7 +9,9 @@ import { getDepartmentPageTitleAttrs, withDepartmentSectionTitle } from "@/lib/d
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import {
   COLLEGE_BRANCH_ALL_SENTINEL,
+  collegeSubjectFieldValueForRoomForm,
   type CollegeRoomDefinitionRow,
+  studySubjectAllowedInRoomBranchScope,
 } from "@/lib/college-room-definitions-shared";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
@@ -363,9 +365,29 @@ function RoomFields({
   const d = defaults ?? {};
   const lockedBranchId = fixedCollegeSubjectId?.trim() || null;
   const branchLockedToDepartment = Boolean(lockedBranchId);
-  const [selectedCollegeSubjectId, setSelectedCollegeSubjectId] = useState(
-    () => d.college_subject_id ?? lockedBranchId ?? ""
+  const isEditingExistingRoom = Boolean(d.id);
+  const resolveBranchFieldValue = useCallback(
+    () =>
+      collegeSubjectFieldValueForRoomForm({
+        storedCollegeSubjectId: d.college_subject_id ?? "",
+        studySubjectId: d.study_subject_id,
+        studySubjectId2: d.study_subject_id_2,
+        subjects,
+        lockedBranchId,
+      }),
+    [
+      d.college_subject_id,
+      d.study_subject_id,
+      d.study_subject_id_2,
+      subjects,
+      lockedBranchId,
+    ]
   );
+  const [selectedCollegeSubjectId, setSelectedCollegeSubjectId] = useState(resolveBranchFieldValue);
+  useEffect(() => {
+    if (!isEditingExistingRoom) return;
+    setSelectedCollegeSubjectId(resolveBranchFieldValue());
+  }, [isEditingExistingRoom, resolveBranchFieldValue]);
   const isAllBranchesSelected = selectedCollegeSubjectId === COLLEGE_BRANCH_ALL_SENTINEL;
   const lockedBranchMeta = useMemo(
     () => (lockedBranchId ? branches.find((b) => b.id === lockedBranchId) : undefined),
@@ -755,9 +777,14 @@ function RoomFields({
             name="college_subject_id"
             value={selectedCollegeSubjectId}
             onChange={(e) => {
-              setSelectedCollegeSubjectId(e.target.value);
-              setExam1SubjectId("");
-              setExam2SubjectId("");
+              const next = e.target.value;
+              setSelectedCollegeSubjectId(next);
+              if (!studySubjectAllowedInRoomBranchScope(exam1SubjectId, next, subjects)) {
+                setExam1SubjectId("");
+              }
+              if (!studySubjectAllowedInRoomBranchScope(exam2SubjectId, next, subjects)) {
+                setExam2SubjectId("");
+              }
             }}
             required
             className={stageSelectClass}

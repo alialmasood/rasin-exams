@@ -80,3 +80,35 @@ export function parseCollegeRoomDefinitionLines(raw: string): {
   }
   return { uniqueRooms, duplicateCount, ignoredCount };
 }
+
+type RoomFormStudySubjectScope = { id: string; college_subject_id: string | null };
+
+/** قيمة حقل القسم/الفرع في نموذج القاعة — عند مادة مشتركة نعرض «كل الكلية» وليس الفرع المستنتج في قاعدة البيانات. */
+export function collegeSubjectFieldValueForRoomForm(input: {
+  storedCollegeSubjectId: string;
+  studySubjectId?: string;
+  studySubjectId2?: string | null;
+  subjects: RoomFormStudySubjectScope[];
+  lockedBranchId: string | null;
+}): string {
+  if (input.lockedBranchId) return input.lockedBranchId;
+  const examIds = [input.studySubjectId, input.studySubjectId2].filter((x): x is string => Boolean(x?.trim()));
+  for (const sid of examIds) {
+    const sub = input.subjects.find((s) => s.id === sid);
+    if (sub?.college_subject_id == null) return COLLEGE_BRANCH_ALL_SENTINEL;
+  }
+  return input.storedCollegeSubjectId.trim();
+}
+
+export function studySubjectAllowedInRoomBranchScope(
+  subjectId: string,
+  branchScope: string,
+  subjects: RoomFormStudySubjectScope[]
+): boolean {
+  if (!subjectId.trim()) return true;
+  const sub = subjects.find((s) => s.id === subjectId);
+  if (!sub) return false;
+  if (branchScope === COLLEGE_BRANCH_ALL_SENTINEL) return true;
+  if (!branchScope.trim()) return false;
+  return sub.college_subject_id == null || sub.college_subject_id === branchScope;
+}
