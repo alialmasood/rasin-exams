@@ -57,7 +57,7 @@ export type AdminTodayExamsReportInput = {
 export function buildAdminTodayExamsReportHtml(input: AdminTodayExamsReportInput): string {
   const e = escapeHtml;
   const base = (input.assetsBaseUrl ?? "").replace(/\/$/, "");
-  const logoSrc = base ? `${base}/uob-logo.png` : "/uob-logo.png";
+  const logoSrc = base ? `${base}/logo3.png` : "/logo3.png";
   const dateLong = formatExamDateLongAr(input.examDate);
   const generatedLabel = formatDateTimeAr(input.generatedAt);
   const totalStudents = input.rows.reduce((s, r) => s + r.total_students_in_rooms, 0);

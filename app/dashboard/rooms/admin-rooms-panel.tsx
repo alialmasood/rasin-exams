@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { AdminCollegeExamRoomRow } from "@/lib/college-rooms";
+import { baghdadIsoDateToday } from "@/lib/admin-today-exams";
+import {
+  adminRoomsByDateExcelFilename,
+  adminRoomsByDateRowsToExcelRecords,
+} from "@/lib/admin-rooms-by-date-export";
 import {
   adminRoomsExcelFilename,
   adminRoomsRowsToExcelRecords,
   buildAdminRoomsReportHtml,
   printAdminRoomsReportHtml,
 } from "@/lib/admin-rooms-report-html";
-import { fetchAdminCollegeExamRoomsAction } from "./actions";
+import { fetchAdminCollegeExamRoomsAction, fetchAdminRoomsByExamDateAction } from "./actions";
 
 const REFRESH_MS = 20_000;
 
@@ -189,6 +194,8 @@ type Props = {
 
 export function AdminRoomsPanel({ initialRows }: Props) {
   const [rows, setRows] = useState<AdminCollegeExamRoomRow[]>(initialRows);
+  const [exportExamDate, setExportExamDate] = useState(() => baghdadIsoDateToday());
+  const [dayExportPending, startDayExportTransition] = useTransition();
   /** null حتى أول mount على العميل — يتطابق الخادم والعميل ويمنع أخطاء الترطيب */
   const [lastClientRefresh, setLastClientRefresh] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +308,45 @@ export function AdminRoomsPanel({ initialRows }: Props) {
     [generatedReportLabel]
   );
 
+  const exportDayPdf = useCallback(() => {
+    const d = exportExamDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      window.alert("اختر تاريخاً صالحاً.");
+      return;
+    }
+    const url = `/dashboard/rooms/daily-export/pdf?date=${encodeURIComponent(d)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [exportExamDate]);
+
+  const exportDayExcel = useCallback(() => {
+    const d = exportExamDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      window.alert("اختر تاريخاً صالحاً.");
+      return;
+    }
+    startDayExportTransition(async () => {
+      const res = await fetchAdminRoomsByExamDateAction(d);
+      if (!res.ok) {
+        window.alert(res.error || "تعذر جلب البيانات.");
+        return;
+      }
+      if (res.rows.length === 0) {
+        window.alert("لا توجد قاعات مشاركة بامتحان في هذا اليوم.");
+        return;
+      }
+      try {
+        const xlsx = await import("xlsx");
+        const data = adminRoomsByDateRowsToExcelRecords(res.rows);
+        const ws = xlsx.utils.json_to_sheet(data);
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, "قاعات اليوم");
+        xlsx.writeFile(wb, adminRoomsByDateExcelFilename(d));
+      } catch {
+        window.alert("تعذر تصدير Excel. أعد المحاولة.");
+      }
+    });
+  }, [exportExamDate]);
+
   const exportFormationExcel = useCallback(async (g: FormationGroup) => {
     try {
       const xlsx = await import("xlsx");
@@ -358,6 +404,42 @@ export function AdminRoomsPanel({ initialRows }: Props) {
       {error ? (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</p>
       ) : null}
+
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF]/70 p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="min-w-[12rem] flex-1">
+          <label htmlFor="admin-rooms-exam-day" className="mb-1 block text-xs font-bold text-[#1E3A8A]">
+            تصدير تفاصيل القاعات ليوم امتحان محدد
+          </label>
+          <p className="mb-2 text-[11px] leading-relaxed text-[#475569]">
+            كل القاعات التي لها جلسة امتحانية مجدولة في التاريخ المختار (عبر جميع التشكيلات).
+          </p>
+          <input
+            id="admin-rooms-exam-day"
+            type="date"
+            value={exportExamDate}
+            onChange={(e) => setExportExamDate(e.target.value)}
+            className="h-11 w-full max-w-xs rounded-xl border border-[#93C5FD] bg-white px-3 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={exportDayPdf}
+            disabled={dayExportPending}
+            className="h-11 rounded-xl border-2 border-[#B91C1C] bg-white px-4 text-sm font-bold text-[#B91C1C] shadow-sm transition hover:bg-red-50 disabled:opacity-60"
+          >
+            تقرير PDF لليوم
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportDayExcel()}
+            disabled={dayExportPending}
+            className="h-11 rounded-xl border border-emerald-700/30 bg-white px-4 text-sm font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
+          >
+            {dayExportPending ? "جاري التصدير…" : "تصدير Excel لليوم"}
+          </button>
+        </div>
+      </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">

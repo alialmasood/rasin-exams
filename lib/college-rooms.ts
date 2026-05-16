@@ -1,4 +1,5 @@
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
+import { normalizeExamMealSlot, type ExamMealSlot } from "@/lib/exam-meal-slot";
 import {
   parseExternalRoomStaffFromDb,
   parseExternalRoomStaffFromFormJson,
@@ -295,6 +296,20 @@ export type AdminCollegeExamRoomRow = CollegeExamRoomRow & {
   owner_username: string;
 };
 
+/** قاعة شاركت بامتحان في يوم محدد — تفاصيل القاعة + جلسة الجدول الامتحاني لذلك اليوم. */
+export type AdminCollegeExamRoomDayParticipationRow = AdminCollegeExamRoomRow & {
+  exam_date: string;
+  schedule_id: string;
+  exam_study_subject_name: string;
+  exam_college_subject_name: string;
+  exam_stage_level: number;
+  exam_meal_slot: ExamMealSlot;
+  exam_start_time: string;
+  exam_end_time: string;
+  exam_schedule_type: "FINAL" | "SEMESTER";
+  exam_student_count: number;
+};
+
 /**
  * كل قاعات الامتحانات المعرّفة من حسابات الكلية (تشكيلات ومتابعة) — نفس منطق القائمة في «إدارة القاعات» لكل مالك.
  */
@@ -396,7 +411,61 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
      LEFT JOIN college_account_profiles p ON p.user_id = u.id
      ORDER BY formation_label ASC, u.username ASC, r.serial_no ASC, r.created_at DESC`
   );
-  return r.rows.map((row) => ({
+  return r.rows.map((row) => mapAdminCollegeExamRoomRow(row));
+}
+
+type AdminCollegeExamRoomDbRow = {
+  id: string | number;
+  owner_user_id: string | number;
+  college_subject_id: string | number;
+  college_subject_name: string;
+  study_subject_id: string | number;
+  study_subject_name: string;
+  study_subject_instructor_name: string | null;
+  study_subject_id_2: string | number | null;
+  study_subject_name_2: string | null;
+  study_subject_instructor_name_2: string | null;
+  serial_no: number;
+  room_name: string;
+  supervisor_name: string;
+  invigilators: string | null;
+  supervisor_name_2: string | null;
+  invigilators_2: string | null;
+  capacity_morning: number;
+  capacity_evening: number;
+  capacity_total: number;
+  capacity_morning_2: number;
+  capacity_evening_2: number;
+  capacity_total_2: number;
+  attendance_count: number;
+  absence_count: number;
+  absence_names: string | null;
+  attendance_morning: number;
+  absence_morning: number;
+  attendance_evening: number;
+  absence_evening: number;
+  absence_names_morning: string | null;
+  absence_names_evening: string | null;
+  attendance_count_2: number;
+  absence_count_2: number;
+  absence_names_2: string | null;
+  attendance_morning_2: number;
+  absence_morning_2: number;
+  attendance_evening_2: number;
+  absence_evening_2: number;
+  absence_names_morning_2: string | null;
+  absence_names_evening_2: string | null;
+  stage_level: number;
+  stage_level_2: number | null;
+  external_room_staff: unknown | null;
+  created_at: Date;
+  updated_at: Date;
+  formation_label: string;
+  owner_username: string;
+};
+
+function mapAdminCollegeExamRoomRow(row: AdminCollegeExamRoomDbRow): AdminCollegeExamRoomRow {
+  return {
     id: String(row.id),
     owner_user_id: String(row.owner_user_id),
     college_subject_id: String(row.college_subject_id),
@@ -445,7 +514,116 @@ export async function listAllCollegeExamRoomsForAdmin(): Promise<AdminCollegeExa
     updated_at: row.updated_at,
     formation_label: row.formation_label?.trim() || row.owner_username || "—",
     owner_username: row.owner_username ?? "",
-  }));
+  };
+}
+
+/** قاعات شاركت بامتحان مجدول في تاريخ محدد — صف لكل قاعة × جلسة جدول في ذلك اليوم. */
+export async function listAllCollegeExamRoomsParticipatingOnDateForAdmin(
+  examDate: string
+): Promise<AdminCollegeExamRoomDayParticipationRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  const d = examDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return [];
+  await ensureCoreSchema();
+  const pool = getDbPool();
+  const r = await pool.query<
+    AdminCollegeExamRoomDbRow & {
+      exam_date: string;
+      schedule_id: string | number;
+      exam_study_subject_name: string;
+      exam_college_subject_name: string;
+      exam_stage_level: number;
+      exam_meal_slot: number | string | null;
+      exam_start_time: string;
+      exam_end_time: string;
+      exam_schedule_type: string;
+      exam_student_count: number;
+    }
+  >(
+    `SELECT r.id, r.owner_user_id, r.college_subject_id,
+            c.branch_name AS college_subject_name,
+            r.study_subject_id,
+            s.subject_name AS study_subject_name,
+            TRIM(COALESCE(s.instructor_name::text, '')) AS study_subject_instructor_name,
+            r.study_subject_id_2,
+            s2.subject_name AS study_subject_name_2,
+            TRIM(COALESCE(s2.instructor_name::text, '')) AS study_subject_instructor_name_2,
+            r.serial_no, r.room_name, r.supervisor_name,
+            r.invigilators,
+            r.supervisor_name_2, r.invigilators_2,
+            r.external_room_staff,
+            r.stage_level, r.stage_level_2,
+            r.capacity_morning, r.capacity_evening, r.capacity_total,
+            r.capacity_morning_2, r.capacity_evening_2, r.capacity_total_2,
+            r.attendance_count, r.absence_count, r.absence_names,
+            r.attendance_morning, r.absence_morning, r.attendance_evening, r.absence_evening,
+            r.absence_names_morning, r.absence_names_evening,
+            r.attendance_count_2, r.absence_count_2, r.absence_names_2,
+            r.attendance_morning_2, r.absence_morning_2, r.attendance_evening_2, r.absence_evening_2,
+            r.absence_names_morning_2, r.absence_names_evening_2,
+            r.created_at, r.updated_at,
+            COALESCE(
+              NULLIF(TRIM(
+                CASE
+                  WHEN UPPER(COALESCE(p.account_kind::text, 'FORMATION')) = 'FOLLOWUP'
+                    THEN COALESCE(p.holder_name, '')
+                  ELSE COALESCE(p.formation_name, '')
+                END
+              ), ''),
+              u.username::text
+            ) AS formation_label,
+            u.username::text AS owner_username,
+            e.exam_date::text AS exam_date,
+            e.id AS schedule_id,
+            es.subject_name AS exam_study_subject_name,
+            CASE WHEN es.college_subject_id IS NULL THEN 'لكل الكلية' ELSE c_sched.branch_name END AS exam_college_subject_name,
+            e.stage_level AS exam_stage_level,
+            COALESCE(e.meal_slot, 1) AS exam_meal_slot,
+            e.start_time::text AS exam_start_time,
+            e.end_time::text AS exam_end_time,
+            e.schedule_type AS exam_schedule_type,
+            CASE
+              WHEN e.study_subject_id = r.study_subject_id THEN COALESCE(r.capacity_total, 0)
+              WHEN r.study_subject_id_2 IS NOT NULL AND e.study_subject_id = r.study_subject_id_2
+                THEN COALESCE(r.capacity_total_2, 0)
+              ELSE COALESCE(r.capacity_total, 0)
+            END::int AS exam_student_count
+     FROM college_exam_schedules e
+     INNER JOIN college_exam_rooms r
+       ON r.id = e.room_id AND r.owner_user_id = e.owner_user_id
+     INNER JOIN college_subjects c
+       ON c.id = r.college_subject_id AND c.owner_user_id = r.owner_user_id
+     INNER JOIN college_study_subjects s
+       ON s.id = r.study_subject_id AND s.owner_user_id = r.owner_user_id
+     LEFT JOIN college_study_subjects s2
+       ON s2.id = r.study_subject_id_2 AND s2.owner_user_id = r.owner_user_id
+     INNER JOIN college_study_subjects es
+       ON es.id = e.study_subject_id AND es.owner_user_id = e.owner_user_id
+     INNER JOIN college_subjects c_sched
+       ON c_sched.id = e.college_subject_id AND c_sched.owner_user_id = e.owner_user_id
+     INNER JOIN users u
+       ON u.id = e.owner_user_id AND u.role = 'COLLEGE' AND u.deleted_at IS NULL
+     LEFT JOIN college_account_profiles p ON p.user_id = u.id
+     WHERE e.exam_date = $1::date
+     ORDER BY formation_label ASC, u.username ASC, r.serial_no ASC, e.meal_slot ASC, e.start_time ASC`,
+    [d]
+  );
+  return r.rows.map((row) => {
+    const base = mapAdminCollegeExamRoomRow(row);
+    return {
+      ...base,
+      exam_date: row.exam_date,
+      schedule_id: String(row.schedule_id),
+      exam_study_subject_name: row.exam_study_subject_name,
+      exam_college_subject_name: row.exam_college_subject_name,
+      exam_stage_level: Number(row.exam_stage_level ?? 1),
+      exam_meal_slot: normalizeExamMealSlot(String(row.exam_meal_slot ?? 1)),
+      exam_start_time: row.exam_start_time.slice(0, 5),
+      exam_end_time: row.exam_end_time.slice(0, 5),
+      exam_schedule_type: row.exam_schedule_type === "SEMESTER" ? "SEMESTER" : "FINAL",
+      exam_student_count: Number(row.exam_student_count ?? 0),
+    };
+  });
 }
 
 export type CreateCollegeExamRoomInput = {
