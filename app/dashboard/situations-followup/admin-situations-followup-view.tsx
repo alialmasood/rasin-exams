@@ -3,14 +3,7 @@
 import { useMemo, useState } from "react";
 import type { AdminOfficialSituationFollowupRow } from "@/lib/college-exam-situations";
 import { formatCollegeStudyStageLabel } from "@/lib/college-study-stage-display";
-
-function formatNum(n: number): string {
-  try {
-    return new Intl.NumberFormat("en-US").format(n);
-  } catch {
-    return String(n);
-  }
-}
+import { formatNum } from "@/lib/format-number";
 
 function formatExamDateAr(isoDate: string): string {
   try {

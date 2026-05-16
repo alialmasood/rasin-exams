@@ -2,6 +2,14 @@
 
 import Link from "next/link";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { APP_FONT_FAMILY } from "@/lib/app-font-family";
+import { formatDateTimeBaghdad } from "@/lib/format-datetime-baghdad";
+import { formatNum } from "@/lib/format-number";
+import {
+  DEPARTMENT_SECTION_TITLE_CLASS,
+  getDepartmentPageTitleAttrs,
+  withDepartmentSectionTitle,
+} from "@/lib/department-portal-typography";
 import type { ReactNode } from "react";
 import { useEffect, useMemo } from "react";
 import {
@@ -35,15 +43,8 @@ const tooltipStyle = {
   borderRadius: 12,
   border: `1px solid ${BORDER}`,
   fontSize: 12,
+  fontFamily: APP_FONT_FAMILY,
 };
-
-function formatNum(n: number): string {
-  try {
-    return n.toLocaleString("en-US");
-  } catch {
-    return String(n);
-  }
-}
 
 function formatExamDateShort(iso: string): string {
   try {
@@ -56,19 +57,14 @@ function formatExamDateShort(iso: string): string {
 }
 
 function formatGeneratedAt(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("en-US", {
-      timeZone: "Asia/Baghdad",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-  } catch {
-    return iso;
-  }
+  return formatDateTimeBaghdad(iso, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function StatCard({
@@ -147,6 +143,7 @@ function ChartCard({
   className,
   chartClassName = "h-[260px]",
   printChartAreaClass = "statistics-print-chart-area",
+  sectionTitleClass = "",
 }: {
   title: string;
   subtitle?: string;
@@ -155,12 +152,15 @@ function ChartCard({
   chartClassName?: string;
   /** ارتفاع منطقة الرسم عند الطباعة (A4) — يُربَط بأنماط globals.css */
   printChartAreaClass?: "statistics-print-chart-area" | "statistics-print-chart-area--tall" | "statistics-print-chart-area--wide";
+  sectionTitleClass?: string;
 }) {
   return (
     <div
       className={`statistics-print-avoid-break rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm print:rounded-lg print:p-3 print:shadow-none ${className ?? ""}`}
     >
-      <h3 className="text-base font-bold text-[#0F172A] print:text-[11pt]">{title}</h3>
+      <h3 className={`text-base font-bold text-[#0F172A] print:text-[11pt] ${sectionTitleClass}`.trim()}>
+        {title}
+      </h3>
       {subtitle ? <p className="mt-1 text-xs text-[#64748B] print:text-[8.5pt]">{subtitle}</p> : null}
       <div className={`mt-4 w-full min-w-0 ${chartClassName} ${printChartAreaClass}`}>{children}</div>
     </div>
@@ -213,6 +213,7 @@ export function CollegeStatisticsPanel({
 }) {
   const portalBase = useCollegePortalBasePath();
   const isDepartmentPortal = portalBase === "/department";
+  const deptSectionClass = isDepartmentPortal ? DEPARTMENT_SECTION_TITLE_CLASS : "";
   const reportNavLinks = useMemo(() => portalReportNavLinks(portalBase), [portalBase]);
 
   const { snapshot, dayUploads, branchRows, rooms, deanBreakdown, schedulesByStudyType, roomCapacitySummary, generatedAtIso } =
@@ -302,7 +303,14 @@ export function CollegeStatisticsPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-[11px] font-bold tracking-wide text-[#2563EB]">الإحصائيات والتقارير</p>
-            <h1 className="mt-1 text-xl font-bold leading-tight text-[#0F172A] md:text-2xl">ملخص النظام الامتحاني</h1>
+            <h1
+              {...getDepartmentPageTitleAttrs(
+                portalBase,
+                "mt-1 text-xl font-bold leading-tight text-[#0F172A] md:text-2xl"
+              )}
+            >
+              ملخص النظام الامتحاني
+            </h1>
             <p className="mt-1.5 max-w-[46rem] text-xs leading-snug text-[#64748B] md:text-[13px]">
               أرقام وتقارير مفصّلة عن <strong className="font-semibold text-[#475569]">{collegeLabel}</strong> تغطي
               الأقسام، المواد، القاعات، الجداول، رفع المواقف، ومتابعة اعتماد العميد. تُحدَّث عند فتح الصفحة.
@@ -403,7 +411,12 @@ export function CollegeStatisticsPanel({
         <section id="report-branches" className="scroll-mt-24 space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+              <h2
+                className={withDepartmentSectionTitle(
+                  portalBase,
+                  "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+                )}
+              >
                 تقرير الأقسام والفروع
               </h2>
               <p className="mt-1 text-xs text-[#64748B]">يُطابق البيانات في صفحة إدارة الأقسام والفروع.</p>
@@ -447,7 +460,12 @@ export function CollegeStatisticsPanel({
       <section id="report-study" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+            <h2
+              className={withDepartmentSectionTitle(
+                portalBase,
+                "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+              )}
+            >
               المواد الدراسية
             </h2>
             <p className="mt-1 text-xs text-[#64748B]">التوزيع حسب نوع الدراسة وجلسات الجدول المرتبطة بكل نوع.</p>
@@ -460,7 +478,7 @@ export function CollegeStatisticsPanel({
           </Link>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="مواد مسجّلة حسب نوع الدراسة" subtitle="عدد سجلات المواد الدراسية لكل نوع">
+          <ChartCard sectionTitleClass={deptSectionClass} title="مواد مسجّلة حسب نوع الدراسة" subtitle="عدد سجلات المواد الدراسية لكل نوع">
             {studyBarData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد مواد.</p>
             ) : (
@@ -475,7 +493,7 @@ export function CollegeStatisticsPanel({
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard title="جلسات الجدول حسب نوع مادة الامتحان" subtitle="عدد جلسات college_exam_schedules لكل نوع دراسة للمادة">
+          <ChartCard sectionTitleClass={deptSectionClass} title="جلسات الجدول حسب نوع مادة الامتحان" subtitle="عدد جلسات college_exam_schedules لكل نوع دراسة للمادة">
             {examByTypeBar.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جلسات.</p>
             ) : (
@@ -512,7 +530,12 @@ export function CollegeStatisticsPanel({
       <section id="report-rooms" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+            <h2
+              className={withDepartmentSectionTitle(
+                portalBase,
+                "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+              )}
+            >
               تقرير القاعات
             </h2>
             <p className="mt-1 text-xs text-[#64748B]">
@@ -575,7 +598,12 @@ export function CollegeStatisticsPanel({
       <section id="report-schedules" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+            <h2
+              className={withDepartmentSectionTitle(
+                portalBase,
+                "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+              )}
+            >
               الجداول الامتحانية
             </h2>
             <p className="mt-1 text-xs text-[#64748B]">حالة سير العمل وكثافة الجلسات حسب اليوم.</p>
@@ -588,7 +616,7 @@ export function CollegeStatisticsPanel({
           </Link>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="حالة سير عمل الجلسات" subtitle="مسودة، مرفوع، معتمد، مرفوض">
+          <ChartCard sectionTitleClass={deptSectionClass} title="حالة سير عمل الجلسات" subtitle="مسودة، مرفوع، معتمد، مرفوض">
             {workflowPieData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جلسات.</p>
             ) : (
@@ -614,7 +642,7 @@ export function CollegeStatisticsPanel({
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             chartClassName="h-[280px]"
             title="كثافة الجلسات حسب يوم الامتحان"
             subtitle="عدد الجلسات لكل تاريخ"
@@ -670,7 +698,12 @@ export function CollegeStatisticsPanel({
       <section id="report-upload" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+            <h2
+              className={withDepartmentSectionTitle(
+                portalBase,
+                "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+              )}
+            >
               رفع المواقف الامتحانية
             </h2>
             <p className="mt-1 text-xs text-[#64748B]">ما يخص الجلسات المعتمدة أو المرفوعة للمتابعة — حسب صفحة حالة الرفع.</p>
@@ -683,7 +716,7 @@ export function CollegeStatisticsPanel({
           </Link>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="رفع الموقف (جميع جلسات الموقف)" subtitle="مرفوع مقابل غير مرفوع">
+          <ChartCard sectionTitleClass={deptSectionClass} title="رفع الموقف (جميع جلسات الموقف)" subtitle="مرفوع مقابل غير مرفوع">
             {uploadPieData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا بيانات.</p>
             ) : (
@@ -709,7 +742,7 @@ export function CollegeStatisticsPanel({
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard title="اكتمال بيانات الموقف" subtitle="مكتمل / غير مكتمل حسب منطق النظام">
+          <ChartCard sectionTitleClass={deptSectionClass} title="اكتمال بيانات الموقف" subtitle="مكتمل / غير مكتمل حسب منطق النظام">
             {completePieData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا بيانات.</p>
             ) : (
@@ -774,7 +807,12 @@ export function CollegeStatisticsPanel({
       <section id="report-followup" className="scroll-mt-24 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]">
+            <h2
+              className={withDepartmentSectionTitle(
+                portalBase,
+                "text-sm font-bold text-[#334155] print:mb-3 print:border-b print:border-[#E2E8F0] print:pb-1.5 print:text-[11pt] print:font-black print:text-[#0F172A]"
+              )}
+            >
               متابعة المواقف وقرار العميد
             </h2>
             <p className="mt-1 text-xs text-[#64748B]">تصنيف سجلات تقارير الموقف حسب حالة اعتماد العميد أو المعاون العلمي.</p>
@@ -787,7 +825,7 @@ export function CollegeStatisticsPanel({
           </Link>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="توزيع قرارات العميد" subtitle="على جميع صفوف college_exam_situation_reports">
+          <ChartCard sectionTitleClass={deptSectionClass} title="توزيع قرارات العميد" subtitle="على جميع صفوف college_exam_situation_reports">
             {deanPieData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد تقارير موقف بعد.</p>
             ) : (
@@ -813,7 +851,7 @@ export function CollegeStatisticsPanel({
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             chartClassName="min-h-[200px] h-auto"
             printChartAreaClass="statistics-print-chart-area--tall"
             title="الخط الزمني للجلسات حسب القسم"
@@ -887,7 +925,9 @@ export function CollegeStatisticsPanel({
         </ReportTable>
         {!isDepartmentPortal ? (
           <div className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm print:hidden">
-            <h3 className="text-base font-bold text-[#0F172A]">آخر العمليات</h3>
+            <h3 className={withDepartmentSectionTitle(portalBase, "text-base font-bold text-[#0F172A]")}>
+              آخر العمليات
+            </h3>
             <p className="mt-1 text-xs text-[#64748B]">أحدث تحديثات للمواقف والجداول (كما في لوحة التحكم).</p>
             {snapshot.recentActivities.length === 0 ? (
               <p className="mt-6 text-center text-sm text-[#64748B]">لا توجد عمليات مسجّلة.</p>

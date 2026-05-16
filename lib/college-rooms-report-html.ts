@@ -126,7 +126,7 @@ export function buildCollegeExamRoomsReportHtml(input: CollegeRoomsReportInput):
   <title>تقرير القاعات الامتحانية — جامعة البصرة</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 10pt; line-height: 1.5; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 10pt; line-height: 1.5; }
     @page { size: A4 landscape; margin: 10mm; }
     h1 { font-size: 16pt; text-align: center; margin: 0 0 3mm; border-bottom: 2px solid #274092; padding-bottom: 3mm; color: #274092; }
     .sub { text-align: center; font-size: 10pt; color: #475569; margin-bottom: 1mm; }

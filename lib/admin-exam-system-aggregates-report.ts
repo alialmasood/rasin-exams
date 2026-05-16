@@ -377,7 +377,7 @@ export function buildAdminExamSystemAggregatesReportHtml(
 
   const styles = `
     * { box-sizing: border-box; }
-    body { font-family: "Tajawal", Tahoma, sans-serif; margin: 0; padding: 16px; color: #0f172a; font-size: 11px; line-height: 1.45; background: #fff; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 16px; color: #0f172a; font-size: 11px; line-height: 1.45; background: #fff; }
     @page { size: A4 landscape; margin: 8mm; }
     @media print { body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     h1 { margin: 0 0 6px; font-size: 17px; color: #1e3a8a; }
@@ -401,7 +401,6 @@ export function buildAdminExamSystemAggregatesReportHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>تقرير إحصائيات الجداول والمواقف — رصين</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <style>${styles}</style>
 </head>
 <body>

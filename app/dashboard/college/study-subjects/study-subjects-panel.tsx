@@ -4,6 +4,7 @@ import { useActionState, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { getDepartmentPageTitleAttrs } from "@/lib/department-portal-typography";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import { getCollegeUndergradStageLevelOptionsForScope } from "@/lib/college-stage-level";
 import { SHARED_COLLEGE_SUBJECT_VALUE, type StudyType } from "@/lib/college-study-subjects-shared";
@@ -640,7 +641,7 @@ export function StudySubjectsPanel({
           style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }}
           aria-hidden
         />
-        <h1 className="text-3xl font-extrabold text-[#0F172A]">المواد الدراسية</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-3xl font-extrabold text-[#0F172A]")}>المواد الدراسية</h1>
         <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
           إدارة المواد الدراسية وربط كل مادة بالقسم أو الفرع مع تحديد نوع الدراسة ومستواها (الدراسة الأولية أو الدراسات
           العليا).

@@ -927,7 +927,7 @@ export function buildComprehensivePrintHtml(sectionIds: string[], bundle: Compre
   }
 
   const style = `
-    body{font-family:Tajawal,Tahoma,sans-serif;padding:16px;font-size:10px;}
+    body{font-family:"Arial (Body CS)", Arial, Tahoma, sans-serif;padding:16px;font-size:10px;}
     h1{color:#1e3a8a;font-size:17px;}
     h2{font-size:12px;margin-top:14px;page-break-after:avoid;}
     .sub{color:#64748b;}
@@ -940,7 +940,6 @@ export function buildComprehensivePrintHtml(sectionIds: string[], bundle: Compre
   `;
 
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700&display=swap" rel="stylesheet"/>
   <style>${style}</style><title>تقرير شامل</title></head><body>${parts.join("")}</body></html>`;
 }
 

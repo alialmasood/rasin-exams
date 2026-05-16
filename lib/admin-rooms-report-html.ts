@@ -159,7 +159,7 @@ export function buildAdminRoomsReportHtml(input: AdminRoomsReportInput): string 
   <title>تقرير قاعات التشكيلات — جامعة البصرة</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 10pt; line-height: 1.45; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 10pt; line-height: 1.45; }
     @page { size: A4 landscape; margin: 12mm; }
     .report-brand {
       display: grid;

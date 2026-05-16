@@ -291,11 +291,10 @@ export function buildExamSituationReportHtml(
   <title>${e(detail.subject_name)} — تقرير الموقف الامتحاني</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
     body {
-      font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif;
+      font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif;
       margin: 0;
       padding: 0;
       color: #111827;
@@ -703,9 +702,8 @@ export function buildExamSituationBundleReportHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${e(head.subject_name)} — موقف متعدد القاعات</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
-    body { font-family: "Tajawal", Tahoma, sans-serif; margin: 0; padding: 16px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 16px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
     @page { size: A4; margin: 18mm; }
     @media print { body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     .hdr { border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 14px; }
@@ -1321,10 +1319,9 @@ export function buildDailyExamSituationsFinalReportHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${z(titleTag)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
-    body { font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; padding: 14px 16px 20px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 14px 16px 20px; color: #111827; font-size: 13px; line-height: 1.45; background: #fff; }
     @page { size: A4 landscape; margin: 10mm; }
     @media print {
       body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }

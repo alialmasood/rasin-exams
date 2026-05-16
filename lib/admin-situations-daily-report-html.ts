@@ -102,10 +102,9 @@ export function buildAdminDailySituationsReportHtml(input: {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>التقرير اليومي للمواقف الامتحانية — ${z(input.examDate)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
-    body { font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; padding: 14px 16px 18px; color: #111827; background: #fff; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 14px 16px 18px; color: #111827; background: #fff; }
     @page { size: A4 landscape; margin: 10mm; }
     @media print { body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     .hdr { border-bottom: 3px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 12px; }

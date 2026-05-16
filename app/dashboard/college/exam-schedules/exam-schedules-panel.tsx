@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { getDepartmentPageTitleAttrs, withDepartmentSectionTitle } from "@/lib/department-portal-typography";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import type { CollegeStudySubjectRow } from "@/lib/college-study-subjects";
 import type { CollegeExamRoomRow } from "@/lib/college-rooms";
@@ -825,7 +826,7 @@ export function ExamSchedulesPanel({
       })
       .join("");
     popup.document.write(`<html dir="rtl"><head><title>طباعة الجدول</title><style>
-      body{font-family:Tahoma,Arial;padding:24px} table{width:100%;border-collapse:collapse}
+      body{font-family:"Arial (Body CS)", Arial, Tahoma, sans-serif;padding:24px} table{width:100%;border-collapse:collapse}
       th,td{border:1px solid #cbd5e1;padding:8px;font-size:12px;text-align:right} th{background:#f1f5f9}
       </style></head><body><h1>الجدول الامتحاني - ${collegeLabel}</h1>
       <table><thead><tr><th>#</th><th>الكلية</th><th>القسم</th><th>نوع الجدول</th><th>المادة</th><th>المرحلة</th><th>اليوم</th><th>التاريخ</th><th>الوجبة</th><th>الوقت</th><th>المدة</th><th>عدد الطلبة</th><th>القاعة</th></tr></thead>
@@ -905,7 +906,9 @@ export function ExamSchedulesPanel({
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }} />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-extrabold text-[#0F172A]">الجدول الامتحاني</h1>
+            <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-3xl font-extrabold text-[#0F172A]")}>
+              الجدول الامتحاني
+            </h1>
             <p className="mt-1.5 text-sm text-[#64748B]">
               إدارة جداول الامتحانات؛ كل إدخال مكتمل يُحفظ كـ <strong className="font-semibold text-[#334155]">معتمد</strong> مباشرة.
               عند توزيع مادة واحدة على عدة قاعات تُعرض <strong className="font-semibold text-[#334155]">جلسة واحدة</strong> في الجدول مع
@@ -956,7 +959,9 @@ export function ExamSchedulesPanel({
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="rounded-3xl border border-[#E2E8F0] bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-[#0F172A]">البيانات العامة للجدول</h2>
+            <h2 className={withDepartmentSectionTitle(portalBase, "text-lg font-bold text-[#0F172A]")}>
+              البيانات العامة للجدول
+            </h2>
             {generalLocked ? (
               <button
                 type="button"
@@ -1061,7 +1066,14 @@ export function ExamSchedulesPanel({
             عند اكتمال الحقول وحفظ الإدخال يُسجَّل الصف كـ <strong className="text-[#0F172A]">معتمد</strong> تلقائياً — دون خطوة «رفع للمتابعة».
           </p>
 
-          <h3 className="mt-6 border-t border-[#E2E8F0] pt-4 text-lg font-bold text-[#0F172A]">تفاصيل المادة الامتحانية</h3>
+          <h3
+            className={withDepartmentSectionTitle(
+              portalBase,
+              "mt-6 border-t border-[#E2E8F0] pt-4 text-lg font-bold text-[#0F172A]"
+            )}
+          >
+            تفاصيل المادة الامتحانية
+          </h3>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <fieldset className="sm:col-span-2 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]/80 px-3 py-3 sm:px-4">
               <legend className="px-1 text-sm font-semibold text-[#334155]">مستوى الدراسة</legend>
@@ -1348,7 +1360,9 @@ export function ExamSchedulesPanel({
         </div>
 
         <div className="rounded-3xl border border-[#E2E8F0] bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md">
-          <h2 className="text-lg font-bold text-[#0F172A]">التقويم الامتحاني</h2>
+          <h2 className={withDepartmentSectionTitle(portalBase, "text-lg font-bold text-[#0F172A]")}>
+            التقويم الامتحاني
+          </h2>
           <p className="mt-1 text-xs text-[#64748B]">
             {SCHEDULE_TYPE_LABEL[form.scheduleType]} |{" "}
             {isAllCollegeBranchesChoice(form.collegeSubjectId)
@@ -1586,7 +1600,12 @@ export function ExamSchedulesPanel({
         onClose={() => setHolidaysModalOpen(false)}
       >
         <div className="border-b border-[#E2E8F0] bg-[#FFFBEB] px-5 py-4">
-          <h3 id="holidays-modal-title" className="text-lg font-bold text-[#0F172A]">إدارة العطل الجامعية</h3>
+          <h3
+            id="holidays-modal-title"
+            className={withDepartmentSectionTitle(portalBase, "text-lg font-bold text-[#0F172A]")}
+          >
+            إدارة العطل الجامعية
+          </h3>
           <p className="mt-1 text-xs text-[#64748B]">تظهر العطل المضافة في التقويم الجامعي وبناء الجدول الامتحاني.</p>
         </div>
         <div className="space-y-4 px-5 py-4">
@@ -1657,7 +1676,9 @@ export function ExamSchedulesPanel({
 
       <section className="min-w-0 overflow-x-hidden overflow-y-visible rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">
         <div className="border-b border-[#1f3578] bg-[#274092] px-5 py-4">
-          <h3 className="text-lg font-bold text-white">الجداول الامتحانية المضافة</h3>
+          <h3 className={withDepartmentSectionTitle(portalBase, "text-lg font-bold text-white")}>
+            الجداول الامتحانية المضافة
+          </h3>
           <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
             <input
               value={search}

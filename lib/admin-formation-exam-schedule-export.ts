@@ -184,7 +184,7 @@ export function buildFormationExamSchedulePrintHtml(
   <title>جدول امتحاني — ${e(input.formationLabel)}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 9.5pt; line-height: 1.45; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 10mm; color: #0f172a; font-size: 9.5pt; line-height: 1.45; }
     @page { size: A4 landscape; margin: 10mm; }
     .report-brand { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin: 0 0 4mm; padding-bottom: 3mm; border-bottom: 1px solid #e2e8f0; }
     .report-brand-side { font-size: 10pt; font-weight: 800; color: #1e3a8a; }

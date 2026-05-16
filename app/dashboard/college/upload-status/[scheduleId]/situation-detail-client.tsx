@@ -1,6 +1,8 @@
 "use client";
 
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { APP_FONT_UI_CLASS } from "@/lib/app-font-family";
+import { getDepartmentPageTitleAttrs } from "@/lib/department-portal-typography";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
@@ -23,6 +25,7 @@ import { validateSituationCheatingCases } from "@/lib/situation-cheating-cases";
 import { allInvigilatorNamesForAbsenceCheck } from "@/lib/room-external-staff";
 import {
   computeSituationRoomStaffOverridePayload,
+  isSituationRoomStaffDatasetComplete,
   normalizeSituationInvigilatorsForSave,
   normalizeSituationSupervisorForSave,
   resolveSituationRoomStaffDisplay,
@@ -642,8 +645,43 @@ export function SituationDetailClient({
     situationInvigilatorsInput,
   ]);
 
-  /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اختلاف بسيط مع `detail.is_complete`. */
-  const deanApproveDataOk = detail.is_complete || detailForPrint.is_complete;
+  const resolvedRoomStaffForApprove = useMemo(() => {
+    const previewOv = computeSituationRoomStaffOverridePayload(
+      detail.room_default_supervisor_name,
+      detail.room_default_invigilators,
+      normalizeSituationSupervisorForSave(situationSupervisorInput, detail.room_default_supervisor_name),
+      normalizeSituationInvigilatorsForSave(situationInvigilatorsInput, detail.room_default_invigilators)
+    );
+    return resolveSituationRoomStaffDisplay(
+      detail.room_default_supervisor_name,
+      detail.room_default_invigilators,
+      previewOv ?? {}
+    );
+  }, [
+    detail.room_default_supervisor_name,
+    detail.room_default_invigilators,
+    situationSupervisorInput,
+    situationInvigilatorsInput,
+  ]);
+
+  const roomStaffComplete = useMemo(
+    () =>
+      isSituationRoomStaffDatasetComplete(
+        resolvedRoomStaffForApprove.supervisor_name,
+        resolvedRoomStaffForApprove.invigilators,
+        detail.room_external_staff
+      ),
+    [
+      resolvedRoomStaffForApprove.supervisor_name,
+      resolvedRoomStaffForApprove.invigilators,
+      detail.room_external_staff,
+    ]
+  );
+
+  const attendanceBookletsComplete = detail.is_complete || detailForPrint.is_complete;
+
+  /** يطابق ما يظهر في النموذج مع ما يقرأه الخادم بعد الحفظ — يُفعّل الاعتماد عند اكتمال الحضور/الدفاتر والمشرف والمراقبين. */
+  const deanApproveDataOk = attendanceBookletsComplete && roomStaffComplete;
 
   const runAttendancePatch = useCallback(
     async (opts?: { silentSuccess?: boolean }): Promise<boolean> => {
@@ -1015,7 +1053,12 @@ export function SituationDetailClient({
           />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0 space-y-2">
-              <h1 className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xl font-extrabold tracking-tight sm:gap-x-3 sm:text-[1.7rem]">
+              <h1
+                {...getDepartmentPageTitleAttrs(
+                  portalBase,
+                  "flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xl font-extrabold tracking-tight sm:gap-x-3 sm:text-[1.7rem]"
+                )}
+              >
                 <span style={{ color: PRIMARY }}>رفع الموقف الامتحاني</span>
                 <span className="font-extrabold text-slate-400 select-none sm:text-2xl" aria-hidden>
                   |
@@ -2036,9 +2079,9 @@ export function SituationDetailClient({
                 <div className="relative grid grid-cols-1 gap-5">
                   {isDepartmentPortal ? (
                     <div
-                      className={`rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift}`}
+                      className={`exam-situation-head-approval-card rounded-[20px] border-2 border-[#1E3A8A]/20 bg-white p-5 shadow-sm sm:p-6 ${cardLift} ${APP_FONT_UI_CLASS}`}
                     >
-                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                      <p className={`text-sm font-semibold leading-relaxed text-slate-700 ${APP_FONT_UI_CLASS}`}>
                         اعتماد الموقف الامتحاني من رئيس القسم أو الفرع (حساب بوابة القسم/الفرع).
                       </p>
                       <button
@@ -2050,18 +2093,24 @@ export function SituationDetailClient({
                           !deanApproveDataOk ||
                           !canSubmitHeadByWorkflow
                         }
-                        className="mt-4 inline-flex min-h-[46px] min-w-[11rem] items-center justify-center gap-2 rounded-xl bg-[#1E3A8A] px-5 text-sm font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45"
+                        className={`mt-4 inline-flex min-h-[46px] min-w-[11rem] items-center justify-center gap-2 rounded-xl bg-[#1E3A8A] px-5 text-sm font-extrabold text-white shadow-[0_4px_16px_-2px_rgba(30,58,138,0.45)] transition hover:bg-[#163170] disabled:pointer-events-none disabled:opacity-45 ${APP_FONT_UI_CLASS}`}
                       >
                         <IconCircleCheck className="h-5 w-5 shrink-0" aria-hidden />
                         اعتماد الموقف
                       </button>
                       {!canSubmitHeadByWorkflow ? (
-                        <p className="mt-2 text-xs font-medium text-amber-800">
+                        <p className={`mt-2 text-xs font-medium text-amber-800 ${APP_FONT_UI_CLASS}`}>
                           الحالة الحالية: <strong>{WORKFLOW_LABEL[detail.workflow_status]}</strong>
                         </p>
                       ) : null}
                       {canSubmitHeadByWorkflow && !deanApproveDataOk ? (
-                        <p className="mt-2 text-xs font-medium text-slate-600">أكمل البيانات ثم أعد المحاولة.</p>
+                        <p className={`mt-2 text-xs font-medium text-slate-600 ${APP_FONT_UI_CLASS}`}>
+                          {!attendanceBookletsComplete
+                            ? "أكمل بيانات الحضور والغياب والدفاتر الامتحانية ثم أعد المحاولة."
+                            : !roomStaffComplete
+                              ? "أكمل حقل مشرف القاعة وحقل المراقبين في قسم «المشرفون والمراقبون» ثم أعد المحاولة."
+                              : "أكمل البيانات ثم أعد المحاولة."}
+                        </p>
                       ) : null}
                     </div>
                   ) : (

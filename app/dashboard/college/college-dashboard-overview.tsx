@@ -3,6 +3,14 @@
 import { useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { APP_FONT_FAMILY } from "@/lib/app-font-family";
+import { formatDateTimeBaghdad } from "@/lib/format-datetime-baghdad";
+import { formatNum } from "@/lib/format-number";
+import {
+  DEPARTMENT_SECTION_TITLE_CLASS,
+  getDepartmentPageTitleAttrs,
+  withDepartmentSectionTitle,
+} from "@/lib/department-portal-typography";
 import type { CollegeProfileRow } from "@/lib/college-accounts";
 import { DASHBOARD_TIMELINE_MAX_BRANCHES } from "@/lib/college-dashboard-constants";
 import type { CollegeDashboardSnapshot } from "@/lib/college-dashboard-stats";
@@ -67,28 +75,15 @@ function InsightIcon({ tone }: { tone: DashboardInsight["tone"] }) {
   );
 }
 
-function formatNum(n: number): string {
-  try {
-    return n.toLocaleString("en-US");
-  } catch {
-    return String(n);
-  }
-}
-
 function formatActivityWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("en-US", {
-      timeZone: "Asia/Baghdad",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-  } catch {
-    return iso;
-  }
+  return formatDateTimeBaghdad(iso, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function formatExamDateShort(iso: string): string {
@@ -186,6 +181,7 @@ function ChartCard({
   children,
   className,
   chartClassName = "h-[280px]",
+  sectionTitleClass = "",
 }: {
   title: string;
   subtitle?: string;
@@ -194,10 +190,11 @@ function ChartCard({
   className?: string;
   /** ارتفاع منطقة الرسم، يُفضَّل أكبر للبطاقات العريضة */
   chartClassName?: string;
+  sectionTitleClass?: string;
 }) {
   return (
     <div className={`rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm ${className ?? ""}`}>
-      <h3 className="text-base font-bold text-[#0F172A]">{title}</h3>
+      <h3 className={`text-base font-bold text-[#0F172A] ${sectionTitleClass}`.trim()}>{title}</h3>
       {subtitle ? <p className="mt-1 text-xs text-[#64748B]">{subtitle}</p> : null}
       <div className={`mt-4 w-full min-w-0 ${chartClassName}`}>{children}</div>
     </div>
@@ -208,6 +205,7 @@ const tooltipStyle = {
   borderRadius: 12,
   border: "1px solid #e2e8f0",
   fontSize: 12,
+  fontFamily: APP_FONT_FAMILY,
 };
 
 export function CollegeDashboardOverview({
@@ -221,6 +219,7 @@ export function CollegeDashboardOverview({
 }) {
   const portalBase = useCollegePortalBasePath();
   const isDepartmentPortal = portalBase === "/department";
+  const deptSectionClass = isDepartmentPortal ? DEPARTMENT_SECTION_TITLE_CLASS : "";
   const isFollowup = profile?.account_kind === "FOLLOWUP";
   const isDepartmentAccount = profile?.account_kind === "DEPARTMENT";
   const deanOrHolder = isFollowup ? (profile?.holder_name ?? "").trim() : (profile?.dean_name ?? "").trim();
@@ -351,7 +350,12 @@ export function CollegeDashboardOverview({
           aria-hidden
         />
         <p className="text-[11px] font-bold tracking-wide text-[#2563EB]">لوحة تحكم التشكيل</p>
-        <h1 className="mt-1 text-xl font-bold leading-tight text-[#0F172A] md:text-2xl">
+        <h1
+          {...getDepartmentPageTitleAttrs(
+            portalBase,
+            "mt-1 text-xl font-bold leading-tight text-[#0F172A] md:text-2xl"
+          )}
+        >
           {isFollowup ? (
             <>
               أهلًا وسهلًا، <span className="text-[#1E3A8A]">{deanOrHolder || "صاحب حساب المتابعة"}</span>
@@ -414,7 +418,10 @@ export function CollegeDashboardOverview({
       ) : null}
 
       <section aria-labelledby="kpis-heading">
-        <h2 id="kpis-heading" className="mb-4 text-sm font-bold text-[#334155]">
+        <h2
+          id="kpis-heading"
+          className={withDepartmentSectionTitle(portalBase, "mb-4 text-sm font-bold text-[#334155]")}
+        >
           مؤشرات سريعة
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -475,7 +482,10 @@ export function CollegeDashboardOverview({
       </section>
 
       <section aria-labelledby="attendance-activity-heading">
-        <h2 id="attendance-activity-heading" className="mb-4 text-sm font-bold text-[#334155]">
+        <h2
+          id="attendance-activity-heading"
+          className={withDepartmentSectionTitle(portalBase, "mb-4 text-sm font-bold text-[#334155]")}
+        >
           حالات الطلاب وآخر العمليات
         </h2>
         <div className="grid gap-6 lg:grid-cols-2">
@@ -484,7 +494,9 @@ export function CollegeDashboardOverview({
             className="pointer-events-none mb-4 h-1 rounded-full bg-gradient-to-l from-emerald-500 to-[#1E3A8A]"
             aria-hidden
           />
-          <h3 className="text-base font-bold text-[#0F172A]">حالات الطلبة في الجلسات</h3>
+          <h3 className={withDepartmentSectionTitle(portalBase, "text-base font-bold text-[#0F172A]")}>
+            حالات الطلبة في الجلسات
+          </h3>
           <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
             إجمالي عدد الطلبة المسجّلين كـ <strong className="font-semibold text-[#475569]">حاضر</strong> أو{" "}
             <strong className="font-semibold text-[#475569]">غائب</strong> عبر جلسات الجدول (بيانات القاعات
@@ -555,7 +567,9 @@ export function CollegeDashboardOverview({
             className="pointer-events-none mb-4 h-1 rounded-full bg-gradient-to-l from-sky-500 to-indigo-700"
             aria-hidden
           />
-          <h3 className="text-base font-bold text-[#0F172A]">آخر العمليات</h3>
+          <h3 className={withDepartmentSectionTitle(portalBase, "text-base font-bold text-[#0F172A]")}>
+            آخر العمليات
+          </h3>
           <p className="mt-1 text-xs text-[#64748B]">
             أحدث تحديثات للمواقف الامتحانية وحالات الجداول، مرتبة زمنياً (توقيت بغداد).
           </p>
@@ -579,11 +593,14 @@ export function CollegeDashboardOverview({
       </section>
 
       <section className="space-y-4" aria-labelledby="charts-heading">
-        <h2 id="charts-heading" className="text-sm font-bold text-[#334155]">
+        <h2
+          id="charts-heading"
+          className={withDepartmentSectionTitle(portalBase, "text-sm font-bold text-[#334155]")}
+        >
           الرسوم البيانية
         </h2>
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             chartClassName="min-h-[260px] h-[280px] lg:h-[300px]"
             title={isDepartmentPortal ? "المواد الدراسية في القسم أو الفرع" : "المواد الدراسية حسب القسم أو الفرع"}
             subtitle={
@@ -626,7 +643,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             chartClassName="min-h-[260px] h-[280px] lg:h-[300px]"
             title={isDepartmentPortal ? "الجداول الامتحانية في القسم" : "الجداول الامتحانية حسب القسم"}
             subtitle={
@@ -670,7 +687,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             className="lg:col-span-2"
             chartClassName="h-[300px] lg:h-[320px]"
             title={isDepartmentPortal ? "تطور جلسات القسم عبر زمن الامتحانات" : "تطور الجلسات عبر زمن الامتحانات"}
@@ -719,7 +736,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard title="حالة الجداول الامتحانية" subtitle="توزيع الجلسات المجدولة حسب مسار الاعتماد">
+          <ChartCard sectionTitleClass={deptSectionClass} title="حالة الجداول الامتحانية" subtitle="توزيع الجلسات المجدولة حسب مسار الاعتماد">
             {workflowData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جداول بعد.</p>
             ) : (
@@ -746,7 +763,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard title="رفع المواقف الامتحانية" subtitle="جلسات الجدول: مرفوع الموقف من عدمه">
+          <ChartCard sectionTitleClass={deptSectionClass} title="رفع المواقف الامتحانية" subtitle="جلسات الجدول: مرفوع الموقف من عدمه">
             {uploadData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جلسات بعد.</p>
             ) : (
@@ -773,7 +790,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard title="اكتمال بيانات الموقف" subtitle="مكتمل حسب اعتماد العميد أو اكتمال الحضور والغياب">
+          <ChartCard sectionTitleClass={deptSectionClass} title="اكتمال بيانات الموقف" subtitle="مكتمل حسب اعتماد العميد أو اكتمال الحضور والغياب">
             {completeData.length === 0 ? (
               <p className="flex h-full items-center justify-center text-sm text-[#64748B]">لا توجد جلسات بعد.</p>
             ) : (
@@ -800,7 +817,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             title="المواد الدراسية حسب نوع الدراسة"
             subtitle="سنوي، فصلي، مقررات، بولونيا — عدد المواد المسجّلة لكل نوع"
           >
@@ -823,7 +840,7 @@ export function CollegeDashboardOverview({
             )}
           </ChartCard>
 
-          <ChartCard
+          <ChartCard sectionTitleClass={deptSectionClass}
             className="lg:col-span-2"
             chartClassName="h-[280px] lg:h-[300px]"
             title="كثافة الجلسات حسب اليوم"

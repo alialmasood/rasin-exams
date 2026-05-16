@@ -11,7 +11,33 @@
 /** عنوان النظام واسم الكلية في الشريط الجانبي */
 .sidebar-system-title,
 .sidebar-footer-label {
-  font-family: "Alhurra", "Noto Kufi Arabic", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--font-app);
+}
+
+/** بوابة القسم: تمييز وزن العناوين (الخط من --font-app) */
+.department-page-title,
+.department-portal h1,
+.department-portal .department-page-title {
+  font-weight: 700 !important;
+}
+
+.department-section-title,
+.department-portal .department-section-title,
+.department-portal h2,
+.department-portal h3 {
+  font-weight: 700 !important;
+}
+
+/** بوابة القسم: فرض Arial (Body CS) — بعض البطاقات كانت تظهر بخط مختلف عن العناوين */
+.department-portal {
+  font-family: var(--font-app) !important;
+}
+
+.dean-approval-insights-ui,
+.exam-situation-head-approval-card,
+.dean-approval-insights-ui *:not(svg):not(path),
+.exam-situation-head-approval-card *:not(svg):not(path) {
+  font-family: var(--font-app) !important;
 }
 
 /** قائمة الشريط الجانبي: تمرير بالعجلة/اللمس دون إظهار شريط التمرير */
@@ -34,13 +60,16 @@
   --uni-gold: #cfa74a;
   --card-border: rgba(27, 78, 143, 0.14);
   --card-shadow: 0 22px 58px rgba(13, 44, 84, 0.14);
+  --font-app: "Arial (Body CS)", Arial, Tahoma, sans-serif;
+  --font-geist-sans: var(--font-app);
+  --font-geist-mono: var(--font-app);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-app);
+  --font-mono: var(--font-app);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -55,6 +84,7 @@ html {
   min-height: 100dvh;
   overflow-x: hidden;
   overflow-x: clip;
+  font-family: var(--font-app);
 }
 
 body {
@@ -66,7 +96,58 @@ body {
   overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
-  font-family: "Noto Kufi Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-family: var(--font-app);
+}
+
+/** عناصر النماذج والجداول وواجهة التفاعل */
+button,
+[type="button"],
+[type="submit"],
+[type="reset"],
+input,
+select,
+textarea,
+optgroup,
+option,
+label,
+.font-app-ui,
+table,
+thead,
+tbody,
+tfoot,
+tr,
+th,
+td,
+caption {
+  font-family: var(--font-app) !important;
+}
+
+/** بطاقات إحصائية وعناوين فرعية داخل البطاقات */
+.stat-card-ui,
+.followup-bundle-heading {
+  font-family: var(--font-app) !important;
+}
+
+/** شاشة الدخول ومعاينات داخل الصفحة */
+.welcome-screen,
+.welcome-screen *:not(svg):not(path) {
+  font-family: var(--font-app);
+}
+
+/** نوافذ الحوار والقوائم المنبثقة (portals) */
+dialog,
+[role="dialog"],
+[role="menu"],
+[role="listbox"] {
+  font-family: var(--font-app);
+}
+
+/** رسوم Recharts */
+.recharts-wrapper text,
+.recharts-wrapper tspan,
+.recharts-default-tooltip,
+.recharts-tooltip-wrapper {
+  font-family: var(--font-app) !important;
 }
 
 .welcome-screen {
@@ -232,7 +313,7 @@ body {
   max-width: 26ch;
   margin: 0 0 0.875rem;
   direction: rtl;
-  font-family: "Alhurra", "Amiri", "Times New Roman", serif;
+  font-family: var(--font-app);
   line-height: 1.32;
   font-size: 1.9375rem;
   font-weight: 700;
@@ -242,7 +323,7 @@ body {
 
 .system-subtitle {
   margin: 0 0 1.375rem;
-  font-family: "Alhurra", "Times New Roman", serif;
+  font-family: var(--font-app);
   font-size: 0.9375rem;
   font-weight: 500;
   color: #647897;

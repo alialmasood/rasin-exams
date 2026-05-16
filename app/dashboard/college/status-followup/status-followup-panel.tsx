@@ -1,6 +1,9 @@
 "use client";
 
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { getDepartmentPageTitleAttrs, withDepartmentSectionTitle } from "@/lib/department-portal-typography";
+import { formatDateTimeBaghdad, formatExamDateAr } from "@/lib/format-datetime-baghdad";
+import { formatNum } from "@/lib/format-number";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type {
@@ -59,27 +62,8 @@ function openHtmlPrintWindow(html: string): boolean {
   }
 }
 
-function formatExamDateAr(isoDate: string): string {
-  try {
-    return new Intl.DateTimeFormat("ar-IQ", {
-      dateStyle: "full",
-      timeZone: "Asia/Baghdad",
-    }).format(new Date(`${isoDate}T12:00:00`));
-  } catch {
-    return isoDate;
-  }
-}
-
 function formatSavedAtLabel(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("ar-IQ", {
-      timeZone: "Asia/Baghdad",
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
+  return formatDateTimeBaghdad(iso, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function openHtmlPreviewWindow(html: string): boolean {
@@ -505,7 +489,14 @@ export function StatusFollowupPanel({
           className="space-y-3 rounded-[22px] border border-emerald-200/90 bg-gradient-to-b from-emerald-50/95 to-white px-5 py-4 shadow-sm"
           role="status"
         >
-          <p className="text-sm font-extrabold text-emerald-900">اكتمال مواقف وجبة امتحانية</p>
+          <p
+            className={withDepartmentSectionTitle(
+              portalBase,
+              "followup-bundle-heading text-sm font-extrabold text-emerald-900"
+            )}
+          >
+            اكتمال مواقف وجبة امتحانية
+          </p>
           <ul className="flex flex-row flex-nowrap items-stretch gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
             {dayBundles.map((bundle) => {
               const dayKey = normalizeFollowupExamDateKey(bundle.examDate);
@@ -609,7 +600,9 @@ export function StatusFollowupPanel({
           style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }}
           aria-hidden
         />
-        <h1 className="text-3xl font-extrabold text-[#0F172A]">متابعة المواقف الامتحانية</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-3xl font-extrabold text-[#0F172A]")}>
+          متابعة المواقف الامتحانية
+        </h1>
         <p className="mt-1.5 text-sm text-[#64748B]">
           التشكيل «{collegeLabel}» — الجدول يجمع مواقف <strong className="font-semibold text-[#334155]">الجلسات المجدولة</strong> (رفع
           الموقف من صفحة الجلسة) ومواقف <strong className="font-semibold text-[#334155]">نموذج رفع الموقف الامتحاني</strong> بعد الإرسال
@@ -619,7 +612,10 @@ export function StatusFollowupPanel({
       </header>
 
       <section className="space-y-3" aria-labelledby="saved-followup-reports-heading">
-        <h2 id="saved-followup-reports-heading" className="text-xl font-extrabold text-[#0F172A]">
+        <h2
+          id="saved-followup-reports-heading"
+          className={withDepartmentSectionTitle(portalBase, "text-xl font-extrabold text-[#0F172A]")}
+        >
           التقارير المحفوظة
         </h2>
         <p className="text-xs text-[#64748B]">من «حفظ الموقف» — عرض أو طباعة / PDF لكل جزء محفوظ.</p>
@@ -747,7 +743,10 @@ export function StatusFollowupPanel({
       </section>
 
       <section className="space-y-3" aria-labelledby="uploaded-situations-heading">
-        <h2 id="uploaded-situations-heading" className="text-xl font-extrabold text-[#0F172A]">
+        <h2
+          id="uploaded-situations-heading"
+          className={withDepartmentSectionTitle(portalBase, "text-xl font-extrabold text-[#0F172A]")}
+        >
           المواقف الامتحانية المرفوعة
         </h2>
         <div className="overflow-x-auto rounded-3xl border border-[#E2E8F0] bg-white shadow-sm">

@@ -128,7 +128,7 @@ export function buildCentralTrackingReportPrintHtml(
     * { box-sizing: border-box; }
     html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body {
-      font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+      font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif;
       margin: 0;
       padding: 8mm 10mm 10mm;
       color: #0f172a;

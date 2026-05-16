@@ -26,6 +26,7 @@ import type { DeanSituationStatus, UploadStatusTableRow } from "@/lib/upload-sta
 import { isSituationExamBookletsBalanced } from "@/lib/situation-exam-booklets";
 import {
   computeSituationRoomStaffOverridePayload,
+  isSituationRoomStaffDatasetComplete,
   normalizeSituationInvigilatorsForSave,
   normalizeSituationSupervisorForSave,
   parseSituationRoomStaffOverrideFromDb,
@@ -1567,6 +1568,19 @@ export async function approveDeanExamSituation(input: {
       ok: false,
       message:
         "أكمل بيانات الحضور والغياب وتطابقها مع سعة القاعة، وبيانات الدفاتر الامتحانية (المستخدم + التالف = المستلم)، قبل اعتماد الموقف.",
+    };
+  }
+  if (
+    !isSituationRoomStaffDatasetComplete(
+      detail.supervisor_name,
+      detail.invigilators,
+      detail.room_external_staff
+    )
+  ) {
+    return {
+      ok: false,
+      message:
+        "أكمل حقل مشرف القاعة وحقل المراقبين في قسم «المشرفون والمراقبون» قبل اعتماد الموقف.",
     };
   }
   const pool = getDbPool();

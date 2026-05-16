@@ -1,6 +1,7 @@
 "use client";
 
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { getDepartmentPageTitleAttrs } from "@/lib/department-portal-typography";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { SituationFormA4Preview } from "@/components/situation-form/situation-form-a4-preview";
@@ -189,7 +190,9 @@ export function ExamSituationUploadClient({ collegeLabel }: { collegeLabel: stri
         aria-hidden
       />
       <header className="border-b border-[#F1F5F9] px-4 py-3 sm:px-5">
-        <h1 className="text-xl font-bold text-[#0F172A] sm:text-2xl">رفع الموقف الامتحاني</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-xl font-bold text-[#0F172A] sm:text-2xl")}>
+          رفع الموقف الامتحاني
+        </h1>
         {step === "preview" ? (
           <p className="mt-1 text-[12px] font-semibold text-[#2563EB]">معاينة قبل الإرسال — تحقق من البيانات ثم أرسل</p>
         ) : null}

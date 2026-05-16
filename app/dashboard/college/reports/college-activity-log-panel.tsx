@@ -1,18 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
 import type { CollegeActivityLogRow } from "@/lib/college-activity-log";
+import { getDepartmentPageTitleAttrs } from "@/lib/department-portal-typography";
+import { formatDateTimeBaghdad } from "@/lib/format-datetime-baghdad";
+import { formatNum, latinNumProps } from "@/lib/format-number";
 
 function formatWhen(d: Date): string {
-  try {
-    return new Date(d).toLocaleString("ar-IQ", {
-      timeZone: "Asia/Baghdad",
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  } catch {
-    return String(d);
-  }
+  return formatDateTimeBaghdad(d, { dateStyle: "medium", timeStyle: "short" });
 }
 
 const ACTION_AR: Record<string, string> = {
@@ -54,6 +50,7 @@ export function CollegeActivityLogPanel({
   collegeLabel: string;
   initialEvents: CollegeActivityLogRow[];
 }) {
+  const portalBase = useCollegePortalBasePath();
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -69,7 +66,9 @@ export function CollegeActivityLogPanel({
   return (
     <section className="space-y-5" dir="rtl">
       <div className="rounded-3xl border border-[#E2E8F0] bg-white p-6 shadow-sm sm:p-8">
-        <h1 className="text-2xl font-extrabold text-[#0F172A]">سجل الأحداث</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-2xl font-extrabold text-[#0F172A]")}>
+          سجل الأحداث
+        </h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#64748B]">
           يُسجَّل هنا ما يحدث في بوابة التشكيل/الكلية من إضافة أو تعديل أو حذف أو رفع موقف أو اعتماد أو حفظ
           تقارير وغيرها، لأغراض المراجعة والأمان. يُحدَّث السجل عند تنفيذ العمليات من الخادم.
@@ -83,7 +82,9 @@ export function CollegeActivityLogPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-bold text-[#0F172A]">
             عدد السجلات المعروضة:{" "}
-            <span className="tabular-nums text-[#2563EB]">{filtered.length}</span>
+            <span className="tabular-nums text-[#2563EB]" {...latinNumProps}>
+              {formatNum(filtered.length)}
+            </span>
             {query.trim() ? (
               <span className="text-xs font-normal text-[#64748B]"> (من أصل {initialEvents.length})</span>
             ) : null}

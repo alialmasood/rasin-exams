@@ -91,7 +91,7 @@ export function buildAdminTodayExamsReportHtml(input: AdminTodayExamsReportInput
   <style>
     * { box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+      font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif;
       margin: 0;
       padding: 11mm 12mm 12mm;
       color: #0f172a;

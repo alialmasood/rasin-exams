@@ -8,6 +8,7 @@ import {
   formatCollegeStudyStageLabel,
   isPostgraduateStudyStageLevel,
 } from "@/lib/college-study-stage-display";
+import { APP_FONT_FAMILY } from "@/lib/app-font-family";
 
 const SCHEDULE_SHORT: Record<ScheduleType, string> = {
   FINAL: "نهائي",
@@ -65,23 +66,15 @@ function mergeScheduleRowsForOfficialTable(sortedRows: CollegeExamScheduleRow[])
   });
 }
 
-const PDF_AR_FONT_FAMILY = "'Noto Naskh Arabic', 'Segoe UI', Tahoma, sans-serif";
+const PDF_AR_FONT_FAMILY = APP_FONT_FAMILY;
 
-/** خط عربي بربط صحيح للحروف قبل html2canvas */
+/** تحميل خط الواجهة قبل html2canvas */
 async function ensureArabicPdfFont(): Promise<void> {
-  const sel = 'link[data-examsuob-pdf-font="noto-naskh-arabic"]';
-  if (!document.querySelector(sel)) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.setAttribute("data-examsuob-pdf-font", "noto-naskh-arabic");
-    link.href = "https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@500;600;700&display=swap";
-    document.head.appendChild(link);
-  }
   try {
-    await document.fonts.load("700 20px 'Noto Naskh Arabic'");
-    await document.fonts.load("600 11px 'Noto Naskh Arabic'");
+    await document.fonts.load(`700 20px ${APP_FONT_FAMILY}`);
+    await document.fonts.load(`600 11px ${APP_FONT_FAMILY}`);
   } catch {
-    /* حتى يُسجَّل الخط من الـ stylesheet */
+    /* خط نظام */
   }
   await document.fonts.ready;
 }

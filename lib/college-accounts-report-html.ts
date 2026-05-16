@@ -136,7 +136,7 @@ export function buildCollegeAccountsReportHtml(input: CollegeAccountsReportInput
   <title>تقرير حسابات التشكيلات — جامعة البصرة</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif; margin: 0; padding: 12mm; color: #0f172a; font-size: 10.5pt; line-height: 1.55; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 12mm; color: #0f172a; font-size: 10.5pt; line-height: 1.55; }
     @page { size: A4; margin: 14mm; }
     .report-brand {
       display: grid;

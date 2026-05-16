@@ -38,7 +38,7 @@ export default async function DepartmentLayout({ children }: { children: React.R
           presenceUserId={session.uid}
           presenceDisplayLabel={`${sidebarTagline} — ${deptRoleLabel} (${session.username})`}
         >
-          {children}
+          <div className="department-portal">{children}</div>
         </AdminDashboardShell>
       </CollegeQuickActionsProvider>
     </CollegePortalBasePathProvider>

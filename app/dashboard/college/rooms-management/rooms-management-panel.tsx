@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCollegeQuickActionsRegister, useCollegeQuickUrlTrigger } from "../college-quick-actions";
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { getDepartmentPageTitleAttrs, withDepartmentSectionTitle } from "@/lib/department-portal-typography";
 import type { CollegeRoomScheduleHint } from "@/lib/college-exam-schedules";
 import {
   COLLEGE_BRANCH_ALL_SENTINEL,
@@ -1875,6 +1876,7 @@ function RoomDefinitionsDialog({
   fixedCollegeSubjectId?: string | null;
   scopedBranchName?: string | null;
 }) {
+  const portalBase = useCollegePortalBasePath();
   const [state, formAction, pending] = useActionState(defineCollegeRoomDefinitionsAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1921,7 +1923,7 @@ function RoomDefinitionsDialog({
       dir="rtl"
     >
       <div className="w-full space-y-4 p-6">
-        <h2 className="text-xl font-bold text-[#0F172A]">تعريف القاعات</h2>
+        <h2 className={withDepartmentSectionTitle(portalBase, "text-xl font-bold text-[#0F172A]")}>تعريف القاعات</h2>
         <form action={formAction} className="space-y-4">
           <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
             <label className="mb-1 block text-sm font-semibold text-[#334155]">القسم / الفرع</label>
@@ -2095,6 +2097,7 @@ function AddRoomDialog({
   scopedBranchName?: string | null;
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
 }) {
+  const portalBase = useCollegePortalBasePath();
   const [state, formAction, pending] = useActionState(createCollegeExamRoomAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -2112,7 +2115,9 @@ function AddRoomDialog({
       dir="rtl"
     >
       <form action={formAction} className="w-full space-y-4 p-6">
-        <h2 className="text-xl font-bold text-[#0F172A]">إضافة قاعة جديدة</h2>
+        <h2 className={withDepartmentSectionTitle(portalBase, "text-xl font-bold text-[#0F172A]")}>
+          إضافة قاعة جديدة
+        </h2>
         <RoomFields
           branches={branches}
           subjects={subjects}
@@ -2160,6 +2165,7 @@ function EditRoomDialog({
   staffRegistryPicklist?: StaffRegistryNamePicklist | null;
   row: CollegeExamRoomRow | null;
 }) {
+  const portalBase = useCollegePortalBasePath();
   const [state, formAction, pending] = useActionState(updateCollegeExamRoomAction, null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const key = useMemo(() => `${row?.id ?? "none"}-${open ? "open" : "closed"}`, [row?.id, open]);
@@ -2178,7 +2184,7 @@ function EditRoomDialog({
       dir="rtl"
     >
       <form key={key} action={formAction} className="w-full space-y-4 p-6">
-        <h2 className="text-xl font-bold text-[#0F172A]">تعديل القاعة</h2>
+        <h2 className={withDepartmentSectionTitle(portalBase, "text-xl font-bold text-[#0F172A]")}>تعديل القاعة</h2>
         <input type="hidden" name="id" value={row?.id ?? ""} />
         <input type="hidden" name="serial_no" value={row?.serial_no ?? ""} />
         <RoomFields
@@ -2738,7 +2744,9 @@ export function RoomsManagementPanel({
           style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }}
           aria-hidden
         />
-        <h1 className="text-3xl font-extrabold text-[#0F172A]">إدارة القاعات</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-3xl font-extrabold text-[#0F172A]")}>
+          إدارة القاعات
+        </h1>
         <p className="mt-1.5 text-sm leading-6 text-[#64748B]">
           تعريف القاعات وربطها بمادة أو مادتين امتحانيتين في النافذة الزمنية نفسها، مع توزيع الطلبة صباحي/مسائي لكل امتحان. يمكنك
           إضافة أكثر من قاعة لنفس المادة الدراسية لتوزيع الطلبة بينها؛ يُحسب الحضور والغياب لكل قاعة ثم يُجمَع في التقارير.

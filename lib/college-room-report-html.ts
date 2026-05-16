@@ -67,7 +67,7 @@ export function buildCollegeRoomReportHtml(
   <title>${e(row.room_name)} — تقرير قاعة</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; margin: 0; padding: 12mm; color: #0f172a; font-size: 11pt; line-height: 1.55; }
+    body { font-family: "Arial (Body CS)", Arial, Tahoma, sans-serif; margin: 0; padding: 12mm; color: #0f172a; font-size: 11pt; line-height: 1.55; }
     @page { size: A4; margin: 14mm; }
     h1 { font-size: 17pt; text-align: center; margin: 0 0 6mm; border-bottom: 2px solid #1e3a8a; padding-bottom: 4mm; color: #1e3a8a; }
     .sub { text-align: center; font-size: 10pt; color: #475569; margin-bottom: 8mm; }

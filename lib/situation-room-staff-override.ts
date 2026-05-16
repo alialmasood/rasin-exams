@@ -1,5 +1,8 @@
 /** لمسة يوم الامتحان لمشرف القاعة والمراقبين — يُخزَّن في `college_exam_schedules.situation_room_staff_override` (JSONB). */
 
+import { splitInvigilatorNamesList } from "@/lib/situation-staff-absences";
+import type { ExternalRoomStaffStored } from "@/lib/room-external-staff";
+
 export const SITUATION_ROOM_SUPERVISOR_MAX = 200;
 export const SITUATION_ROOM_INVIGILATORS_MAX = 8000;
 
@@ -64,6 +67,18 @@ export function resolveSituationRoomStaffDisplay(
     supervisor_name: os || rs,
     invigilators: oi || ri,
   };
+}
+
+/** مشرف مسجّل (حرفان على الأقل) ومراقب واحد على الأقل (داخل التشكيل أو خارجي من إدارة القاعات). */
+export function isSituationRoomStaffDatasetComplete(
+  supervisorName: string,
+  invigilatorsRaw: string,
+  externalStaff?: Pick<ExternalRoomStaffStored, "external_invigilators">
+): boolean {
+  if (String(supervisorName ?? "").trim().length < 2) return false;
+  if (splitInvigilatorNamesList(invigilatorsRaw).length > 0) return true;
+  const ext = externalStaff?.external_invigilators ?? [];
+  return ext.some((x) => x.name.trim().length >= 2);
 }
 
 export function validateSituationRoomStaffOverrideInput(

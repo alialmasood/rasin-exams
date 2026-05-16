@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { APP_FONT_UI_CLASS } from "@/lib/app-font-family";
+import {
+  getDepartmentPageTitleAttrs,
+  getDepartmentSectionTitleAttrs,
+} from "@/lib/department-portal-typography";
+import { formatDateTimeBaghdad, formatExamDateAr } from "@/lib/format-datetime-baghdad";
+import { formatNum, latinNumProps } from "@/lib/format-number";
 import type { StudyType } from "@/lib/college-study-subjects";
 import type {
   UploadStatusDashboardStats,
@@ -29,35 +36,16 @@ function deanApprovalLabel(status: "NONE" | "PENDING" | "APPROVED" | "REJECTED")
 
 function formatReviewTimeAr(iso: string | null): string {
   if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("ar-IQ-u-ca-gregory-nu-latn", {
-      timeZone: "Asia/Baghdad",
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
-
-function formatExamDateAr(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("ar-IQ-u-ca-gregory-nu-latn", {
-      timeZone: "Asia/Baghdad",
-      dateStyle: "medium",
-    }).format(new Date(`${iso}T12:00:00`));
-  } catch {
-    return iso;
-  }
+  return formatDateTimeBaghdad(iso, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function formatDuration(minutes: number) {
   if (minutes <= 0) return "—";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (h > 0 && m > 0) return `${h} ساعة و${m} دقيقة`;
-  if (h > 0) return h === 1 ? "ساعة واحدة" : `${h} ساعات`;
-  return `${m} دقيقة`;
+  if (h > 0 && m > 0) return `${formatNum(h)} ساعة و${formatNum(m)} دقيقة`;
+  if (h > 0) return h === 1 ? "ساعة واحدة" : `${formatNum(h)} ساعات`;
+  return `${formatNum(m)} دقيقة`;
 }
 
 function TableStudyLevelColumnBody({ stageLevel, studyType }: { stageLevel: number; studyType: StudyType }) {
@@ -89,11 +77,15 @@ function StatCard({
   accentClass: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[20px] border border-[#E8EEF7] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+    <div
+      className={`stat-card-ui relative overflow-hidden rounded-[20px] border border-[#E8EEF7] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] ${APP_FONT_UI_CLASS}`}
+    >
       <div className={`pointer-events-none absolute inset-x-0 top-0 h-1 ${accentClass}`} aria-hidden />
-      <p className="text-xs font-bold text-[#64748B]">{title}</p>
-      <p className="mt-2 text-3xl font-extrabold tabular-nums text-[#0F172A]">{value}</p>
-      <p className="mt-2 text-[11px] leading-relaxed text-[#94A3B8]">{hint}</p>
+      <p className={`text-xs font-bold text-[#64748B] ${APP_FONT_UI_CLASS}`}>{title}</p>
+      <p className={`mt-2 text-3xl font-extrabold tabular-nums text-[#0F172A] ${APP_FONT_UI_CLASS}`} {...latinNumProps}>
+        {formatNum(value)}
+      </p>
+      <p className={`mt-2 text-[11px] leading-relaxed text-[#94A3B8] ${APP_FONT_UI_CLASS}`}>{hint}</p>
     </div>
   );
 }
@@ -262,14 +254,18 @@ export function UploadStatusPanel({
   }
 
   return (
-    <section className="space-y-6" dir="rtl">
-      <header className="relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+    <section className={`space-y-6 ${APP_FONT_UI_CLASS}`} dir="rtl">
+      <header
+        className={`relative overflow-hidden rounded-[22px] border border-[#E8EEF7] bg-white px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] ${APP_FONT_UI_CLASS}`}
+      >
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
           style={{ background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 55%, #38BDF8 100%)" }}
           aria-hidden
         />
-        <h1 className="text-3xl font-extrabold text-[#0F172A]">رفع الموقف الامتحاني</h1>
+        <h1 {...getDepartmentPageTitleAttrs(portalBase, "text-3xl font-extrabold text-[#0F172A]")}>
+          رفع الموقف الامتحاني
+        </h1>
         <p className="mt-1.5 text-sm text-[#64748B]">
           جميع المواد الامتحانية المضافة في «الجداول الامتحانية» للتشكيل «{collegeLabel}» — مرتبطة بنفس البيانات
           (القاعات، المواد، الأقسام). اضغط «فتح التفاصيل» لإدخال الحضور والغياب ورفع الموقف: تُفتح البوابة بعد 30
@@ -332,10 +328,14 @@ export function UploadStatusPanel({
       </div>
 
       {showQuickHeadApproval ? (
-        <section className="rounded-[22px] border border-[#BFDBFE] bg-gradient-to-b from-[#EFF6FF] via-white to-white px-5 py-4 shadow-sm">
+        <section
+          className={`rounded-[22px] border border-[#BFDBFE] bg-gradient-to-b from-[#EFF6FF] via-white to-white px-5 py-4 shadow-sm ${APP_FONT_UI_CLASS}`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-extrabold text-[#0F172A]">المصادقة السريعة</h2>
+              <h2 {...getDepartmentSectionTitleAttrs(portalBase, "text-base font-extrabold text-[#0F172A]")}>
+                المصادقة السريعة
+              </h2>
               <p className="mt-1 text-xs leading-6 text-[#475569]">
                 بطاقات صغيرة لتأكيد المواقف الجاهزة مباشرة من هذه الصفحة، بنفس سلوك زر <span className="font-bold">تأكيد الموقف</span>{" "}
                 في صفحة التفاصيل: يشمل التأكيد <span className="font-bold">كل القاعات</span> المرتبطة بالموقف عند توزيع المادة على أكثر من قاعة.
@@ -363,7 +363,9 @@ export function UploadStatusPanel({
                 <div key={group.examDate} className="rounded-2xl border border-[#DBEAFE] bg-white/85 px-4 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-extrabold text-[#1E3A8A]">{formatExamDateAr(group.examDate)}</h3>
+                      <h3 {...getDepartmentSectionTitleAttrs(portalBase, "text-sm font-extrabold text-[#1E3A8A]")}>
+                        {formatExamDateAr(group.examDate)}
+                      </h3>
                       <p className="mt-1 text-[11px] text-[#64748B]">
                         {group.count} موقف جاهز | حضور {group.attendance} | غياب {group.absence}
                       </p>
@@ -449,7 +451,7 @@ export function UploadStatusPanel({
 
       {showDeanApprovalInsights ? (
         <section
-          className={`rounded-[22px] border px-5 py-4 shadow-sm ${
+          className={`dean-approval-insights-ui rounded-[22px] border px-5 py-4 shadow-sm ${APP_FONT_UI_CLASS} ${
             dashboardStats.deanApprovalNoticesAreToday
               ? "border-emerald-200 bg-emerald-50/70"
               : dashboardStats.approvedTotalLogical > 0
@@ -459,7 +461,9 @@ export function UploadStatusPanel({
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-extrabold text-[#0F172A]">ملاحظات مصادقة العميد</h2>
+              <h2 {...getDepartmentSectionTitleAttrs(portalBase, "text-base font-extrabold text-[#0F172A]")}>
+                ملاحظات مصادقة العميد
+              </h2>
               <p className="mt-1 text-xs text-[#475569]">
                 {dashboardStats.deanApprovalNoticesAreToday
                   ? "تظهر هنا أحدث المواقف التي تمت مصادقتها اليوم من قبل حساب العميد."
@@ -468,10 +472,13 @@ export function UploadStatusPanel({
                     : "لا توجد أي مصادقات من حساب العميد حتى الآن."}
               </p>
             </div>
-            <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-xs font-bold text-[#1E3A8A] shadow-sm">
+            <div
+              className={`rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-xs font-bold text-[#1E3A8A] shadow-sm ${APP_FONT_UI_CLASS}`}
+              {...latinNumProps}
+            >
               {dashboardStats.deanApprovalNoticesAreToday
-                ? `مصادقات اليوم: ${dashboardStats.approvedTodayLogical}`
-                : `إجمالي المصادقات: ${dashboardStats.approvedTotalLogical}`}
+                ? `مصادقات اليوم: ${formatNum(dashboardStats.approvedTodayLogical)}`
+                : `إجمالي المصادقات: ${formatNum(dashboardStats.approvedTotalLogical)}`}
             </div>
           </div>
 
@@ -487,7 +494,8 @@ export function UploadStatusPanel({
                   </p>
                   <p className="mt-1 text-xs leading-6 text-[#334155]">
                     تاريخ الامتحان: {formatExamDateAr(note.exam_date)} | الوقت: {formatExamClock12hAr(note.start_time)} -{" "}
-                    {formatExamClock12hAr(note.end_time)} | القاعات: {note.room_names_label || `${note.room_count} قاعات`}
+                    {formatExamClock12hAr(note.end_time)} | القاعات:{" "}
+                    {note.room_names_label || `${formatNum(note.room_count)} قاعات`}
                   </p>
                   <p className="mt-1 text-[11px] font-semibold text-[#64748B]">
                     وقت المصادقة: {formatReviewTimeAr(note.approved_at_iso)}

@@ -246,7 +246,7 @@ export function AdminDashboardShell({
   );
 
   return (
-    <div className="min-h-screen" dir="rtl" style={{ backgroundColor: C.bg }}>
+    <div className="min-h-screen font-sans" dir="rtl" style={{ backgroundColor: C.bg }}>
       {sidebarOpen ? (
         <button
           type="button"

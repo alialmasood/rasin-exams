@@ -3,6 +3,10 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCollegePortalBasePath } from "@/components/dashboard/college-portal-base-path";
+import { APP_FONT_UI_CLASS } from "@/lib/app-font-family";
+import { getDepartmentPageTitleAttrs, withDepartmentSectionTitle } from "@/lib/department-portal-typography";
+import { formatDateTimeBaghdad } from "@/lib/format-datetime-baghdad";
+import { formatNum, latinNumProps } from "@/lib/format-number";
 import type { CollegeSubjectRow } from "@/lib/college-subjects";
 import {
   STAFF_REGISTRY_ALL_BRANCHES_VALUE,
@@ -166,7 +170,10 @@ export function StaffRegistryPanel({
               aria-labelledby="staff-registry-modal-title"
             >
               <div className="border-b border-[#E2E8F0] bg-[#F8FAFC] px-5 py-4">
-                <h2 id="staff-registry-modal-title" className="text-lg font-extrabold text-[#0F172A]">
+                <h2
+                  id="staff-registry-modal-title"
+                  className={withDepartmentSectionTitle(portalBase, "text-lg font-extrabold text-[#0F172A]")}
+                >
                   {editingRow ? "تعديل الاسم في السجل" : "إضافة اسم إلى السجل المرجعي"}
                 </h2>
                 <p className="mt-1 text-xs font-medium text-[#64748B]">
@@ -245,7 +252,11 @@ export function StaffRegistryPanel({
     <div className="min-w-0 space-y-6 p-4 sm:p-6" dir="rtl">
       <header className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm sm:p-6">
         <p className="text-xs font-bold uppercase tracking-wide text-[#1E3A8A]/80">بوابة القسم</p>
-        <h1 className="mt-1 text-xl font-extrabold text-[#0F172A] sm:text-2xl">إدارة المشرفين والمراقبين</h1>
+        <h1
+          {...getDepartmentPageTitleAttrs(portalBase, "mt-1 text-xl font-extrabold text-[#0F172A] sm:text-2xl")}
+        >
+          إدارة المشرفين والمراقبين
+        </h1>
         <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-[#475569]">
           <span className="font-bold text-[#0F172A]">{collegeLabel}</span> — قاعدة بيانات مرجعية للأسماء (مثل أسماء
           الأساتذة) على مستوى القسم أو الفرع، لاقتراحها عند تعبئة القاعات دون الحاجة لإعادة الكتابة. لا يُخزَّن هنا
@@ -256,10 +267,14 @@ export function StaffRegistryPanel({
       <section className="rounded-2xl border-2 border-[#1E3A8A]/20 bg-gradient-to-b from-[#F8FAFC] to-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-extrabold text-[#1E3A8A]">البيانات الأساسية</h2>
+            <h2 className={withDepartmentSectionTitle(portalBase, "text-lg font-extrabold text-[#1E3A8A]")}>
+              البيانات الأساسية
+            </h2>
             <p className="mt-1 text-sm font-medium text-[#475569]">
               إجمالي الأسماء في السجل:{" "}
-              <strong className="tabular-nums text-[#0F172A]">{totalCount}</strong>
+              <strong className={`tabular-nums text-[#0F172A] ${APP_FONT_UI_CLASS}`} {...latinNumProps}>
+                {formatNum(totalCount)}
+              </strong>
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
@@ -270,7 +285,7 @@ export function StaffRegistryPanel({
                   setEditingRow(null);
                   setModalOpen(true);
                 }}
-                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-[#1E3A8A] px-5 text-sm font-extrabold text-white shadow-md transition hover:bg-[#163170]"
+                className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-[#1E3A8A] px-5 text-sm font-extrabold text-white shadow-md transition hover:bg-[#163170] ${APP_FONT_UI_CLASS}`}
               >
                 إضافة اسم
               </button>
@@ -291,7 +306,7 @@ export function StaffRegistryPanel({
                   type="button"
                   disabled={importPending || formPending || delPending}
                   onClick={() => importFileRef.current?.click()}
-                  className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border-2 border-[#1E3A8A] bg-white px-5 text-sm font-extrabold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-60"
+                  className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border-2 border-[#1E3A8A] bg-white px-5 text-sm font-extrabold text-[#1E3A8A] shadow-sm transition hover:bg-[#EFF6FF] disabled:opacity-60 ${APP_FONT_UI_CLASS}`}
                 >
                   {importPending ? "جاري الاستيراد…" : "استيراد أسماء من Excel"}
                 </button>
@@ -300,7 +315,7 @@ export function StaffRegistryPanel({
                 type="button"
                 disabled={templatePending || importPending || formPending || delPending}
                 onClick={() => void onExportExcelTemplate()}
-                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border-2 border-emerald-600 bg-white px-5 text-sm font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
+                className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border-2 border-emerald-600 bg-white px-5 text-sm font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60 ${APP_FONT_UI_CLASS}`}
               >
                 {templatePending ? "جاري تجهيز القالب…" : "تصدير قالب Excel"}
               </button>
@@ -327,7 +342,9 @@ export function StaffRegistryPanel({
 
       <section className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
         <div className="border-b border-[#1f3578] bg-[#274092] px-4 py-3 sm:px-5">
-          <h3 className="text-base font-bold text-white sm:text-lg">سجل الأسماء المرجعي</h3>
+          <h3 className={withDepartmentSectionTitle(portalBase, "text-base font-bold text-white sm:text-lg")}>
+            سجل الأسماء المرجعي
+          </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse text-right text-sm">
@@ -355,7 +372,9 @@ export function StaffRegistryPanel({
               ) : (
                 rows.map((r, idx) => (
                   <tr key={r.id} className="transition hover:bg-[#F8FAFC]/90">
-                    <td className="border-b border-[#E2E8F0] px-3 py-2.5 tabular-nums text-[#64748B]">{idx + 1}</td>
+                    <td className="border-b border-[#E2E8F0] px-3 py-2.5 tabular-nums text-[#64748B]" {...latinNumProps}>
+                      {formatNum(idx + 1)}
+                    </td>
                     {isCentralAccount ? (
                       <td className="border-b border-[#E2E8F0] px-3 py-2.5 font-semibold text-[#0F172A]">
                         {r.college_subject_id == null ? (
@@ -373,11 +392,8 @@ export function StaffRegistryPanel({
                     <td className="border-b border-[#E2E8F0] px-3 py-2.5 font-semibold text-[#0F172A]">
                       {r.full_name}
                     </td>
-                    <td className="border-b border-[#E2E8F0] px-3 py-2.5 tabular-nums text-[#475569]">
-                      {new Intl.DateTimeFormat("ar-IQ", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      }).format(new Date(r.created_at))}
+                    <td className={`border-b border-[#E2E8F0] px-3 py-2.5 tabular-nums text-[#475569] ${APP_FONT_UI_CLASS}`}>
+                      {formatDateTimeBaghdad(r.created_at, { dateStyle: "medium", timeStyle: "short" })}
                     </td>
                     <td className="border-b border-[#E2E8F0] px-3 py-2.5">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
