@@ -1,5 +1,6 @@
 import { mergeAbsenceNamesByShift } from "@/lib/capacity-by-shift-ar";
 import { normalizeExamMealSlot } from "@/lib/exam-meal-slot";
+import { SQL_COLLEGE_SUBJECT_DISPLAY_NAME } from "@/lib/college-all-branches-shared";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 import { canUploadSituationInExamWindow } from "@/lib/exam-situation-window";
@@ -233,7 +234,7 @@ export async function listOfficialExamSituationsForOwner(
               ELSE r.absence_names_evening
             END AS absence_names_evening,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
-            c.branch_name, e.academic_year, e.stage_level,
+            ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS branch_name, e.academic_year, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
             COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
             COALESCE(e.exam_booklets_used, 0) AS exam_booklets_used,
@@ -501,7 +502,7 @@ export async function listCentralTrackingExamRowsForDate(examDate: string): Prom
               ELSE r.absence_names_evening
             END AS absence_names_evening,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
-            c.branch_name, e.academic_year,
+            ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS branch_name, e.academic_year,
             e.term_label,
             e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
@@ -931,7 +932,7 @@ const EXAM_SITUATION_DETAIL_SQL_BASE = `
             r.external_room_staff AS room_external_staff,
             s.subject_name, COALESCE(s.study_type, 'ANNUAL') AS study_type,
             TRIM(COALESCE(s.instructor_name::text, '')) AS instructor_name,
-            c.branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
+            ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS branch_name, c.branch_head_name, e.academic_year, e.term_label, e.stage_level,
             rep.head_submitted_at, rep.dean_status, rep.dean_reviewed_at,
             e.notes, e.situation_room_staff_override, e.situation_staff_absences, e.situation_cheating_cases,
             COALESCE(e.exam_booklets_received, 0) AS exam_booklets_received,
@@ -1727,7 +1728,7 @@ export async function listAllOfficialExamSituationsForAdmin(): Promise<AdminOffi
           ), ''),
           u.username::text
         ) AS formation_label,
-        c.branch_name,
+        ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS branch_name,
         s.subject_name,
         e.stage_level,
         e.exam_date::text,

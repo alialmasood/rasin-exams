@@ -11,6 +11,10 @@ import type { UserRole } from "@/lib/authz";
 import { isAdminRole } from "@/lib/authz";
 import { recordCollegeActivityEvent } from "@/lib/college-activity-log";
 import {
+  isExamScheduleAllBranchesChoice,
+  resolveCollegeSubjectIdForExamScheduleAllBranches,
+} from "@/lib/college-all-branches-resolve";
+import {
   getCollegePortalDataOwnerUserId,
   effectiveCollegeSubjectIdForMutation,
 } from "@/lib/college-portal-scope";
@@ -20,15 +24,32 @@ export type ExamScheduleActionResult<T = unknown> =
   | { ok: true; message: string; data?: T }
   | { ok: false; message: string };
 
+async function resolveExamScheduleCollegeSubjectId(
+  session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+  ownerUserId: string,
+  formData: FormData,
+  roomIds: string[]
+): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
+  const rawBranch = String(formData.get("college_subject_id") ?? "").trim();
+  if (isExamScheduleAllBranchesChoice(rawBranch)) {
+    return resolveCollegeSubjectIdForExamScheduleAllBranches(
+      ownerUserId,
+      String(formData.get("study_subject_id") ?? ""),
+      roomIds
+    );
+  }
+  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(session, rawBranch);
+  if (!/^\d+$/.test(collegeSubjectId)) {
+    return { ok: false, message: "يرجى اختيار القسم أو الفرع." };
+  }
+  return { ok: true, collegeSubjectId };
+}
+
 export async function createExamScheduleAction(formData: FormData): Promise<ExamScheduleActionResult> {
   const session = await getSession();
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
-  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
-    session,
-    String(formData.get("college_subject_id") ?? "")
-  );
   const rawIds = String(formData.get("room_ids") ?? "").trim();
   const roomIds = rawIds
     ? rawIds
@@ -40,6 +61,9 @@ export async function createExamScheduleAction(formData: FormData): Promise<Exam
     const one = String(formData.get("room_id") ?? "").trim();
     if (/^\d+$/.test(one)) roomIds.push(one);
   }
+  const branchResolved = await resolveExamScheduleCollegeSubjectId(session, ownerUserId, formData, roomIds);
+  if (!branchResolved.ok) return branchResolved;
+  const collegeSubjectId = branchResolved.collegeSubjectId;
   const result = await createCollegeExamSchedulesMultiRoom({
     ownerUserId,
     collegeSubjectId,
@@ -83,12 +107,17 @@ export async function updateExamScheduleAction(formData: FormData): Promise<Exam
   if (!session || session.role !== "COLLEGE") return { ok: false, message: "غير مصرح لك بهذه العملية." };
   const ownerUserId = await getCollegePortalDataOwnerUserId(session);
   if (!ownerUserId) return { ok: false, message: "غير مصرح لك بهذه العملية." };
-  const collegeSubjectId = effectiveCollegeSubjectIdForMutation(
-    session,
-    String(formData.get("college_subject_id") ?? "")
-  );
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "معرّف الإدخال غير صالح." };
+  const roomId = String(formData.get("room_id") ?? "").trim();
+  const branchResolved = await resolveExamScheduleCollegeSubjectId(
+    session,
+    ownerUserId,
+    formData,
+    /^\d+$/.test(roomId) ? [roomId] : []
+  );
+  if (!branchResolved.ok) return branchResolved;
+  const collegeSubjectId = branchResolved.collegeSubjectId;
   const result = await updateCollegeExamSchedule({
     id,
     ownerUserId,

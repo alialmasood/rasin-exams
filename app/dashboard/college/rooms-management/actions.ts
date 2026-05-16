@@ -12,6 +12,7 @@ import {
   deleteCollegeRoomDefinition,
   updateCollegeRoomDefinition,
 } from "@/lib/college-room-definitions";
+import { resolveCollegeSubjectIdForAllBranchesExam } from "@/lib/college-all-branches-resolve";
 import {
   COLLEGE_BRANCH_ALL_SENTINEL,
   normalizeCollegeRoomDefinitionName,
@@ -26,82 +27,6 @@ import {
 } from "@/lib/college-portal-scope";
 import { revalidateCollegePortalSegment } from "@/lib/revalidate-college-portal";
 import { getSession } from "@/lib/session";
-
-/**
- * مواد «لكل الكلية» في college_study_subjects تُخزَّن بـ college_subject_id = NULL؛ عند اختيار «كل الكلية» في واجهة القاعات
- * نستنتج الفرع من القاعات المختارة (سجل التعريف) بحيث يوجد قسم/فرع واحد يضم جميع مفاتيح أسماء القاعات.
- */
-async function inferCollegeSubjectIdFromRoomDefinitionsBulk(
-  ownerUserId: string,
-  roomNames: string[]
-): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
-  const keys: string[] = [];
-  const seen = new Set<string>();
-  for (const rn of roomNames) {
-    const n = normalizeCollegeRoomDefinitionName(rn);
-    if (!n) {
-      return {
-        ok: false,
-        message: "تعذر ربط القاعات بفرع: أسماء القاعات غير صالحة لتعريف السجل المرجعي.",
-      };
-    }
-    if (!seen.has(n.roomNameKey)) {
-      seen.add(n.roomNameKey);
-      keys.push(n.roomNameKey);
-    }
-  }
-  if (keys.length === 0) {
-    return {
-      ok: false,
-      message: "أدخل قاعة واحدة على الأقل ليُستنتج الفرع عند اختيار «كل الكلية» مع مادة مشتركة على مستوى الكلية.",
-    };
-  }
-  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
-  const pool = getDbPool();
-  const q = await pool.query<{ college_subject_id: string }>(
-    `SELECT college_subject_id::text
-     FROM college_room_definitions
-     WHERE owner_user_id = $1 AND room_name_key = ANY($2::text[])
-     GROUP BY college_subject_id
-     HAVING COUNT(DISTINCT room_name_key) = $3::int
-     ORDER BY college_subject_id::bigint ASC
-     LIMIT 1`,
-    [ownerUserId, keys, keys.length]
-  );
-  const cid = q.rows[0]?.college_subject_id?.trim();
-  if (!cid || !/^\d+$/.test(cid)) {
-    return {
-      ok: false,
-      message:
-        "المادة مشتركة على مستوى الكلية ولا يوجد قسم/فرع واحد يضم جميع القاعات المختارة في «تعريف القاعات». عرّف القاعات في فرع واحد أو اختر قسمًا محددًا من الحقل أعلاه.",
-    };
-  }
-  return { ok: true, collegeSubjectId: cid };
-}
-
-/** للحساب المركزي والتشكيل: «كل الكلية» — فرع من المادة إن وُجد، وإلا من القاعات المختارة (مواد مشتركة college_subject_id = NULL). */
-async function resolveCollegeSubjectIdForAllBranchesExam(
-  ownerUserId: string,
-  studySubjectId: string,
-  roomNames: string[]
-): Promise<{ ok: true; collegeSubjectId: string } | { ok: false; message: string }> {
-  const sid = studySubjectId.trim();
-  if (!/^\d+$/.test(sid)) return { ok: false, message: "اختر المادة الدراسية أولاً ليتحدد فرعها." };
-  if (!isDatabaseConfigured()) return { ok: false, message: "قاعدة البيانات غير مهيأة." };
-  const pool = getDbPool();
-  const r = await pool.query<{ college_subject_id: string | number | null }>(
-    `SELECT college_subject_id FROM college_study_subjects WHERE id = $1::bigint AND owner_user_id = $2 LIMIT 1`,
-    [sid, ownerUserId]
-  );
-  if ((r.rowCount ?? 0) === 0) return { ok: false, message: "المادة الدراسية المختارة غير موجودة." };
-  const raw = r.rows[0]?.college_subject_id;
-  if (raw != null) {
-    const cid = String(raw).trim();
-    if (!/^\d+$/.test(cid)) return { ok: false, message: "تعذر استنتاج الفرع من المادة المختارة." };
-    return { ok: true, collegeSubjectId: cid };
-  }
-  return inferCollegeSubjectIdFromRoomDefinitionsBulk(ownerUserId, roomNames);
-}
 
 export type CollegeRoomsActionState = { ok: true; message: string } | { ok: false; message: string } | null;
 export type CollegeRoomDefinitionsActionState =

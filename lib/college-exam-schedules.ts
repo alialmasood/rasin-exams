@@ -1,6 +1,7 @@
 import { normalizeStudyType, type StudyType } from "@/lib/college-study-subjects";
 import { assertExamDateNotInPast } from "@/lib/exam-schedule-date";
 import { type ExamMealSlot, normalizeExamMealSlot, formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
+import { SQL_COLLEGE_SUBJECT_DISPLAY_NAME } from "@/lib/college-all-branches-shared";
 import { getDbPool, isDatabaseConfigured } from "@/lib/db";
 import { ensureCoreSchema } from "@/lib/schema";
 
@@ -341,7 +342,7 @@ export async function listCollegeExamSchedulesByOwner(
     created_at: Date;
     meal_slot: number | string | null;
   }>(
-    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
@@ -459,7 +460,7 @@ export async function listCollegeExamSchedulesByOwnerForExamDate(
     created_at: Date;
     meal_slot: number | string | null;
   }>(
-    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
@@ -523,7 +524,7 @@ export async function listAllCollegeExamSchedulesForAdmin(): Promise<AdminColleg
     formation_label: string;
     owner_username: string;
   }>(
-    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             COALESCE(s.study_type::text, 'ANNUAL') AS study_type,
@@ -628,7 +629,7 @@ export async function listAllCollegeExamSchedulesForAdminByDate(examDate: string
     formation_label: string;
     owner_username: string;
   }>(
-    `SELECT e.id, e.owner_user_id, e.college_subject_id, c.branch_name AS college_subject_name,
+    `SELECT e.id, e.owner_user_id, e.college_subject_id, ${SQL_COLLEGE_SUBJECT_DISPLAY_NAME} AS college_subject_name,
             e.study_subject_id, s.subject_name AS study_subject_name,
             e.room_id, r.room_name, e.stage_level,
             COALESCE(s.study_type::text, 'ANNUAL') AS study_type,

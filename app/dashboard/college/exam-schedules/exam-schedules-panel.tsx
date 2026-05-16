@@ -22,6 +22,7 @@ import {
   POSTGRAD_STUDY_STAGE_DOCTOR,
   POSTGRAD_STUDY_STAGE_MASTER,
 } from "@/lib/college-study-stage-display";
+import { EXAM_SCHEDULE_ALL_BRANCHES_VALUE } from "@/lib/college-all-branches-shared";
 import { formatExamMealSlotLabel } from "@/lib/exam-meal-slot";
 import {
   createExamScheduleAction,
@@ -67,11 +68,8 @@ const SCHEDULE_TYPE_TABLE_SHORT: Record<ScheduleType, string> = {
   SEMESTER: "فصلي",
 };
 
-/** قيمة القائمة عند اختيار جميع أقسام/فروع التشكيل (بدون قسم ثابت على الحساب) */
-const ALL_COLLEGE_BRANCHES_VALUE = "__ALL_BRANCHES__";
-
 function isAllCollegeBranchesChoice(collegeSubjectId: string): boolean {
-  return collegeSubjectId === ALL_COLLEGE_BRANCHES_VALUE;
+  return collegeSubjectId === EXAM_SCHEDULE_ALL_BRANCHES_VALUE;
 }
 
 /** وضع «كل الفروع»: إن وُجد فرع على المادة نستخدمه؛ وإلا (مادة مشتركة على مستوى الكلية) نستنتج من القاعات المختارة. */
@@ -240,7 +238,7 @@ function roomMatchesStudySubject(r: CollegeExamRoomRow, studySubjectId: string):
 function buildEmptyExamScheduleForm(fixedCollegeSubjectId: string | null | undefined): FormState {
   const fixed = fixedCollegeSubjectId?.trim();
   return {
-    collegeSubjectId: fixed ? fixed : ALL_COLLEGE_BRANCHES_VALUE,
+    collegeSubjectId: fixed ? fixed : EXAM_SCHEDULE_ALL_BRANCHES_VALUE,
     scheduleType: "FINAL",
     academicYear: suggestedAcademicYear(),
     termLabel: "",
@@ -639,7 +637,6 @@ export function ExamSchedulesPanel({
       setToast({ type: "error", msg: err });
       return;
     }
-    let resolvedCollegeSubjectId = form.collegeSubjectId.trim();
     if (isAllCollegeBranchesChoice(form.collegeSubjectId)) {
       const br = resolveCollegeSubjectIdForAllBranchesSchedule(
         form.studySubjectId,
@@ -651,15 +648,18 @@ export function ExamSchedulesPanel({
         setToast({ type: "error", msg: br.message });
         return;
       }
-      resolvedCollegeSubjectId = br.collegeSubjectId;
-    }
-    if (!resolvedCollegeSubjectId) {
+    } else if (!form.collegeSubjectId.trim()) {
       setToast({ type: "error", msg: "لا يمكن تحديد القسم/الفرع للجدول." });
       return;
     }
     const fd = new FormData();
     if (form.id) fd.set("id", form.id);
-    fd.set("college_subject_id", resolvedCollegeSubjectId);
+    fd.set(
+      "college_subject_id",
+      isAllCollegeBranchesChoice(form.collegeSubjectId)
+        ? EXAM_SCHEDULE_ALL_BRANCHES_VALUE
+        : form.collegeSubjectId.trim()
+    );
     fd.set("schedule_type", form.scheduleType);
     fd.set("academic_year", form.academicYear.trim());
     fd.set("term_label", form.termLabel);
@@ -712,9 +712,14 @@ export function ExamSchedulesPanel({
 
   function onEdit(row: CollegeExamScheduleRow) {
     const st = Number(row.stage_level);
+    const linkedSubject = studySubjects.find((s) => s.id === row.study_subject_id);
+    const collegeSubjectIdForForm =
+      !branchLockedToDepartment && linkedSubject?.is_shared
+        ? EXAM_SCHEDULE_ALL_BRANCHES_VALUE
+        : row.college_subject_id;
     setForm({
       id: row.id,
-      collegeSubjectId: row.college_subject_id,
+      collegeSubjectId: collegeSubjectIdForForm,
       scheduleType: row.schedule_type,
       academicYear: row.academic_year ?? "",
       termLabel: row.term_label ?? "",
@@ -1018,7 +1023,7 @@ export function ExamSchedulesPanel({
                   }
                   className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm outline-none focus:border-blue-500 disabled:opacity-60"
                 >
-                  <option value={ALL_COLLEGE_BRANCHES_VALUE}>كل الفروع</option>
+                  <option value={EXAM_SCHEDULE_ALL_BRANCHES_VALUE}>لكل الكلية (مادة مشتركة)</option>
                   {subjects.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.branch_name} ({s.branch_type === "BRANCH" ? "فرع" : "قسم"})
